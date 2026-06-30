@@ -29,11 +29,11 @@ This conclusion assembles the three parts into the narrow defensibility claim, r
 
 After surveying the field, the honest claim is not "Hivenectar invented codebase semantic search" — it did not. The honest claim, restated verbatim from [`../prior-art-crosswalk.md`](../prior-art-crosswalk.md), is:
 
-> Hivenectar is the first system to combine daemon-minted file identity, LLM file description, Deep Lake persistence, and union-recall with conversation memory, in a single daemon that already serves a multi-harness AI coding memory system.
+> Hivenectar is the first system to combine daemon-minted file identity, LLM file description, Deep Lake persistence, and guarded recall fusion with conversation memory, in a supervised workload daemon that composes with Honeycomb's multi-harness recall substrate.
 
-That is a narrower and more defensible novelty than "first codebase semantic search." The claim is constructed to be auditable: each of the four conjoined properties (daemon-minted file identity, LLM file description, Deep Lake persistence, union-recall with conversation memory) is checked against the pillar matrix, and no surveyed predecessor satisfies more than two of the five novelty points. The claim is also constructed to be falsifiable in a useful way: a challenger who produces a system satisfying all four properties invalidates the claim, at which point the claim is narrowed further or retired. The [user-stories doc](prior-art-user-stories.md) codifies the evaluator workflow (US-PA-020 through US-PA-025) that keeps the claim current as new tools surface.
+That is a narrower and more defensible novelty than "first codebase semantic search." The claim is constructed to be auditable: each of the conjoined properties (daemon-minted file identity, LLM file description, Deep Lake persistence, guarded recall fusion with conversation memory, and portable projection inheritance) is checked against the pillar matrix, and no surveyed predecessor satisfies more than two of the five novelty points. The claim is also constructed to be falsifiable in a useful way: a challenger who produces a system satisfying all properties invalidates the claim, at which point the claim is narrowed further or retired. The [user-stories doc](prior-art-user-stories.md) codifies the evaluator workflow (US-PA-020 through US-PA-025) that keeps the claim current as new tools surface.
 
-The claim deliberately does not assert originality on any single pillar. Stable identity is Aura's and Mimir's. LLM description is Smith's and codeindex's. Delta indexing is Grove's and Cartog's. Semantic search over embeddings is the CodeRAG family's. Deep Lake persistence and union-recall integration are the consequences of Hivenectar being a Honeycomb subsystem. Originality is asserted only on the composition.
+The claim deliberately does not assert originality on any single pillar. Stable identity is Aura's and Mimir's. LLM description is Smith's and codeindex's. Delta indexing is Grove's and Cartog's. Semantic search over embeddings is the CodeRAG family's. Deep Lake persistence and guarded recall integration are the consequences of Hivenectar composing with Honeycomb via a shared Deep Lake substrate (Hivenectar is an independent workload daemon per ADR-0002 and ADR-0003, not a Honeycomb subsystem, but the data-layer integration is what makes these pillars possible). Originality is asserted only on the composition.
 
 ---
 
@@ -54,11 +54,11 @@ Smith is the closest single predecessor, and the gap analysis against Smith is t
 | Description storage | `.meta` sidecars embedded alongside source | Deep Lake table; projection is a single regenerable lockfile, not per-file sidecars |
 | Source mutation | Mutates `constitution.md` and `CLAUDE.md` | Never mutates source; the AGPL header is untouched |
 | Store substrate | Markdown plus sidecar | Deep Lake (Honeycomb substrate; FR-8 compliant) |
-| Recall integration | Navigator surface; standalone | `UNION ALL` arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
-| Watcher | Manual (`/smith-index`) | chokidar watcher in the daemon, continuous |
+| Recall integration | Navigator surface; standalone | Guarded arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
+| Watcher | Manual (`/smith-index`) | `node:fs.watch` + debounce in the daemon, continuous |
 | Approval economics | Per-batch approval (N=10) | Batched 30–50 with cost-cap flags, no per-batch approval |
 
-Smith covers two of the five novelty points partially and lacks the other three entirely (daemon-minted identity, Deep Lake persistence, union-recall integration). The honest summary is: Hivenectar's description model is Smith's model with the identity, storage, mutation, and recall dimensions rewritten to fit Honeycomb's constraints. The gap analysis is the artifact that prevents the description pillar from being overclaimed as original.
+Smith covers two of the five novelty points partially and lacks the other three entirely (daemon-minted identity, Deep Lake persistence, guarded recall integration). The honest summary is: Hivenectar's description model is Smith's model with the identity, storage, mutation, and recall dimensions rewritten to fit Honeycomb's constraints. The gap analysis is the artifact that prevents the description pillar from being overclaimed as original.
 
 This same gap-analysis procedure generalizes to any newly-surfaced description-producing tool: classify the tool against the five novelty points and the divergence-table dimensions, then write a one-paragraph closest-system comparison. The procedure is codified as US-PA-021 in the [user-stories doc](prior-art-user-stories.md).
 
@@ -76,9 +76,9 @@ The table below is the closing reference, restated verbatim from [`../prior-art-
 | Description producer | Per-chunk embedding model (CodeRAG family) or LLM (Smith) | LLM (Gemini 2.5 Flash) for title+description, separate embedding model for the vector |
 | Store | SQLite (Grove, Orbit sidecar), LanceDB (CodeRAG family), FAISS (Cortex), on-disk objects (synrepo) | Deep Lake (Honeycomb substrate) |
 | Source mutation | Smith mutates `CLAUDE.md`; others do not | Never mutates source; projection is a separate committed file |
-| Recall integration | Standalone semantic search server | UNION ALL arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
+| Recall integration | Standalone semantic search server | Guarded arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
 | Team share | Smith commits `.meta`; others re-index per clone | Committed `nectars.json` projection + Deep Lake cloud sync |
-| Watcher | Cartog, Cortex, Context+ have watchers; others are manual | chokidar watcher in the daemon, same as CodeGraph build triggers |
+| Watcher | Cartog, Cortex, Context+ have watchers; others are manual | `node:fs.watch` + debounce, mirroring Honeycomb's file-watcher pattern |
 
 The standing instruction for any doc, RFC, or external communication that touches Hivenectar's originality is: cite this table, cite the [borrow-credit table](prior-art-technical-specification.md), and make the narrow claim. Never make the broad claim.
 
@@ -90,6 +90,6 @@ Readers who have finished the prior-art corpus and want the implementation rathe
 
 **For the identity decision and its rejected alternatives**, read [`../../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md). The ADR records the four candidate identity models (source-embedded serial, content hash, daemon-minted ULID, SQLite sidecar), the decision drivers, the rejection reasons, and the acknowledged costs of the chosen option. It is the authoritative source for "why minted ULID and not the alternatives" and should be read before any re-litigation of the identity model.
 
-**For the system-level picture**, read [`../../overview.md`](../../overview.md). The overview covers the three design pillars (stable identity, lazy LLM description, Deep Lake persistence with a portable projection), the hiveantennae worker's four operating modes, the two-table data model in summary, and how recall uses the source-graph tables. It is the entry point for the rest of the Hivenectar knowledge base and carries the reading guide that routes implementers to the brooding pipeline, the enricher, the re-association ladder, the schema, and the recall integration.
+**For the system-level picture**, read [`../../overview.md`](../../overview.md). The overview covers the three design pillars (stable identity, lazy LLM description, Deep Lake persistence with a portable projection), the hiveantennae daemon's four operating modes, the two-table data model in summary, and how recall uses the source-graph tables. It is the entry point for the rest of the Hivenectar knowledge base and carries the reading guide that routes implementers to the brooding pipeline, the enricher, the re-association ladder, the schema, and the recall integration.
 
 The prior-art corpus is complete at five documents. The [introduction and theory](prior-art-introduction-and-theory.md) establishes the thesis; the [technical specification](prior-art-technical-specification.md) provides the verbatim matrices; the [user stories](prior-art-user-stories.md) codify the engineering and operator workflows; the [ecosystem story-arc](prior-art-ecosystem-story-arc.md) traces the design choices; this conclusion delivers the accounting and the forward pointers. Together they are the artifact that defends Hivenectar against both reinventing wheels and overclaiming novelty.

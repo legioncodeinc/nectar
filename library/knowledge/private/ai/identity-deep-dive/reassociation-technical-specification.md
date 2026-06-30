@@ -101,7 +101,7 @@ The hard case. The file was moved *and* edited while the daemon was offline, so 
 | Post-condition (high confidence) | The nectar follows the file to its new location with a version row flagging the confidence of the association. |
 | Confidence handling | The `confidence` field on the appended version row is `1 − normalizedTLSHDistance`. Matches at or above the high band are carried; matches in the review band are surfaced; matches below the low band fall through to mint. |
 
-This step only fires after cold restart with offline changes. During live operation, the chokidar watcher sees moves in real time and step 3 handles them directly. Step 4 exists for the case where the daemon was not running when the move-and-edit happened.
+This step primarily fires after cold restart with offline changes, but it can also handle live move-and-edit cases when exact hash evidence is not enough. During live operation, `node:fs.watch` provides uncorrelated disk observations; step 3 handles ordinary moves by exact hash against the missing-files set, and step 4 handles cases where the content changed enough to break the exact hash.
 
 ---
 
@@ -265,7 +265,7 @@ The grace period exists because "missing" is not "deleted." A file might be abse
 
 ## Live watch vs cold catch-up frequency
 
-The ladder is the same algorithm in both modes, but the distribution of steps differs sharply. Live watch is the easy case because chokidar carries move semantics; cold catch-up is the hard case because the daemon has only final state.
+The ladder is the same algorithm in both modes, but the distribution of steps differs sharply. Live watch has fresher evidence because `node:fs.watch` reports changed paths quickly; cold catch-up is the hard case because the daemon has only final state.
 
 | Step | Live watch frequency | Cold catch-up frequency |
 |---|---|---|

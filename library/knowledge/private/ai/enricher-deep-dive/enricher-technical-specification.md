@@ -19,7 +19,7 @@ The enricher contract: the polling loop over pending rows, the debounce plus mea
 
 Brooding describes every file once, as a one-time bootstrap. Everything after that — re-describing a file whose content meaningfully changed, describing a file that brooding skipped (cost cap or `--limit`), and describing genuinely new files the watcher detected — is the enricher's job. The enricher is the steady-state description-maintenance loop, and this document is its contract: the observable inputs, the invariants, and the failure paths.
 
-The enricher runs as a background loop inside the hiveantennae worker, polling a work queue of `source_graph_versions` rows where `describe_status = 'pending'`. Its correctness rests on two laziness properties — time-laziness (pending rows sit harmlessly) and change-laziness (only meaningful changes re-describe) — plus a graceful-degradation contract that never produces a recall quality cliff.
+The enricher runs as a background loop inside the hiveantennae daemon, polling a work queue of `source_graph_versions` rows where `describe_status = 'pending'`. Its correctness rests on two laziness properties — time-laziness (pending rows sit harmlessly) and change-laziness (only meaningful changes re-describe) — plus a graceful-degradation contract that never produces a recall quality cliff.
 
 ---
 
@@ -50,7 +50,7 @@ Two independent debounce layers sit between a save event and an LLM call. Their 
 
 ### Watcher intake debounce (per-path)
 
-The chokidar intake debounces events per-path with a configurable window (default 2000 ms). Multiple events on the same path within the window collapse to a single "the file at this path changed" signal, which then enters re-association. This mirrors the CodeGraph worker's build-trigger debounce and Cartog's `--debounce 5000` pattern; Hivenectar's window is shorter because re-association is cheaper than a full AST re-extraction.
+The `node:fs.watch` intake debounces observations per-path with a configurable window. Multiple uncorrelated `(eventType, filename)` observations on the same path within the window collapse to a single "the file at this path changed" signal, which then enters re-association. This mirrors Honeycomb's file-watcher pattern and avoids adding another watcher dependency.
 
 ### Enricher queue debounce (per-cycle)
 
@@ -80,7 +80,7 @@ The enricher does not implement its own retry logic. It delegates transient-fail
 | Knob | Default | Purpose |
 |---|---|---|
 | Enricher poll interval | 30 seconds | How often the loop drains the pending queue |
-| Watcher intake debounce | 2000 ms | Per-path event collapse window |
+| Watcher intake debounce | Configurable; mirrors Honeycomb's `fs.watch` timer pattern | Per-path event collapse window |
 | `REDESCRIBE_THRESHOLD` | 0.85 | Jaccard similarity above which a change is cosmetic |
 | Persistent-failure threshold | 5 consecutive cycles | Cycles of all-retry-failure before alert-and-stop |
 
@@ -143,7 +143,7 @@ Failure handling isolates blame to the offending file rather than aborting a who
 | LLM returns wrong number of descriptions | Same as malformed — the validator catches length mismatch, retries, then falls back to solo. |
 | LLM rate-limits persistently | Portkey backoff handles transient 429s; persistent failure marks the batch `failed` and alerts. |
 | LLM call exceeds context window | Should never happen (batcher respects the limit), but if it does, the batch is split in half and retried. |
-| Embedding daemon unavailable | Description is written; embedding is NULL; `describe_status = 'described'` (recall falls back to BM25). |
+| Embedding provider unavailable | Description is written; embedding is NULL; `describe_status = 'described'` (recall falls back to BM25). |
 | File deleted while pending | The pending version row is marked `describe_status = 'skipped-deleted'` on the next enricher cycle; no LLM call is made. |
 
 The retry-solo path is what makes a single bad file non-fatal: a batch of 40 that produces malformed JSON is retried as a batch, then — if still malformed — each file is tried individually. The 39 good files get described; the one offending file is isolated, marked `failed`, and re-tried on a later cycle.
@@ -152,7 +152,7 @@ The retry-solo path is what makes a single bad file non-fatal: a batch of 40 tha
 
 ## The embeddings layer
 
-Once a description is written — by brooding, by the enricher, or inherited from a similar previous version — the enricher computes a 768-dim embedding over `title + ' ' + description` using the existing embeddings daemon.
+Once a description is written — by brooding, by the enricher, or inherited from a similar previous version — the enricher computes a 768-dim embedding over `title + ' ' + description` using the configured embedding provider. Local nomic is the default; Cohere via Portkey is the hosted opt-in provider. Both providers must honor the 768-dim contract.
 
 | Property | Value |
 |---|---|

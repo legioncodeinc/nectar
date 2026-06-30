@@ -108,11 +108,11 @@ The full column-by-column contract for both tables is in [`../../data/source-gra
 
 ## Stage 5: embedding
 
-After the description is written, the enricher computes a 768-dimensional embedding over `title + ' ' + description`. The model is `nomic-embed-text-v1.5` (q8 quantization), served by the same embedding daemon the rest of Honeycomb uses, over the same Unix-socket NDJSON IPC.
+After the description is written, the enricher computes a 768-dimensional embedding over `title + ' ' + description` through the configured embedding provider. The default provider is local `nomic-embed-text-v1.5` (q8 quantization); the hosted opt-in provider is Cohere via Portkey.
 
 The 768-dimensionality is load-bearing: it matches `sessions.message_embedding` and `memory.summary_embedding` deliberately, so the hybrid recall pipeline's vector index queries all three tables through one consistent index. A different dimensionality would force a separate index and a separate recall arm, doubling query cost.
 
-If embeddings are off — the optional dependency was not installed, or the daemon failed to warm up — the embedding column is left NULL and recall silently falls back to BM25 over `title` and `description`. There is no error and no quality cliff: the degradation is identical to what session and memory recall exhibit when embeddings are unavailable.
+If embeddings are off, the optional local provider was not installed, or the selected provider failed to warm up, the embedding column is left NULL and recall silently falls back to BM25 over `title` and `description`. There is no error and no quality cliff: the degradation is identical to what session and memory recall exhibit when embeddings are unavailable.
 
 ---
 

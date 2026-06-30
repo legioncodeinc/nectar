@@ -25,7 +25,7 @@ Concretely, a completed brood leaves the project in this state:
 
 - **Every discovered file has a nectar.** Binary and oversized files get a nectar with a terminal skip state (`skipped-binary`, `skipped-too-large`); text files get a nectar plus a description where the LLM succeeded. Identity is universal; description is best-effort.
 - **Most text files have a description.** Small files were described in batches of 30–50; large files were described solo with a richer prompt. Failed descriptions are marked `failed` and retried by the enricher.
-- **Every described file has a 768-dim embedding** over `title + ' ' + description`, unless the embeddings daemon is unavailable (in which case the embedding is NULL and recall falls back to BM25).
+- **Every described file has a 768-dim embedding** over `title + ' ' + description`, unless the selected embedding provider is unavailable (in which case the embedding is NULL and recall falls back to BM25).
 - **The initial `.honeycomb/nectars.json` projection exists**, regenerated from Deep Lake at the end of the brood and ready to commit.
 - **The daemon has transitioned to live watch**, with the enricher owning steady-state description maintenance.
 
@@ -39,7 +39,7 @@ The non-goals are restated here because they are a frequent source of confusion,
 
 - **It does not run on every daemon boot.** Brooding runs once per project — the first time, or on explicit invocation, or when the projection is missing and identity cannot be re-derived. After the first brood, the daemon is in live watch with cold catch-up handling restarts.
 - **It does not block daemon readiness.** Per the daemon-readiness rule that governs the rest of Honeycomb, brooding runs in the background after the daemon is accepting requests. Recall queries during a brood see whatever has been described so far; undescribed files are simply absent from semantic results until the brood reaches them.
-- **It does describe files the structural CodeGraph already covers — and that is correct.** The two layers are independent. The CodeGraph extracts symbols (structural); Hivenectar describes files (semantic). Both ship. A source file is present in both `source_graph_versions` (semantic) and the CodeGraph's `codebase` table (structural). Brooding does not skip files the CodeGraph covers; recall unions over both layers.
+- **It does describe files the structural CodeGraph already covers — and that is correct.** The two layers are independent. The CodeGraph extracts symbols (structural); Hivenectar describes files (semantic). Both ship. A source file is present in both `source_graph_versions` (semantic) and the CodeGraph's `codebase` table (structural). Brooding does not skip files the CodeGraph covers; recall fuses both layers.
 
 ---
 

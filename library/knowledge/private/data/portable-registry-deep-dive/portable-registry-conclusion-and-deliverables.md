@@ -41,7 +41,7 @@ The projection's lockfile status is not a formatting choice; it is a hard contra
 
 ### 1. It does not carry embeddings
 
-The 768-dim vectors are not in the projection. They are regenerable from `title + description` via the embeddings daemon, and including them would make the file megabytes instead of kilobytes. A fresh clone recomputes embeddings locally on first daemon boot, or skips them if the embeddings daemon is not installed. The projection stays small because it carries only what recall needs to match and what a reviewer needs to read.
+The 768-dim vectors are not in the projection. They are regenerable from `title + description` via the configured embedding provider, and including them would make the file megabytes instead of kilobytes. A fresh clone recomputes embeddings on first daemon boot when a provider is available, or skips them if embeddings are unavailable. The projection stays small because it carries only what recall needs to match and what a reviewer needs to read.
 
 ### 2. It does not carry the version chain
 
@@ -106,7 +106,7 @@ The portable registry is one component of Hivenectar's identity and recall model
 
 ### To the recall integration it feeds
 
-[`../recall-integration.md`](../recall-integration.md) documents how the inherited rows (written to local Deep Lake from the projection at clone boot) participate in hybrid recall. The projection's purpose on clone is to seed the local Deep Lake with enough described rows that recall is live immediately, before network or cloud sync. The `files` map carries exactly the `title`, `description`, and `concepts` that the recall `UNION ALL` arm over `source_graph_versions` queries.
+[`../recall-integration.md`](../recall-integration.md) documents how the inherited rows (written to local Deep Lake from the projection at clone boot) participate in hybrid recall. The projection's purpose on clone is to seed the local Deep Lake with enough described rows that recall is live immediately, before network or cloud sync. The `files` map carries exactly the `title`, `description`, and `concepts` that the guarded recall arm over `source_graph_versions` queries.
 
 ### To the identity-model decision
 

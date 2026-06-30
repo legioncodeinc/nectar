@@ -29,7 +29,7 @@ The pipeline contract these stories derive from is [`brooding-technical-specific
 
 **Acceptance criteria:** (a) On daemon boot, if no `source_graph` rows exist for the project tenancy triple and no valid projection is present, brooding begins in the background. (b) The daemon reaches readiness and accepts requests before brooding completes (brooding is non-blocking). (c) Recall queries during a brood return whatever has been described so far; undescribed files are absent from semantic results until the brood reaches them.
 
-**US-BR-002** — As an engineer maintaining the hiveantennae worker, I want brooding to be implemented as a distinct mode from live watch and cold catch-up, so that the aggressive batching and projection-bootstrap properties are not accidentally coupled to the steady-state loop.
+**US-BR-002** — As an engineer maintaining the hiveantennae daemon, I want brooding to be implemented as a distinct mode from live watch and cold catch-up, so that the aggressive batching and projection-bootstrap properties are not accidentally coupled to the steady-state loop.
 
 **Acceptance criteria:** (a) Brooding is the only mode that writes the initial `.honeycomb/nectars.json`. (b) Brooding is the only mode permitted to pack 30–50 files into a single LLM call. (c) After brooding completes, the daemon transitions to live watch; brooding does not re-trigger on subsequent boots unless the projection is missing and identity cannot be re-derived.
 
@@ -89,13 +89,13 @@ The pipeline contract these stories derive from is [`brooding-technical-specific
 
 ## Embedding
 
-**US-BR-013** — As the enricher, after a description is written (batch or solo), I want to compute a 768-dim embedding over `title + ' ' + description` using `nomic-embed-text-v1.5` (q8), so that the description participates in hybrid vector recall alongside sessions and memory.
+**US-BR-013** — As the enricher, after a description is written (batch or solo), I want to compute a 768-dim embedding over `title + ' ' + description` using the configured embedding provider (local nomic by default, Cohere via Portkey opt-in), so that the description participates in hybrid vector recall alongside sessions and memory.
 
 **Acceptance criteria:** (a) The embedding is computed over the concatenation `title + ' ' + description`. (b) The vector dimensionality is 768, matching `sessions.message_embedding` and `memory.summary_embedding`. (c) The embedding is written to the version row's `embedding` column.
 
-**US-BR-014** — As the enricher, when the embeddings daemon is unavailable (optional dependency not installed or failed to warm up), I want to leave the embedding NULL and let recall fall back to BM25 over `title` and `description`, so that there is no error and no quality cliff.
+**US-BR-014** — As the enricher, when the configured embedding provider is unavailable (local daemon not installed/warmed up or hosted provider unavailable), I want to leave the embedding NULL and let recall fall back to BM25 over `title` and `description`, so that there is no error and no quality cliff.
 
-**Acceptance criteria:** (a) A missing embeddings daemon does not raise an error. (b) The version row's `embedding` is NULL while `describe_status` is still `described`. (c) Recall silently degrades to lexical-only matching over the description, identical to the fallback behavior for session and memory recall.
+**Acceptance criteria:** (a) A missing or unavailable embedding provider does not raise an error. (b) The version row's `embedding` is NULL while `describe_status` is still `described`. (c) Recall silently degrades to lexical-only matching over the description, identical to the fallback behavior for session and memory recall.
 
 ---
 

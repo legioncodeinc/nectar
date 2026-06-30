@@ -28,9 +28,9 @@ The audience is an engineer or operator who has read the pipeline overview in [`
 
 ## Why brooding is a distinct mode
 
-Hivenectar's hiveantennae worker has four operating modes — brooding, live watch, cold catch-up, and projection sync — and brooding is the only one that runs against the entire codebase at once. The distinction is not a matter of scope; it is a matter of *what the worker can assume*.
+Hivenectar's hiveantennae daemon has four operating modes — brooding, live watch, cold catch-up, and projection sync — and brooding is the only one that runs against the entire codebase at once. The distinction is not a matter of scope; it is a matter of *what the daemon can assume*.
 
-During live watch, descriptions are filled lazily, one file at a time, as the chokidar watcher notices edits. The enricher (documented in [`../enricher-and-llm-model.md`](../enricher-and-llm-model.md)) never sees more than a handful of changed files per cycle, and it has no reason to gather them: each file arrives independently, debounced and coalesced to its latest content. The natural call shape is one file per LLM round-trip, or a handful at most.
+During live watch, descriptions are filled lazily, one file at a time, as the `node:fs.watch` intake notices edits. The enricher (documented in [`../enricher-and-llm-model.md`](../enricher-and-llm-model.md)) never sees more than a handful of changed files per cycle, and it has no reason to gather them: each file arrives independently, debounced and coalesced to its latest content. The natural call shape is one file per LLM round-trip, or a handful at most.
 
 Brooding sees the whole codebase in a single pass. That changes the economics completely. With the entire tree in hand, the brooder can pack 30–50 small files into a single LLM call, because it controls the batching. The per-file cost collapses by roughly an order of magnitude versus the one-file-per-call shape the enricher is forced into. This is the first reason brooding is a separate mode: *it is the only mode with enough context to batch aggressively*, and aggressive batching is what makes a full-codebase description affordable.
 
@@ -66,7 +66,7 @@ The brooding cost is therefore paid by whoever first broods the project; every c
 
 ## The resumability philosophy
 
-Brooding is resumable, and the resumability model is worth understanding because it sets the pattern for the rest of the hiveantennae worker.
+Brooding is resumable, and the resumability model is worth understanding because it sets the pattern for the rest of the hiveantennae daemon.
 
 The naïve approach to "a long-running scan that might be interrupted" is a lockfile or a progress marker: write "brood in progress, checkpoint at file N" to a sidecar, update it as you go, clean it up when done. Hivenectar rejects this. There is no brood-in-progress lockfile, no partial-state marker, no checkpoint file. The reason is that the state of a brood is *fully derivable* from data that is already being written: the `describe_status` column on every `source_graph_versions` row.
 

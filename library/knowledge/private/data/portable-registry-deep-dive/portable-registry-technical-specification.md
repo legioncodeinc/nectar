@@ -82,7 +82,7 @@ Each top-level key has a defined role. The projection is denormalized specifical
 The projection is a denormalized view, not a dump. Four categories of Deep Lake state are intentionally absent.
 
 - **The full version chain.** Only the latest described version per nectar is included. Historical versions stay in Deep Lake. Including them would bloat the file and serve no recall purpose — recall serves the current question, not archaeology.
-- **Embeddings.** The 768-dim vectors are not in the projection. They are regenerable from `title + description` via the embeddings daemon, and including them would make the file megabytes instead of kilobytes. A fresh clone recomputes embeddings locally on first daemon boot, or skips them if the embeddings daemon is not installed.
+- **Embeddings.** The 768-dim vectors are not in the projection. They are regenerable from `title + description` via the configured embedding provider, and including them would make the file megabytes instead of kilobytes. A fresh clone recomputes embeddings on first daemon boot when a provider is available, or skips them if embeddings are unavailable.
 - **Undescribed files beyond a minimal entry.** A nectar minted but never described (brooding interrupted, or the file skipped as binary) appears with a minimal entry — `path` and `content_hash`, but empty `title`/`description` — so identity is preserved, but recall will not surface it until described.
 - **Internal IDs.** No Deep Lake row IDs, no internal indices. The projection is portable across Deep Lake instances.
 

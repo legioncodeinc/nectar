@@ -3,7 +3,7 @@
 > **Status:** Accepted · **Date:** 2026-06-30
 > **Supersedes:** none · **Superseded by:** none
 > **Owners:** hivenectar, daemon, storage
-> **Related:** Hivenectar overview, `data/source-graph-schema.md`, `ai/identity-and-reassociation.md`, `reference/prior-art-crosswalk.md`
+> **Related:** Hivenectar overview, `data/source-graph-schema.md`, `ai/identity-and-reassociation.md`, `reference/prior-art-crosswalk.md`, `ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md` (process topology; refines this ADR's implicit colocation assumption without superseding the identity decision)
 
 ## Context
 
@@ -23,7 +23,7 @@ Every file's identity is `sha256(content)`. Same content → same identity, glob
 
 ### Candidate C: daemon-minted ULID, never in the file (CHOSEN)
 
-The hiveantennae worker mints a 26-character ULID once per logical file and stores it in Deep Lake as the primary key of `source_graph`. The ULID never lives in the file. Re-association to the file on disk is performed by a ladder of exact-match (path/mtime/size, then content hash) and fuzzy-match (TLSH) heuristics at daemon boot and on watcher events.
+The hiveantennae daemon mints a 26-character ULID once per logical file and stores it in Deep Lake as the primary key of `source_graph`. The ULID never lives in the file. Re-association to the file on disk is performed by a ladder of exact-match (path/mtime/size, then content hash) and fuzzy-match (TLSH) heuristics at daemon boot and on watcher events.
 
 ## Decision drivers
 
@@ -67,7 +67,7 @@ The Aura project documents this exact failure and the fix: *"Aura combines body 
 
 ### Option C, Daemon-minted ULID, never in the file (CHOSEN)
 
-**The model.** A 26-character ULID, minted once by the hiveantennae worker, persisted in Deep Lake as the primary key of `source_graph`. Never written into the file. Re-associated to the file on disk by the ladder documented in `ai/identity-and-reassociation.md`.
+**The model.** A 26-character ULID, minted once by the hiveantennae daemon, persisted in Deep Lake as the primary key of `source_graph`. Never written into the file. Re-associated to the file on disk by the ladder documented in `ai/identity-and-reassociation.md`.
 
 **Why it wins on every decision driver.**
 
@@ -82,7 +82,7 @@ The Aura project documents this exact failure and the fix: *"Aura combines body 
 **The costs of Option C (acknowledged).**
 
 - **The re-association ladder is real engineering.** Steps 1–3 are exact and easy. Step 4 (TLSH fuzzy match) requires a TLSH implementation (native addon or WASM), size-bucketing for performance on large repos, and a confidence-scored review path for low-confidence matches. Option A and B do not need this. The cost is paid because the alternative (source-embedded identity) has worse problems.
-- **Cold catch-up after offline changes is the hard case.** During live operation, the chokidar watcher carries move semantics and step 3 handles it. Cold catch-up (daemon was down while files were moved and edited) relies on steps 3 and 4. This is acceptable because cold catch-up is rare and the ladder is conservative (low-confidence matches are surfaced for review, not auto-claimed).
+- **Cold catch-up after offline changes is the hard case.** During live operation, `node:fs.watch` supplies uncorrelated disk observations and the re-association ladder reconstructs moves through missing-file sets plus exact or fuzzy content evidence. Cold catch-up (daemon was down while files were moved and edited) relies on the same steps 3 and 4, but with only final disk state. This is acceptable because the ladder is conservative (low-confidence matches are surfaced for review, not auto-claimed).
 - **Identity does not survive a fresh clone without the projection.** Without `.honeycomb/nectars.json`, a fresh clone must brood from scratch, minting new nectars with no connection to the original. This is why the projection is committed by default.
 
 ### Option D, SQLite sidecar (REJECTED, separately)

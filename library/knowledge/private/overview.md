@@ -13,6 +13,7 @@ What Hivenectar is, the problem it solves that the structural CodeGraph cannot, 
 - [`data/recall-integration.md`](data/recall-integration.md)
 - [`data/portable-registry.md`](data/portable-registry.md)
 - [`reference/prior-art-crosswalk.md`](reference/prior-art-crosswalk.md)
+- [`architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md)
 
 ---
 
@@ -20,7 +21,7 @@ What Hivenectar is, the problem it solves that the structural CodeGraph cannot, 
 
 Hivenectar gives every file in a project a **stable identity** and a **human-and-machine-readable description**, then serves both back through semantic search so an agent can answer *"give me everything associated with logins"* and receive files scattered across directories that are not named `login-*`. It is a semantic memory layer over the source tree, distinct from but complementary to the existing structural CodeGraph.
 
-The component that builds and maintains this layer is the **hiveantennae** worker, a background service inside the Honeycomb daemon (port 3850). It watches the project directory, mints identity for new files, re-associates identity after moves and edits, and lazily describes file contents through a cheap long-context LLM. The descriptions and their embeddings are persisted in Deep Lake alongside the existing memory tables, so they participate in the same hybrid recall pipeline that already serves session and skill memory.
+The component that builds and maintains this layer is the **Hivenectar daemon** (the `hiveantennae` process), an independent workload daemon supervised by **hivedoctor** rather than a worker inside the Honeycomb daemon (see `architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`). The broader topology is three-daemon: hivedoctor is the minimal supervisor with a daemon registry, **thehive** is the always-on portal daemon that hosts the unified dashboard, and Honeycomb/Hivenectar are workload daemons surfaced through that portal (see `architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`). Hivenectar watches the project directory, mints identity for new files, re-associates identity after moves and edits, and lazily describes file contents through a cheap long-context LLM. The descriptions and their embeddings are persisted in Deep Lake alongside the existing memory tables, so they participate in the same hybrid recall pipeline that already serves session and skill memory.
 
 Hivenectar is named for its function. The hive is the team of agents and engineers working in the repo. The antennae are what sense the environment — what files exist, what they mean, how they relate. A *nectar* is the minted identity record for a single file: small, stable, and the raw material from which richer understanding is produced.
 
@@ -57,7 +58,7 @@ The two layers are **independent** and **complementary**. A file can be in the C
 
 ### 1. Stable identity via a daemon-minted nectar, never embedded in source
 
-Every file gets a nectar: a 26-character ULID minted once by the hiveantennae worker and persisted in Deep Lake. The nectar never lives inside the file. It survives edits (because it is not derived from content), renames and moves (because re-association follows the file on disk, not a comment marker), and copy-paste (because the copy gets a fresh nectar with a `derived_from` pointer back to the original). This decision, and the alternatives that were rejected, is recorded in `ADR-0001`.
+Every file gets a nectar: a 26-character ULID minted once by the hiveantennae daemon and persisted in Deep Lake. The nectar never lives inside the file. It survives edits (because it is not derived from content), renames and moves (because re-association follows the file on disk, not a comment marker), and copy-paste (because the copy gets a fresh nectar with a `derived_from` pointer back to the original). This decision, and the alternatives that were rejected, is recorded in `ADR-0001`.
 
 The rejected alternative — embedding a serial number in a first-line comment of every source file — fails for four concrete reasons documented in the ADR: it collides with the AGPL license header that owns line 1 of every file, it makes line 1 the most conflict-prone line in the repo under multi-author edits, it cannot represent files without a comment syntax (JSON, `.env`, lockfiles, binaries), and it converts copy-paste from a recoverable event into an ambiguous one (two files claiming the same serial).
 
@@ -75,13 +76,13 @@ A single committed, reviewable file — `.honeycomb/nectars.json` at the project
 
 ---
 
-## The hiveantennae worker
+## The hiveantennae daemon
 
-hiveantennae is a background worker inside the Honeycomb daemon, parallel to the existing codebase-graph worker. It is not a separate process (it shares the daemon's Deep Lake client, auth, scoping, and observability) and it is not a phase of the graph worker (the graph worker is build-triggered and on-demand; hiveantennae is watch-driven and continuous).
+hiveantennae is the **Hivenectar daemon** — an independent OS process registered with and supervised by **hivedoctor**, not a worker inside the Honeycomb daemon (per `ADR-0002` and `ADR-0003`). It owns its own Deep Lake client, auth context, scoping, and observability within hivedoctor's supervised lifecycle. It is parallel to (not a phase of) the Honeycomb daemon's codebase-graph worker: the graph worker is build-triggered and on-demand; hiveantennae is watch-driven and continuous. The two write to disjoint Deep Lake tables and run without coordination; Honeycomb recall reads Hivenectar rows through a guarded source-graph arm at query time. Dashboard surfaces for those rows are hosted by thehive, which fetches from Hivenectar's API.
 
 ```mermaid
 flowchart TD
-    watcher[fs watcher - chokidar] -->|new/changed/moved file| intake[event intake]
+    watcher["node:fs.watch + debounce"] -->|"rename/change event + filename"| intake[event intake]
     intake --> assoc[re-association ladder]
     assoc -->|existing nectar| versionAppend[append version row]
     assoc -->|new file| mintNectar[mint ULID nectar]
@@ -101,7 +102,7 @@ The worker has four operating modes, all documented in their own pages:
 | Mode | Trigger | What it does |
 |---|---|---|
 | **Brooding** | First run, or fresh checkout with no nectars.json | Full scan, batched description, initial projection write |
-| **Live watch** | chokidar event during normal editing | Re-associate, append version, enqueue lazy enrich |
+| **Live watch** | `node:fs.watch` event during normal editing | Re-associate, append version, enqueue lazy enrich |
 | **Cold catch-up** | Daemon boot after offline changes | Walk disk, run re-association ladder, batch-enrich drift |
 | **Projection sync** | End of brood/enrich/catch-up | Regenerate `.honeycomb/nectars.json` from Deep Lake |
 
@@ -115,7 +116,7 @@ Two tables. `source_graph` is one row per logical file, keyed by nectar (ULID pr
 
 ## How recall uses it
 
-Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank). The recall query adds a `UNION ALL` arm over `source_graph_versions` (latest-per-nectar, description non-null), weighted to contribute alongside session, memory, and skill hits. An agent query like *"everything associated with logins"* now returns both structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as "refreshes JWT claims on each authenticated request, part of the login session lifecycle"). The wiring is documented in `data/recall-integration.md`.
+Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank). Honeycomb adds a guarded source-graph recall arm over `source_graph_versions` (latest-per-nectar, description non-null), weighted to contribute alongside session, memory, and skill hits. The arm follows Honeycomb's per-arm fail-soft pattern: if the Hivenectar table is missing in a fresh workspace, that arm returns empty while the other recall arms still answer. An agent query like *"everything associated with logins"* now returns both structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as "refreshes JWT claims on each authenticated request, part of the login session lifecycle"). The wiring is documented in `data/recall-integration.md`.
 
 ---
 
@@ -126,6 +127,7 @@ Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical + 768-di
 - **Not eager.** A file can exist in Deep Lake with a null description for as long as nobody asks about it. Description is a cache, not a prerequisite.
 - **Not a source mutation.** No file on disk is ever edited by hiveantennae. The only file hiveantennae writes is the committed `.honeycomb/nectars.json` projection, and even that is regenerable.
 - **Not a separate database.** Deep Lake is the store. The "SQLite would be faster" instinct is addressed and rejected in `ADR-0001`.
+- **Not the portal host.** Hivenectar exposes Source Graph APIs and status; the unified dashboard and Source Graph page live in thehive.
 
 ---
 
@@ -134,6 +136,8 @@ Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical + 768-di
 New to Hivenectar: this overview, then [`data/source-graph-schema.md`](data/source-graph-schema.md), then [`ai/identity-and-reassociation.md`](ai/identity-and-reassociation.md).
 
 Understanding the identity decision: [`architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md) (read this before arguing about serials-in-source).
+
+Understanding the process topology: [`architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`](architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md), then [`architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md).
 
 Implementing the worker: [`ai/brooding-pipeline.md`](ai/brooding-pipeline.md), [`ai/enricher-and-llm-model.md`](ai/enricher-and-llm-model.md), [`ai/identity-and-reassociation.md`](ai/identity-and-reassociation.md).
 

@@ -2,7 +2,7 @@
 
 > Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
 
-Engineering and operator user stories for the re-association ladder, scoped to the personas that exercise it: the daemon performing cold catch-up at boot, the chokidar watcher in live mode, the reviewer adjudicating low-confidence TLSH matches, the operator running prune, and the teammate whose copy-paste becomes a provenance edge. Each story carries acceptance criteria tied to the contract in [`reassociation-technical-specification.md`](reassociation-technical-specification.md).
+Engineering and operator user stories for the re-association ladder, scoped to the personas that exercise it: the daemon performing cold catch-up at boot, the `node:fs.watch` intake in live mode, the reviewer adjudicating low-confidence TLSH matches, the operator running prune, and the teammate whose copy-paste becomes a provenance edge. Each story carries acceptance criteria tied to the contract in [`reassociation-technical-specification.md`](reassociation-technical-specification.md).
 
 **Related:**
 - [`../identity-and-reassociation.md`](../identity-and-reassociation.md)
@@ -19,8 +19,8 @@ Engineering and operator user stories for the re-association ladder, scoped to t
 
 These are engineering-scope user stories, not a PRD. They describe the behaviors the re-association ladder must exhibit from the perspective of each actor that interacts with it, with acceptance criteria precise enough to drive implementation and verification against the contract in [`reassociation-technical-specification.md`](reassociation-technical-specification.md). The personas:
 
-- **The daemon** — the hiveantennae worker performing cold catch-up at boot or re-associating on watcher events.
-- **The chokidar watcher** — the live-mode event source that correlates move semantics in real time.
+- **The daemon** — the hiveantennae process performing cold catch-up at boot or re-associating on watcher events.
+- **The `node:fs.watch` intake** — the live-mode event source that reports path observations and triggers debounced re-association work.
 - **The reviewer** — a human adjudicating low-confidence TLSH matches surfaced by the review surface.
 - **The operator** — a human running `honeycomb hivenectar prune --confirm`.
 - **The teammate** — a developer whose copy-paste, edit, or fresh clone exercises the ladder.
@@ -37,7 +37,7 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 **US-RA-002** — As the daemon, I treat mtime as a cache key only, never as an identity authority.
 **Acceptance criteria:** (a) Any file that fails the step-1 predicate is content-hashed before a step-2-through-5 decision is made. (b) A file whose mtime was mutated by `touch`, `rsync`, or `git checkout` without a content change still resolves correctly through step 1 (size matches) or step 3 (content hash matches). (c) mtime alone is never sufficient to claim, carry, or move a nectar.
 
-**US-RA-003** — As the chokidar watcher in live mode, I rarely invoke step 1 because I already know which files I have observed as unchanged.
+**US-RA-003** — As the `node:fs.watch` intake in live mode, I rarely invoke step 1 because I only schedule paths with observed changes.
 **Acceptance criteria:** (a) Live watch does not re-run step 1 against files the watcher has not emitted events for. (b) Step 1 dominates cold-catch-up boot frequency, not live-watch frequency, per the distribution table in [`reassociation-technical-specification.md`](reassociation-technical-specification.md).
 
 ---
@@ -47,8 +47,8 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 **US-RA-004** — As the daemon, when a file's path matches a known nectar but its content hash differs from the latest version, I append a new version row without changing the nectar.
 **Acceptance criteria:** (a) A new `source_graph_versions` row is appended with `seq = prev_seq + 1`, the new `content_hash`, and `title/description/embedding = NULL`, `describe_status = 'pending'`. (b) The previous version row is retained unchanged. (c) `source_graph.last_update_date` is updated. (d) A lazy enrich job is enqueued for the new version.
 
-**US-RA-005** — As the chokidar watcher in live mode, step 2 is my dominant path because normal edits keep the path stable and change only the content.
-**Acceptance criteria:** (a) A save event on a tracked path produces a step-2 resolution. (b) The watcher intake debounce (default 2000 ms) collapses rapid-fire saves on the same path into a single step-2 append. (c) Intermediate saves within an enricher cycle are never described — only `MAX(seq) per nectar WHERE describe_status = 'pending'` enters the enricher queue.
+**US-RA-005** — As the `node:fs.watch` intake in live mode, step 2 is my dominant path because normal edits keep the path stable and change only the content.
+**Acceptance criteria:** (a) A save event on a tracked path produces a step-2 resolution. (b) The configured watcher intake debounce collapses rapid-fire saves on the same path into a single step-2 append. (c) Intermediate saves within an enricher cycle are never described — only `MAX(seq) per nectar WHERE describe_status = 'pending'` enters the enricher queue.
 
 **US-RA-006** — As the daemon, I do not re-describe a file whose edit is cosmetic (whitespace, reformatting).
 **Acceptance criteria:** (a) The enricher applies the "meaningful change" heuristic (Jaccard token similarity ≥ `REDESCRIBE_THRESHOLD`, default 0.85) before re-describing. (b) A cosmetic change inherits the previous version's `title`, `description`, `concepts`, and `embedding`, with `describe_model = inherited-from:<prev_content_hash>`.
@@ -57,8 +57,8 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 
 ## Step 3 — exact content-hash match to a missing file (move detector)
 
-**US-RA-007** — As the chokidar watcher in live mode, when I see a `unlink` on path A followed by an `add` on path B with identical content, I carry the nectar from A to B via step 3.
-**Acceptance criteria:** (a) The delete+add correlation happens within the watcher's event window. (b) The new path's content hash exactly matches the just-deleted file's latest `content_hash`. (c) A new `source_graph_versions` row is appended for the existing nectar with the new `path` and the same `content_hash` (composite key collision avoided by incremented `seq`). (d) No enrich job is enqueued — the content is unchanged.
+**US-RA-007** — As the `node:fs.watch` intake in live mode, when a new path's content hash matches a missing file's latest content hash, I carry the nectar from the missing path to the new path via step 3.
+**Acceptance criteria:** (a) The debounced intake refreshes the new/changed path set and the missing-files set. (b) The new path's content hash exactly matches the missing file's latest `content_hash`. (c) A new `source_graph_versions` row is appended for the existing nectar with the new `path` and the same `content_hash` (composite key collision avoided by incremented `seq`). (d) No enrich job is enqueued — the content is unchanged.
 
 **US-RA-008** — As the daemon performing cold catch-up, when an offline rename produces a new path whose content hash exactly matches a missing file's latest hash, I carry the nectar.
 **Acceptance criteria:** (a) The daemon computes the set difference between Deep Lake's known paths and disk's current paths to build the missing-files map. (b) The new path's hash is compared against missing files' latest version hashes. (c) An exact sha256 match carries the nectar; the previous version row's stale path is retained as history.
@@ -88,8 +88,8 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 **US-RA-015** — As the reviewer, I can list, accept, or reject pending low-confidence candidates via the review surface.
 **Acceptance criteria:** (a) `honeycomb hivenectar review-matches` lists candidates with their `confidence`, the on-disk path, and the candidate source nectar. (b) The reviewer can accept a candidate, which rewrites the provisional nectar's rows to point at the carried nectar and records the decision. (c) The reviewer can reject a candidate, which leaves the provisional mint in place and removes it from the queue. (d) Review decisions are auditable on the version row. (The exact accept/reject flag syntax is an implementation detail the source spec does not pin.)
 
-**US-RA-016** — As the chokidar watcher in live mode, I rarely reach step 4 because correlated delete+add events resolve through step 3.
-**Acceptance criteria:** (a) Step 4 fires in live mode only when the watcher misses a correlated event. (b) The review surface is not populated by normal live operation. (c) Cold catch-up after offline move-and-edit is the primary source of review-band candidates.
+**US-RA-016** — As the `node:fs.watch` intake in live mode, I rarely reach step 4 because ordinary moves resolve through step 3 exact-hash reconstruction.
+**Acceptance criteria:** (a) Step 4 fires in live mode only for move-and-edit cases or incomplete event evidence. (b) The review surface is not populated by normal live operation. (c) Cold catch-up after offline move-and-edit is the primary source of review-band candidates.
 
 ---
 

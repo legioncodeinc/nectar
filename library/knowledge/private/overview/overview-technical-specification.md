@@ -2,7 +2,7 @@
 
 > Category: Overview | Version: 1.0 | Date: June 2026 | Status: Draft
 
-The technical contract for Hivenectar: the four hiveantennae operating modes as trigger→action→post-condition tables, the data-model component contract, the recall `UNION ALL` arm, the worker's daemon-colocation obligations, and the non-goals stated as hard exclusions.
+The technical contract for Hivenectar: the four hiveantennae operating modes as trigger→action→post-condition tables, the data-model component contract, the guarded recall arm, the three-daemon topology obligations, and the non-goals stated as hard exclusions.
 
 **Related:**
 - [`../overview.md`](../overview.md)
@@ -13,22 +13,23 @@ The technical contract for Hivenectar: the four hiveantennae operating modes as 
 - [`../ai/identity-and-reassociation.md`](../ai/identity-and-reassociation.md)
 - [`../data/source-graph-schema.md`](../data/source-graph-schema.md)
 - [`../data/recall-integration.md`](../data/recall-integration.md)
+- [`../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md)
 
 ---
 
 ## Scope of this contract
 
-This document is the engineering contract: it states what the hiveantennae worker must do, the conditions under which each mode fires, the post-conditions that define success, and the boundaries it must not cross. It is not a concept essay (that is [`overview-introduction-and-theory.md`](overview-introduction-and-theory.md)) and it is not an operator-acceptance spec (that is [`overview-user-stories.md`](overview-user-stories.md)). The deep-dive docs it references hold the algorithmic and schema detail; this document holds the surface that composes them.
+This document is the engineering contract: it states what the hiveantennae daemon must do, the conditions under which each mode fires, the post-conditions that define success, and the boundaries it must not cross. It is not a concept essay (that is [`overview-introduction-and-theory.md`](overview-introduction-and-theory.md)) and it is not an operator-acceptance spec (that is [`overview-user-stories.md`](overview-user-stories.md)). The deep-dive docs it references hold the algorithmic and schema detail; this document holds the surface that composes them.
 
 ---
 
-## The hiveantennae worker pipeline
+## The hiveantennae daemon pipeline
 
-hiveantennae is a background worker inside the Honeycomb daemon, parallel to the existing codebase-graph worker. It is **not** a separate process: it shares the daemon's Deep Lake client, auth, scoping, and observability. It is **not** a phase of the graph worker: the graph worker is build-triggered and on-demand; hiveantennae is watch-driven and continuous. The two write to disjoint tables and run without coordination.
+hiveantennae is the **Hivenectar daemon** — an independent OS process registered with and supervised by **hivedoctor**, not a worker inside the Honeycomb daemon (per ADR-0002 and ADR-0003). It owns its own Deep Lake client, auth context, scoping, and observability within hivedoctor's supervised lifecycle. It is parallel to (not a phase of) the Honeycomb daemon's codebase-graph worker: the graph worker is build-triggered and on-demand; hiveantennae is watch-driven and continuous. The two write to disjoint Deep Lake tables and run without coordination. thehive, not Hivenectar or hivedoctor, hosts the unified dashboard and Source Graph page.
 
 ```mermaid
 flowchart TD
-    watcher["fs watcher - chokidar"] -->|new/changed/moved file| intake["event intake - debounced"]
+    watcher["node:fs.watch + debounce"] -->|"rename/change event + filename"| intake["event intake - debounced"]
     intake --> assoc["re-association ladder"]
     assoc -->|existing nectar| versionAppend["append source_graph_versions row"]
     assoc -->|new file| mintNectar["mint ULID - write source_graph row"]
@@ -67,11 +68,11 @@ Steady-state operation during normal editing.
 
 | | |
 |---|---|
-| **Trigger** | A chokidar file-system event (add, change, unlink) during the daemon's normal running state. |
-| **Action** | Debounce per-path (default 2000 ms window). Run the re-association ladder against the debounced state. Path+mtime+size exact match → no-op. Path match, content changed → append version row, enqueue lazy enrich. Exact-hash match to a missing file → carry nectar to new path. Fuzzy match → carry with a confidence flag. Nothing matches → mint new nectar. Copy detection: a new path whose content matches an existing file's current content mints a fresh nectar with `derived_from_nectar`. |
+| **Trigger** | A `node:fs.watch` observation (`rename`/`change` plus filename) during the daemon's normal running state. |
+| **Action** | Debounce per-path. Run the re-association ladder against the debounced state. Path+mtime+size exact match → no-op. Path match, content changed → append version row, enqueue lazy enrich. Exact-hash match to a missing file → carry nectar to new path. Fuzzy match → carry with a confidence flag. Nothing matches → mint new nectar. Copy detection: a new path whose content matches an existing file's current content mints a fresh nectar with `derived_from_nectar`. |
 | **Post-condition** | Deep Lake reflects the post-debounce disk state. Lazy enrich jobs are queued for any meaningfully-changed version. Recall never blocks on the watcher. |
 
-Live watch is the easy case because the chokidar event stream carries move semantics (a rename emits `unlink` on the old path and `add` on the new within milliseconds), so the fuzzy step is rarely reached. The full ladder is in [`../ai/identity-and-reassociation.md`](../ai/identity-and-reassociation.md).
+Live watch is easier than cold catch-up because fresh events tell the daemon where to refresh state, but `node:fs.watch` does not provide correlated move semantics. The ladder reconstructs moves from the debounced event stream, missing-files set, exact content hashes, and TLSH fuzzy evidence. The full ladder is in [`../ai/identity-and-reassociation.md`](../ai/identity-and-reassociation.md).
 
 ### Cold catch-up
 
@@ -120,9 +121,9 @@ The contract invariants:
 
 ---
 
-## The recall `UNION ALL` arm contract
+## The guarded recall arm contract
 
-Hivenectar adds a fourth arm to the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank fusion). The arm queries `source_graph_versions` filtered to the latest described version per nectar, scoped by tenancy. The full query and fusion rationale are in [`../data/recall-integration.md`](../data/recall-integration.md).
+Hivenectar adds a fourth guarded arm to the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank fusion). The arm queries `source_graph_versions` filtered to the latest described version per nectar, scoped by tenancy. If the Hivenectar table is missing, the arm returns empty and the other recall arms still answer. The full query and fusion rationale are in [`../data/recall-integration.md`](../data/recall-integration.md).
 
 The contract the arm must uphold:
 
@@ -153,24 +154,24 @@ flowchart TD
     file --> d1
     s3 -->|how to navigate| q["agent query - everything about logins"]
     d4 -->|what to look at| q
-    q --> union["hybrid recall UNION ALL"]
-    union --> result["ranked: code files + session traces + distilled facts"]
+    q --> fusion["hybrid recall fusion"]
+    fusion --> result["ranked: code files + session traces + distilled facts"]
 ```
 
 A file can be in the CodeGraph without a nectar; a file can have a nectar without being in the CodeGraph. Recall unions over both because the agent needs both.
 
 ---
 
-## The daemon-colocation contract
+## The three-daemon topology contract
 
-hiveantennae is not a standalone service. Its colocation obligations are binding, not stylistic:
+hiveantennae is not a Honeycomb worker and it is not the portal host. Its topology obligations are binding, not stylistic:
 
 | Obligation | What it means | Why it is binding |
 |---|---|---|
-| **Shared Deep Lake client** | All writes go through the daemon's Deep Lake client — no private connection, no separate store. | FR-8: Deep Lake is the only durable store. A private connection would be a sidecar. |
-| **Shared auth** | hiveantennae uses the daemon's authenticated identity, not its own credentials. | Tenancy scoping (`org_id`/`workspace_id`/`project_id`) depends on the daemon's auth context. |
-| **Shared scoping** | Every query is scoped by the daemon's project context. Two projects in the same workspace do not share nectars. | File identity is cross-agent within a project but isolated across projects. |
-| **Shared observability** | Enricher cycles log files described, inherited, failed, tokens consumed, estimated cost; the dashboard surfaces a rolling cost counter and queue-depth gauge. | Same pattern as the pollinating loop and skillify miner. No bespoke telemetry. |
+| **Own Deep Lake client, shared datasets** | Hivenectar opens its own client but points at the same org/workspace datasets Honeycomb recall reads. | Process independence without data federation. |
+| **Registered supervision** | Hivenectar has a hivedoctor registry entry with its own health URL, PID path, and probe settings. | hivedoctor supervises registered daemons rather than hardcoding one Honeycomb target. |
+| **Project scoping** | Every query includes `project_id` as a soft column filter inside the workspace scope. Two projects in the same workspace do not share nectars. | File identity is cross-agent within a project but isolated across projects. |
+| **thehive-hosted dashboard** | Enricher cycles log files described, inherited, failed, tokens consumed, estimated cost; thehive surfaces the rolling cost counter, queue-depth gauge, and Source Graph page by calling Hivenectar APIs. | hivedoctor remains a minimal supervisor; the portal stays independently updateable. |
 | **Non-blocking** | Brooding and enrichment run in the background. Daemon readiness does not wait on them; recall serves partial state during a brood. | Per the daemon readiness principle: accept requests first, do background work after. |
 
 ---
@@ -184,6 +185,7 @@ The following are not deferred features; they are out of scope by design and the
 - **Not eager.** A file can exist in Deep Lake with a null description indefinitely. Description is a cache.
 - **Not a source mutation.** No file on disk is ever edited by hiveantennae. The only file it writes is the committed, regenerable `.honeycomb/nectars.json`.
 - **Not a separate database.** Deep Lake is the store. The SQLite-sidecar instinct is rejected in ADR-0001 for FR-8 violation.
+- **Not the portal host.** Hivenectar exposes APIs and status; thehive hosts the unified dashboard and Source Graph page.
 - **Not symbol-granular in v1.** File granularity is deliberate. Symbol-level nectars would multiply row counts 10–100× and duplicate the structural CodeGraph; deferred to a possible v2.
 - **Not directory-granular in v1.** Folders are derivable from file paths; a directory description is synthesized on demand from its files' descriptions. The `kind` column reserves the namespace.
 - **Not bidirectional projection sync.** Sync is one-directional: Deep Lake → projection. The reverse (projection → Deep Lake) happens only on a fresh clone, as an inheritance write for nectars the local Deep Lake lacks.

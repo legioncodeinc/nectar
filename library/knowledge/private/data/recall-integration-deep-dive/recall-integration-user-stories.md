@@ -2,7 +2,7 @@
 
 > Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
 
-Engineering and operator user stories with acceptance criteria for the Hivenectar recall arm: the personas who build, run, fuse, scope, and extend the fourth UNION ALL arm, and the verifiable behavior each story demands. Scope is engineering — these are not product PRD stories.
+Engineering and operator user stories with acceptance criteria for the Hivenectar recall arm: the personas who build, run, fuse, scope, and extend the fourth guarded arm, and the verifiable behavior each story demands. Scope is engineering — these are not product PRD stories.
 
 **Related:**
 - [`../recall-integration.md`](../recall-integration.md)
@@ -34,10 +34,10 @@ These stories are engineering scope. They describe the arm's behavior, its contr
 
 ---
 
-## The fourth UNION ALL arm
+## The fourth guarded arm
 
-**US-RI-001** — As the recall pipeline, I want the Hivenectar arm to participate in the same `UNION ALL` as sessions, memory, and memories, so that file-description rows are fused with discussion rows rather than returned as a separate list.
-**Acceptance criteria:** (a) the recall query is a single `UNION ALL` of four arms; (b) the Hivenectar arm is tagged `'hivenectar'` in its `source` column; (c) the agent receives one ranked list containing rows from all four arms.
+**US-RI-001** — As the recall pipeline, I want the Hivenectar arm to participate in the same guarded per-arm recall flow as sessions, memory, and memories, so that file-description rows are fused with discussion rows rather than returned as a separate list.
+**Acceptance criteria:** (a) the Hivenectar arm runs as its own guarded query and returns empty when its table is absent; (b) the Hivenectar arm is tagged `'hivenectar'` in its `source` column; (c) the agent receives one ranked list containing rows from all successful arms.
 
 **US-RI-002** — As the engineer, I want the Hivenectar arm to be composable rather than a separate query, so that scoping, fusion, and weighting are shared with the other arms instead of re-implemented.
 **Acceptance criteria:** (a) tenancy scoping is applied inside the arm using the same `org_id` / `workspace_id` / `project_id` columns the other arms use; (b) the arm's output is consumed by the same RRF fusion as the other three; (c) no second query path exists that the agent must invoke separately and merge by hand.
@@ -105,7 +105,7 @@ These stories are engineering scope. They describe the arm's behavior, its contr
 
 ## Graceful BM25-only fallback
 
-**US-RI-016** — As the agent, I want the Hivenectar arm to keep working when embeddings are off, so that disabling the embeddings daemon does not produce a quality cliff in semantic recall over files.
+**US-RI-016** — As the agent, I want the Hivenectar arm to keep working when embeddings are off, so that disabling or losing the configured embedding provider does not produce a quality cliff in semantic recall over files.
 **Acceptance criteria:** (a) the vector arm gates on `embedding IS NOT NULL`; (b) when all embeddings are NULL, the lexical arm carries recall alone; (c) no error is raised and no empty result is returned solely because embeddings are unavailable.
 
 **US-RI-017** — As the operator, I want the fallback to be silent and identical in behavior to the other arms' fallback, so that Hivenectar is not a special case operationally.
@@ -129,7 +129,7 @@ These stories are engineering scope. They describe the arm's behavior, its contr
 ## The enricher feeding the arm
 
 **US-RI-021** — As the enricher, I produce the described rows the arm reads, so that recall has something to score.
-**Acceptance criteria:** (a) the enricher sets `describe_status = 'described'` and fills `title`, `description`, and `concepts` on the version row; (b) the embeddings daemon fills `embedding` from `title + ' ' + description`; (c) until the enricher runs, the row is `pending` and excluded from recall.
+**Acceptance criteria:** (a) the enricher sets `describe_status = 'described'` and fills `title`, `description`, and `concepts` on the version row; (b) the configured embedding provider fills `embedding` from `title + ' ' + description` when available; (c) until the enricher runs, the row is `pending` and excluded from recall.
 
 **US-RI-022** — As the enricher, I do not block recall — a query during enrichment sees whatever has been described so far.
 **Acceptance criteria:** (a) there is no read-lock or "enrichment in progress" state; (b) a query mid-brood returns the subset of files already described; (c) recall and brooding proceed concurrently with no coordination.

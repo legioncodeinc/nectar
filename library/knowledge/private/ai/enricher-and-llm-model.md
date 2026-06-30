@@ -19,7 +19,7 @@ The lazy enrichment path that fills titles and descriptions after brooding: why 
 
 Brooding describes every file once. The enricher's job is everything after: re-describing a file when its content meaningfully changes, describing a file that was minted but skipped during brooding (cost cap hit, or `--limit` was used), and describing genuinely new files the watcher detected. The enricher is the steady-state description maintenance loop; brooding is the one-time bootstrap.
 
-The enricher runs as a background loop inside the hiveantennae worker, polling a work queue of `source_graph_versions` rows where `describe_status = 'pending'`. It is lazy in two senses:
+The enricher runs as a background loop inside the hiveantennae daemon, polling a work queue of `source_graph_versions` rows where `describe_status = 'pending'`. It is lazy in two senses:
 
 1. **Time-lazy.** A version row can sit with `describe_status = 'pending'` for hours or days. Recall simply does not surface undescribed rows (the recall query filters on `describe_status = 'described'` OR falls back to filename-only matching). Nothing breaks while a description is pending.
 2. **Change-lazy.** The enricher does not re-describe on every save. It debounces (next section) and, even after debouncing, applies a "meaningful change" heuristic — if the new content hash produces a structural delta below a threshold (e.g., only whitespace or only comment changes, detectable via a fast AST-light diff), the existing description is re-attached to the new version row and no LLM call is made.
@@ -45,6 +45,8 @@ GPT-4o-mini is price-competitive but its single-file summarization quality is me
 
 The model is not hardcoded. It is the **default** in the model provider router, configurable via the same `agent.yaml` / Portkey config that routes every other LLM call in Honeycomb. An operator who wants to swap to Haiku (smaller batches, higher cost, no infrastructure change) or to a local Ollama model (zero marginal cost, local GPU footprint, smaller batches) can do so without code changes. The `describe_model` column on every `source_graph_versions` row records which model produced each description, so a model swap can trigger selective re-description of files described by the old model if quality demands it.
 
+Portkey semantic caching and guardrails are upstream configuration, not Hivenectar client switches. Brooding and enricher calls route through Portkey with the configured virtual key / `portkey.config`; cache behavior is enabled and tuned in the Portkey dashboard. Hivenectar records and accounts for cached-token effects when Portkey reports them, but it does not maintain a client-side semantic cache and it does not introduce a separate "cache-enabled" vault key.
+
 ### What Hivenectar needs from the model (capability tier)
 
 The model does not need to be a frontier reasoner. It needs:
@@ -65,7 +67,7 @@ The watcher fires events on every save. A developer hitting Cmd-S ten times in t
 
 ### Watcher intake debounce
 
-The chokidar intake debounces events per-path with a configurable window (default 2000 ms). Multiple events on the same path within the window collapse to a single "the file at this path changed" signal, which then enters re-association. This is the same pattern the CodeGraph worker uses for its build trigger, and the same pattern Cartog uses (`--debounce 5000` is Cartog's default; Hivenectar's is shorter because re-association is cheaper than a full AST re-extraction).
+The `node:fs.watch` intake debounces events per-path with a configurable window. Multiple uncorrelated `(eventType, filename)` observations on the same path within the window collapse to a single "the file at this path changed" signal, which then enters re-association. This mirrors Honeycomb's existing `fs.watch` + `setTimeout` debounce pattern and avoids adding another watcher dependency.
 
 ### Enricher queue debounce
 
@@ -109,9 +111,9 @@ This is the same intuition Smith uses (`Hash != Described-Against-Hash` triggers
 
 ## Embeddings
 
-Once a description is written (by brooding, by enricher, or inherited from a similar previous version), the enricher computes a 768-dim embedding over `title + ' ' + description` using the existing embeddings daemon (nomic-embed-text-v1.5, q8 quantization, Unix-socket NDJSON IPC — fully documented in the main corpus's embeddings docs).
+Once a description is written (by brooding, by enricher, or inherited from a similar previous version), the enricher computes a 768-dim embedding over `title + ' ' + description` through the embedding provider switch. The default provider is the local nomic path (`nomic-embed-text-v1.5`, q8 quantization, Unix-socket NDJSON IPC); the hosted opt-in provider is Cohere via Portkey, modeled on Honeycomb's existing Portkey transport patterns.
 
-The embedding dimensionality (768) matches `sessions.message_embedding` and `memory.summary_embedding` deliberately. This is a load-bearing constraint: the hybrid recall pipeline's vector index expects a consistent dimensionality across the tables it unions over. A different dimensionality would force a separate index and a separate recall arm, doubling the query cost. If the embedding model is ever swapped, all three tables must be re-embedded together — this is a known constraint documented in the main corpus's embeddings runtime doc, and Hivenectar inherits it without modification.
+The embedding dimensionality (768) matches `sessions.message_embedding` and `memory.summary_embedding` deliberately. This is a load-bearing constraint: the hybrid recall pipeline's vector index expects a consistent dimensionality across every semantic arm. Both local nomic and Cohere-via-Portkey providers must honor the 768-dim contract; vectors with the wrong dimensionality are rejected by the recall guard rather than stored as valid recall data. Changing the dimensionality is a schema event, not a normal provider switch.
 
 If embeddings are off (the optional dependency was not installed, or the daemon failed to warm up), the embedding column is left NULL and recall falls back to BM25 over `title` and `description`. This is the same silent-fallback behavior the rest of Honeycomb uses; there is no error, no quality cliff, just lexical-only recall over descriptions until embeddings are available.
 
@@ -125,7 +127,7 @@ If embeddings are off (the optional dependency was not installed, or the daemon 
 | LLM returns wrong number of descriptions | Same as malformed — the validator catches length mismatch, retries, then falls back to solo. |
 | LLM rate-limits persistently | Portkey backoff handles transient 429s; persistent failure marks the batch `failed` and alerts. |
 | LLM call exceeds context window | Should never happen (batcher respects the limit), but if it does, the batch is split in half and retried. |
-| Embedding daemon unavailable | Description is written; embedding is NULL; `describe_status = 'described'` (recall falls back to BM25). |
+| Embedding provider unavailable | Description is written; embedding is NULL; `describe_status = 'described'` (recall falls back to BM25). |
 | File deleted while pending | The pending version row is marked `describe_status = 'skipped-deleted'` on the next enricher cycle; no LLM call is made. |
 
 Every enricher cycle logs: files described, files inherited, files failed, tokens consumed, estimated cost. The dashboard surfaces a rolling 24-hour cost counter and a queue-depth gauge. This is the same observability pattern the pollinating loop and skillify miner use.

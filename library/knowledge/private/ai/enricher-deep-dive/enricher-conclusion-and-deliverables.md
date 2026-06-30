@@ -25,7 +25,7 @@ The deliverable decomposes into four properties, each of which is non-negotiable
 
 **Lazy.** A version row can sit with `describe_status = 'pending'` for hours or days. Recall does not surface undescribed rows; it filters on `describe_status = 'described'` and falls back to filename-only matching. Nothing breaks while a description is pending. The loop processes only the latest pending version per nectar, so intermediate saves within a cycle are never described.
 
-**Debounced.** Two layers collapse volume. The watcher intake debounces per-path events within a 2000 ms window, so a developer hitting Cmd-S ten times in ten seconds produces one signal. The enricher queue coalesces pending rows by selecting `MAX(seq) per nectar`, so five edits in a minute yield at most one LLM call. On top of both, a meaningful-change heuristic — a Jaccard similarity over token multisets, threshold 0.85 — skips cosmetic changes (reformats, comment tweaks) by inheriting the previous description. The combination means the loop pays for an LLM call only when a genuinely semantic change occurs.
+**Debounced.** Two layers collapse volume. The `node:fs.watch` intake debounces per-path observations, so a developer hitting Cmd-S ten times in ten seconds produces one signal. The enricher queue coalesces pending rows by selecting `MAX(seq) per nectar`, so five edits in a minute yield at most one LLM call. On top of both, a meaningful-change heuristic — a Jaccard similarity over token multisets, threshold 0.85 — skips cosmetic changes (reformats, comment tweaks) by inheriting the previous description. The combination means the loop pays for an LLM call only when a genuinely semantic change occurs.
 
 **Cost-capped at brood time.** The one-time `brood` bootstrap can be bounded with `--limit N` and previewed with `--dry-run` (both documented in `../brooding-pipeline.md`). The steady-state enricher loop is not separately cost-capped per invocation; its cost is bounded by the pending-queue depth and the 30-second poll interval. The loop delegates transient-failure retry to Portkey's built-in rate-limit handling rather than implementing its own, avoiding double-retry pathologies. Persistent failure — 5 consecutive failed cycles — raises a dashboard alert and stops further attempts until an operator acknowledges. The dashboard surfaces a rolling 24-hour cost counter and a queue-depth gauge, so cost is observable, not hidden.
 
@@ -51,7 +51,7 @@ The enricher never produces a recall quality cliff. Every failure path degrades 
 
 | Condition | Behavior | Recall impact |
 |---|---|---|
-| Embeddings daemon unavailable | Description written; embedding NULL; `describe_status = 'described'` | Row served by BM25 over `title`/`description` — lexical-only, no error |
+| Embedding provider unavailable | Description written; embedding NULL; `describe_status = 'described'` | Row served by BM25 over `title`/`description` — lexical-only, no error |
 | LLM returns malformed JSON | Batch retried once, then each file tried solo | Offending file marked `failed`; others described normally |
 | LLM rate-limits persistently | Portkey backoff for transients; batch marked `failed` after exhaustion | Failed rows excluded from recall until retried; pending rows invisible |
 | File deleted while pending | Row marked `skipped-deleted`; no LLM call | Row never reaches recall — correct, the file is gone |
@@ -71,7 +71,7 @@ This deep dive covers the enricher in isolation. Four sibling documents complete
 
 **Source graph schema** (`../../data/source-graph-schema.md`) is the row contract the enricher writes to. Every column the enricher touches — `describe_status`, `describe_model`, `described_at`, `title`, `description`, `concepts`, `embedding` — is defined there, with its type, its lifecycle, and its participation in the indexes recall reads. The schema is the ground truth; this deep dive is the behavioral spec layered on top of it.
 
-**Recall integration** (`../../data/recall-integration.md`) is the arm that consumes the enricher's output. It documents the `UNION ALL` arm over `source_graph_versions` filtered to the latest described version per nectar, the BM25-and-vector scoring, and the RRF fusion that sits Hivenectar hits alongside session, memory, and skill hits. The enricher's `describe_status = 'described'` gate is what makes a row eligible for this arm.
+**Recall integration** (`../../data/recall-integration.md`) is the arm that consumes the enricher's output. It documents the guarded arm over `source_graph_versions` filtered to the latest described version per nectar, the BM25-and-vector scoring, and the RRF fusion that sits Hivenectar hits alongside session, memory, and skill hits. The enricher's `describe_status = 'described'` gate is what makes a row eligible for this arm.
 
 **Overview** (`../../overview.md`) is the entry point that frames the three design pillars, of which lazy LLM description through a cheap long-context model is the second. The enricher is the steady-state expression of that pillar — brooding is the bootstrap expression. Read the overview first for the why; read this deep dive for the how the loop behaves in steady state.
 

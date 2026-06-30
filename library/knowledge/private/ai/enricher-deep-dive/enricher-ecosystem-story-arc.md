@@ -2,7 +2,7 @@
 
 > Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
 
-How the enricher composes with the watcher, the meaningful-change heuristic, the LLM call, the embeddings daemon, recall, and the projection — traced as a steady-state edit end to end, plus the model-swap arc that follows.
+How the enricher composes with the watcher, the meaningful-change heuristic, the LLM call, the embedding provider stack, recall, and the projection — traced as a steady-state edit end to end, plus the model-swap arc that follows.
 
 **Related:**
 - [`../enricher-and-llm-model.md`](../enricher-and-llm-model.md)
@@ -28,8 +28,8 @@ The diagram below is the steady-state loop in one frame. Each node is an observa
 
 ```mermaid
 flowchart TD
-    save["developer saves file"] --> watcher["chokidar fires event"]
-    watcher --> debounce["per-path debounce - 2000ms"]
+    save["developer saves file"] --> watcher["node:fs.watch reports event"]
+    watcher --> debounce["per-path debounce"]
     debounce --> reassoc["re-association ladder - path match, content changed"]
     reassoc --> append["append pending version row - describe_status=pending"]
     append --> heuristic{"meaningful-change check - Jaccard >= 0.85?"}
@@ -53,7 +53,7 @@ The shape to notice is the branch at the heuristic. A cosmetic change short-circ
 
 Consider a developer who edits `src/middleware/session-refresh.ts` to change the JWT skew tolerance from 5 minutes to 10 minutes. The arc:
 
-1. **Watcher detects change.** chokidar fires an event on the path. The event enters the per-path debounce window (2000 ms). If the developer saves again within the window, the events collapse to one signal.
+1. **Watcher detects change.** `node:fs.watch` reports an observation for the path. The event enters the per-path debounce window. If the developer saves again within the window, the events collapse to one signal.
 
 2. **Re-association runs.** The debounced signal enters the re-association ladder. The path matches an existing nectar; the content hash differs from the latest version. The ladder appends a new `source_graph_versions` row with `(nectar, new_content_hash, seq = prev_seq + 1)`, `describe_status = 'pending'`, and `title`/`description`/`embedding` left empty.
 
@@ -65,7 +65,7 @@ Consider a developer who edits `src/middleware/session-refresh.ts` to change the
 
 6. **(Meaningful path only) Write the description.** The response is validated; `title`, `description`, and `concepts` are written to the row. `describe_model` is set to `gemini-2.5-flash`, `describe_status` to `described`, `described_at` to the run timestamp.
 
-7. **Embed via local daemon.** The enricher computes a 768-dim embedding over `title + ' ' + description` using the nomic-embed-text-v1.5 daemon. If the daemon is unavailable, the embedding stays NULL and the row is still marked `described` — recall falls back to BM25.
+7. **Embed via provider switch.** The enricher computes a 768-dim embedding over `title + ' ' + description` using the configured provider: local nomic by default or Cohere via Portkey when opted in. If the provider is unavailable, the embedding stays NULL and the row is still marked `described` — recall falls back to BM25.
 
 8. **Recall can now surface it.** The row has `describe_status = 'described'`, so the recall arm's `latest-per-nectar` subquery includes it. An agent query for "session refresh" now returns this file alongside whatever structural CodeGraph hits exist.
 
@@ -127,7 +127,7 @@ Reading the two arcs together is what makes the enricher's behavior legible. The
 
 The enricher's arc terminates at two handoffs, both of which are documented elsewhere but worth naming here so the arc is complete.
 
-The **recall handoff** happens at `describe_status = 'described'`. From that point, the row participates in the recall union's Hivenectar arm, filtered to the latest described version per nectar. The recall layer does not know or care whether the description came from brooding, from an enricher LLM call, or from inheritance — it only checks the status and the tenancy scope.
+The **recall handoff** happens at `describe_status = 'described'`. From that point, the row participates in the guarded Hivenectar recall arm, filtered to the latest described version per nectar. The recall layer does not know or care whether the description came from brooding, from an enricher LLM call, or from inheritance — it only checks the status and the tenancy scope.
 
 The **projection handoff** happens at the projection-sync step. The refreshed description flows into `.honeycomb/nectars.json`, the portable lockfile that makes a fresh clone inherit descriptions without re-brooding. The projection is regenerable from Deep Lake, so this handoff is a cache update, not a state change.
 

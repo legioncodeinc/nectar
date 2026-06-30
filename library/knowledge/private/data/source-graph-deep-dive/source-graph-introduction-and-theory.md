@@ -106,7 +106,7 @@ flowchart LR
     m1 -. reads .-> shared
 ```
 
-This is why isolation for Hivenectar is org→workspace→project, full stop. A team sharing a workspace (the normal Honeycomb collaboration model) shares a single Hivenectar graph per project. A new teammate's `git clone` and `honeycomb daemon` boot pulls the cloud-synced `source_graph_versions` rows for the workspace and inherits the descriptions, the same way the CodeGraph's `pullSnapshot` works. There is no per-agent view of the file graph because there is no per-agent version of the files themselves.
+This is why isolation for Hivenectar is Honeycomb org/workspace scope plus `project_id` as a soft column filter. A team sharing a workspace (the normal Honeycomb collaboration model) shares a single Hivenectar graph per project. A new teammate's `git clone` and `hivenectar daemon` boot (registered with hivedoctor per ADR-0003) pulls the cloud-synced `source_graph_versions` rows for the workspace and inherits the descriptions, the same way the CodeGraph's `pullSnapshot` works. There is no per-agent view of the file graph because there is no per-agent version of the files themselves.
 
 The contrast with the CodeGraph's `codebase` table is instructive. The `codebase` table — the CodeGraph's cloud-sync target — also carries explicit tenancy columns and also omits `agent_id`, for the same reason: the structural graph of symbols and edges is a shared fact about shared source. Hivenectar mirrors this precisely. The divergence from `sessions`/`memory`, which *do* carry `agent_id` and `visibility`, is the tell: those tables track private agent state; Hivenectar and the CodeGraph track shared artifact state.
 

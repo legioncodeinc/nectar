@@ -13,6 +13,7 @@ A detailed set of operator and engineering user stories with acceptance criteria
 - [`../data/portable-registry.md`](../data/portable-registry.md)
 - [`../data/recall-integration.md`](../data/recall-integration.md)
 - [`../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md)
+- [`../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md)
 
 ---
 
@@ -20,7 +21,7 @@ A detailed set of operator and engineering user stories with acceptance criteria
 
 These stories are scoped to the people who *operate and build* Hivenectar, not end-product users. The five personas:
 
-- **The daemon operator** — runs `honeycomb daemon`, configures the model provider, watches cost and queue depth on the dashboard.
+- **The daemon operator** — runs `hivenectar daemon` (registered with hivedoctor per ADR-0003), configures the model provider, watches cost and queue depth in thehive's dashboard.
 - **The agent consuming recall at runtime** — an LLM agent (in any harness) issuing recall queries and acting on ranked results.
 - **The teammate on a fresh `git clone`** — inherits identity and descriptions without re-paying the brooding cost.
 - **The reviewer reading `nectars.json`** — sanity-checks the committed projection in a pull request diff.
@@ -34,7 +35,7 @@ These stories are scoped to the people who *operate and build* Hivenectar, not e
 
 **US-OV-002** — As a daemon operator, I want a file's nectar to survive a content edit, so that the file's description history follows it across saves rather than restarting per save. **Acceptance criteria:** (a) a content edit appends a `source_graph_versions` row keyed by the new content hash with an incremented `seq`; (b) the nectar on the `source_graph` row is unchanged; (c) prior version rows remain as append-only history.
 
-**US-OV-003** — As a daemon operator, I want a file's nectar to survive a rename or move, so that `git mv` and IDE refactor-rename do not sever the description chain. **Acceptance criteria:** (a) during live watch, a correlated `unlink`+`add` carries the nectar to the new path via an exact content-hash match without fuzzy matching; (b) the carried nectar's new version row records the new path while the prior row's stale path is retained as history; (c) no enrich job is enqueued when content is unchanged.
+**US-OV-003** — As a daemon operator, I want a file's nectar to survive a rename or move, so that `git mv` and IDE refactor-rename do not sever the description chain. **Acceptance criteria:** (a) during live watch, `node:fs.watch` observations are debounced and classified into new/changed/missing path sets; (b) an exact content-hash match to a missing file carries the nectar to the new path without fuzzy matching; (c) the carried nectar's new version row records the new path while the prior row's stale path is retained as history; (d) no enrich job is enqueued when content is unchanged.
 
 **US-OV-004** — As a daemon operator, I want a file's nectar to survive a move-and-edit that happened while the daemon was offline, so that cold catch-up does not lose history. **Acceptance criteria:** (a) cold catch-up runs the re-association ladder including the TLSH fuzzy step; (b) a fuzzy match above the confidence threshold carries the nectar; (c) a fuzzy match below the threshold mints a fresh nectar and surfaces the candidate for human review rather than silently claiming it.
 
@@ -48,7 +49,7 @@ These stories are scoped to the people who *operate and build* Hivenectar, not e
 
 **US-OV-007** — As a daemon operator, I want file descriptions to be filled lazily, so that a nectar can exist with a null description for as long as nobody asks about it without breaking anything. **Acceptance criteria:** (a) a nectar minted but never described has `describe_status = 'pending'` and null title/description/embedding; (b) recall excludes pending rows from semantic results without erroring; (c) no part of the system treats a null description as a failure state.
 
-**US-OV-008** — As a daemon operator, I want the enricher to debounce rapid edits, so that ten saves in ten seconds produce one description, not ten. **Acceptance criteria:** (a) the watcher intake debounces events per-path within a configurable window (default 2000 ms); (b) the enricher loop selects only the latest pending version per nectar (`MAX(seq)`), so intermediate saves within a cycle are never described; (c) intermediate version rows remain in the chain as history.
+**US-OV-008** — As a daemon operator, I want the enricher to debounce rapid edits, so that ten saves in ten seconds produce one description, not ten. **Acceptance criteria:** (a) the `node:fs.watch` intake debounces events per-path within a configurable window, mirroring Honeycomb's `fs.watch` + timer pattern; (b) the enricher loop selects only the latest pending version per nectar (`MAX(seq)`), so intermediate saves within a cycle are never described; (c) intermediate version rows remain in the chain as history.
 
 **US-OV-009** — As a daemon operator, I want cosmetic changes (reformatting) to not trigger re-description, so that a Prettier run does not waste LLM calls or churn descriptions. **Acceptance criteria:** (a) a token-Jaccard similarity pre-check compares the new content to the previously-described content; (b) similarity above the threshold (default 0.85) inherits the prior title/description/concepts/embedding and marks `describe_model = 'inherited-from:<hash>'`; (c) no LLM call is made for inherited descriptions.
 
@@ -98,7 +99,7 @@ These stories are scoped to the people who *operate and build* Hivenectar, not e
 
 ## Daemon integration and operation
 
-**US-OV-023** — As a daemon operator, I want hiveantennae to be a background worker that shares the daemon's Deep Lake client, auth, scoping, and observability, so that it is not a separate process with its own storage and credentials. **Acceptance criteria:** (a) all writes go through the daemon's Deep Lake client; (b) tenancy scoping (`org_id`/`workspace_id`/`project_id`) follows the daemon's auth context; (c) enricher cycles log files described, inherited, failed, tokens consumed, and estimated cost to the shared dashboard.
+**US-OV-023** — As a daemon operator, I want the Hivenectar daemon (`hiveantennae`) to be an independent workload process registered with hivedoctor and surfaced through thehive, so that it has an isolated failure domain, independent release cadence, and an always-on portal surface (per ADR-0002 and ADR-0003). **Acceptance criteria:** (a) the daemon runs as its own OS process under hivedoctor supervision, restartable independently of Honeycomb; (b) hivedoctor has a registry entry for Hivenectar with health URL, PID path, and probe settings; (c) Hivenectar obtains its own Deep Lake client pointed at the same org/workspace datasets Honeycomb recall reads, with `project_id` applied as a column filter; (d) enricher cycles log files described, inherited, failed, tokens consumed, and estimated cost for thehive to surface through Hivenectar's API.
 
 **US-OV-024** — As a daemon operator, I want brooding and enrichment to not block daemon readiness, so that recall serves queries while background work proceeds. **Acceptance criteria:** (a) the daemon accepts requests before brooding completes; (b) a recall query during a brood sees whatever has been described so far; (c) undescribed files are simply absent from semantic results until the brood reaches them.
 

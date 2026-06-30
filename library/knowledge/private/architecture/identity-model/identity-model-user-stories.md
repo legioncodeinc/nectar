@@ -49,8 +49,8 @@ Stories are grouped by the decision driver they exercise. Acceptance criteria ar
 **US-ID-004** — As an implementer, I want an IDE refactor-rename that changes path and content simultaneously to preserve the nectar when possible, so that "move and edit" does not lose history.
 **Acceptance criteria:** (a) The file resolves to its existing nectar via re-association step 4 (fuzzy TLSH match above confidence threshold). (b) The appended version row carries a `confidence` field reflecting the match score. (c) If confidence is below the high band, the candidate match is surfaced for human review rather than auto-claimed. (d) If no fuzzy match clears the threshold, a fresh nectar is minted (history is not fabricated).
 
-**US-ID-005** — As an operator, I want live-watch move detection to use the chokidar event stream rather than the fuzzy ladder, so that routine renames are exact and fast.
-**Acceptance criteria:** (a) A rename fires `unlink` on the old path and `add` on the new path within the watcher's correlation window. (b) The daemon carries the nectar via step 3 without invoking TLSH. (c) Step 4 is reached only when the watcher misses a correlated event or during cold catch-up.
+**US-ID-005** — As an operator, I want live-watch move detection to reconstruct ordinary renames from `node:fs.watch` observations and exact content evidence, so that routine renames are exact and fast without adding a richer watcher dependency.
+**Acceptance criteria:** (a) The watcher intake debounces `rename`/`change` observations into new/changed/missing path sets. (b) The daemon carries the nectar via step 3 when the new path's content hash matches a missing file's latest hash. (c) Step 4 is reached only for move-and-edit cases or incomplete event evidence.
 
 ---
 

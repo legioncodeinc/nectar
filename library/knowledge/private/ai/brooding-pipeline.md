@@ -84,7 +84,7 @@ Large files get a solo call with a slightly richer prompt that allows a longer d
 
 ### Embedding
 
-After the description is written (batch or solo), the enricher computes a 768-dim embedding over `title + ' ' + description` using the same embedding daemon the rest of Honeycomb uses (nomic-embed-text-v1.5, q8, documented in the main corpus's embeddings docs). If embeddings are off (the optional dependency was not installed), the embedding is left NULL and recall silently falls back to BM25 over `title` and `description` — no error, no quality cliff, same degradation behavior as session and memory recall.
+After the description is written (batch or solo), the enricher computes a 768-dim embedding over `title + ' ' + description` through the shared embedding provider switch. The default provider is the local nomic path (`nomic-embed-text-v1.5`, q8); the hosted opt-in provider is Cohere via Portkey. If embeddings are off or the selected provider is unavailable, the embedding is left NULL and recall silently falls back to BM25 over `title` and `description` — no error, no quality cliff, same degradation behavior as session and memory recall.
 
 ### Projection regeneration
 
@@ -108,7 +108,7 @@ At Gemini 2.5 Flash pricing (≤200K tier: $0.30/M input, $2.50/M output; >200K 
 
 - Input: ~2.15M × $0.30/M = **$0.65**
 - Output: ~318 calls × ~3K tokens avg = ~950K × $2.50/M = **$2.40** (output is the larger cost because descriptions are richer than the input file contents on a per-token basis)
-- Embedding: ~1780 non-skipped files × 768-dim via local daemon = **$0** (local, optional dependency)
+- Embedding: ~1780 non-skipped files × 768-dim via local nomic provider = **$0** by default (Cohere via Portkey is opt-in and priced by provider)
 - **Total brooding cost for a 2000-file repo: ~$3.05**
 
 This is a one-time cost per project. Subsequent brooding (on a fresh clone that lacks the projection, or after projection loss) is avoided by the projection's content-hash inheritance — a clone of the same repo pays $0 if `.honeycomb/nectars.json` is committed, because every file's content hash matches the projection and no LLM call is made.

@@ -69,7 +69,7 @@ The ladder is the cost of the minted model. Option A and Option B do not need it
 
 Steps 1–3 are exact and easy. Step 4 (TLSH fuzzy match) is the real engineering — it requires a TLSH implementation, size-bucketing for performance on large repos, and a confidence-scored review path for low-confidence matches. The ladder is conservative: a low-confidence match is surfaced for human review rather than auto-claimed, because a mis-association corrupts the history chain and is worse than a new nectar.
 
-The ladder's distribution differs sharply between live watch and cold catch-up. During live operation, the chokidar watcher carries move semantics (a delete on path A followed by an add on path B with identical content), so step 3 handles moves directly and step 4 is rarely reached. Cold catch-up — the daemon boots after offline move-and-edit — is where steps 3 and 4 do their work. The cascade's hardest stage exists for the rarest operating mode.
+The ladder's distribution differs sharply between live watch and cold catch-up. During live operation, `node:fs.watch` provides uncorrelated disk observations; the daemon debounces them, refreshes the missing-files set, and lets step 3 handle ordinary moves by exact content hash. Cold catch-up — the daemon boots after offline move-and-edit — is where steps 3 and 4 do their hardest work because only final disk state remains. The cascade's hardest stage exists for the least informative operating mode.
 
 ---
 
@@ -105,7 +105,7 @@ Without the projection, a fresh clone must brood from scratch — minting new ne
 
 ## Stage 7: recall queries the nectar
 
-The final stage. Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical plus 768-dim vector, fused by reciprocal rank). The recall query adds a `UNION ALL` arm over `source_graph_versions` (latest-per-nectar, description non-null), weighted to contribute alongside session, memory, and skill hits. An agent query like *"everything associated with logins"* returns structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as "refreshes JWT claims on each authenticated request").
+The final stage. Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical plus 768-dim vector, fused by reciprocal rank). Honeycomb adds a guarded source-graph arm over `source_graph_versions` (latest-per-nectar, description non-null), weighted to contribute alongside session, memory, and skill hits. An agent query like *"everything associated with logins"* returns structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as "refreshes JWT claims on each authenticated request").
 
 Recall keys off the nectar. "Current state of file X" is the latest version row for X's nectar. "History of file X" is all version rows for X's nectar. "Files forked from X" is the set of nectars whose `derived_from_nectar` equals X's nectar. Every query that matters — current state, history, provenance, related-by-concept — resolves through the nectar as the stable join key. If the nectar churned (Option B) or collided (Option A), every one of these queries would return wrong or ambiguous results. The nectar's stability is what makes the recall layer trustworthy.
 

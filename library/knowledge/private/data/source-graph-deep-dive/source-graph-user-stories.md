@@ -19,7 +19,7 @@ The engineering and operator contracts that the `source_graph` / `source_graph_v
 These stories are engineering scope: they describe what the schema must support and what the code that reads and writes it must guarantee. They are not product requirements and they do not specify UI, cost, or rollout — those belong in PRDs. Each story names a persona and a contract; each acceptance criterion is a checkable property of the schema or the code that touches it.
 
 - **Schema designer** — owns the `ColumnDef` arrays and the catalog group; reasons about table shape.
-- **Deep Lake client (writer)** — the hiveantennae worker code that mints nectars and appends version rows.
+- **Deep Lake client (writer)** — the hiveantennae daemon code that mints nectars and appends version rows.
 - **Recall query (reader)** — the hybrid recall arm that reads `source_graph_versions`.
 - **Heal pass** — the `withHeal` code path at daemon boot.
 - **Operator** — the human auditing tenancy, running rebuilds, or investigating isolation.

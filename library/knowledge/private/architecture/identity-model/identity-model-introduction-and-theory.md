@@ -23,7 +23,7 @@ Consider what a file actually is to the operating system. Its **path** can chang
 
 The only thing that actually persists across a rename, a move, and an edit is the *fact that an observer once decided this is the same logical file it saw before*. That decision is not a property of the file. It is a property of the observer. Identity, in other words, is not something a file *has* — it is something a system *assigns* and then works to *maintain*. This is the philosophical pivot on which the whole model turns.
 
-Hivenectar calls that assigned identity a **nectar**: a 26-character ULID minted once by the hiveantennae worker and stored in Deep Lake. The nectar is stable precisely because it is **not derived from anything about the file**. It is not a hash of the content (that changes per edit). It is not a function of the path (that changes per move). It is not embedded in the source (that collides with the license header and breaks on copy-paste). It is a pure minted identifier, created once, associated to the file by the daemon's ongoing observation of disk.
+Hivenectar calls that assigned identity a **nectar**: a 26-character ULID minted once by the hiveantennae daemon and stored in Deep Lake. The nectar is stable precisely because it is **not derived from anything about the file**. It is not a hash of the content (that changes per edit). It is not a function of the path (that changes per move). It is not embedded in the source (that collides with the license header and breaks on copy-paste). It is a pure minted identifier, created once, associated to the file by the daemon's ongoing observation of disk.
 
 ---
 
@@ -48,7 +48,7 @@ flowchart LR
     share --> recall
 ```
 
-Everything downstream is a consequence. The schema must carry a stable identity key separate from a changing version key (forcing the two-table split). The watcher must observe moves in real time (forcing the chokidar event contract). The fresh-clone story must carry identity across a git boundary (forcing the committed projection). The team-share path must give every clone the same nectars (forcing Deep Lake cloud sync plus the projection lockfile). None of these are independent decisions; they are all deductions from the identity model.
+Everything downstream is a consequence. The schema must carry a stable identity key separate from a changing version key (forcing the two-table split). The watcher must notice disk changes without becoming the authority for identity (forcing the `node:fs.watch` + re-association-ladder contract). The fresh-clone story must carry identity across a git boundary (forcing the committed projection). The team-share path must give every clone the same nectars (forcing Deep Lake cloud sync plus the projection lockfile). None of these are independent decisions; they are all deductions from the identity model.
 
 ---
 
@@ -74,7 +74,7 @@ Content hash is not useless. It is the correct *secondary* attribute — the ver
 
 ### Candidate C: daemon-minted ULID, never in the file
 
-The hiveantennae worker mints a 26-character ULID once per logical file and stores it in Deep Lake as the primary key of `source_graph`. The ULID never lives in the file. Re-association to the file on disk is performed by a ladder of exact-match and fuzzy-match heuristics at daemon boot and on watcher events.
+The hiveantennae daemon mints a 26-character ULID once per logical file and stores it in Deep Lake as the primary key of `source_graph`. The ULID never lives in the file. Re-association to the file on disk is performed by a ladder of exact-match and fuzzy-match heuristics at daemon boot and on watcher events.
 
 This is the chosen model, and it wins on every decision driver because it refuses to derive identity from any mutable file property. The full technical contract is documented in [`identity-model-technical-specification.md`](identity-model-technical-specification.md); the cascade into the rest of the system is traced in [`identity-model-ecosystem-story-arc.md`](identity-model-ecosystem-story-arc.md).
 

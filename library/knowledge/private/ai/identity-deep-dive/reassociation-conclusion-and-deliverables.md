@@ -52,13 +52,13 @@ mtime combined with size is a fast-path cache key only. Step 1 uses the pair to 
 
 ### 3. It does not run mid-edit
 
-The chokidar watcher debounces events per-path (default 2000 ms at intake, documented in [`../brooding-pipeline.md`](../brooding-pipeline.md)), and re-association runs on the debounced state. Mid-edit, the daemon sees nothing. A developer hitting Cmd-S ten times in ten seconds produces one re-association pass against the final content, not ten passes against intermediate states.
+The `node:fs.watch` intake debounces path observations, and re-association runs on the debounced state. Mid-edit, the daemon sees nothing. A developer hitting Cmd-S ten times in ten seconds produces one re-association pass against the final content, not ten passes against intermediate states.
 
 This is a correctness property, not just a performance one. Running re-association against a half-written file would hash content that is never committed to disk, producing version rows for states that never existed. The debounce ensures the ladder only sees quiesced file states.
 
 ### 4. It does not cross project boundaries
 
-Re-association is scoped by `project_id` (plus `org_id` and `workspace_id`). Two projects in the same workspace that happen to share a file path do not share nectars. The missing-files map is built per-project; the known-nectars map is scoped per-project; the fuzzy-match candidate set is scoped per-project.
+Re-association is scoped by `project_id` as a soft column filter (plus the org/workspace Deep Lake scope). Two projects in the same workspace that happen to share a file path do not share nectars. The missing-files map is built per-project; the known-nectars map is scoped per-project; the fuzzy-match candidate set is scoped per-project.
 
 This rule exists because project identity is a deliberate boundary in the data model (see the tenancy discussion in [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)). A file's meaning is contextual to its project; the same path in two projects is two different logical files. Cross-project re-association would conflate them.
 

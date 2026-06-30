@@ -2,7 +2,7 @@
 
 > Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
 
-A single query traced end-to-end through the four-arm recall union: how the agent's words become a scoped, fused, ranked list where CodeGraph structural hits and Hivenectar semantic hits appear together, and how the enricher, the embeddings daemon, and the BM25 fallback each play their part in keeping the Hivenectar arm alive.
+A single query traced end-to-end through the four-arm guarded recall flow: how the agent's words become a scoped, fused, ranked list where CodeGraph structural hits and Hivenectar semantic hits appear together, and how the enricher, the embedding provider, and the BM25 fallback each play their part in keeping the Hivenectar arm alive.
 
 **Related:**
 - [`../recall-integration.md`](../recall-integration.md)
@@ -17,7 +17,7 @@ A single query traced end-to-end through the four-arm recall union: how the agen
 
 ## Why this exists
 
-The SQL contract and the conceptual thesis are abstract until a single query is followed from words to ranked list. This document does exactly that: it traces *"everything associated with logins"* through the four-arm `UNION ALL`, the per-arm BM25+vector scoring, the RRF fusion, and the tenancy scoping, and it shows where the enricher's described rows, the embeddings daemon's vectors, and the BM25 fallback each enter the path. The point is to make the compositional argument concrete — to show the arm doing its job in motion, alongside the three arms that predate it. The SQL behind the trace is in [`recall-integration-technical-specification.md`](recall-integration-technical-specification.md); the personas and acceptance criteria are in [`recall-integration-user-stories.md`](recall-integration-user-stories.md).
+The SQL contract and the conceptual thesis are abstract until a single query is followed from words to ranked list. This document does exactly that: it traces *"everything associated with logins"* through the four guarded arms, the per-arm BM25+vector scoring, the RRF fusion, and the tenancy scoping, and it shows where the enricher's described rows, the configured embedding provider's vectors, and the BM25 fallback each enter the path. The point is to make the compositional argument concrete — to show the arm doing its job in motion, alongside the three arms that predate it. The SQL behind the trace is in [`recall-integration-technical-specification.md`](recall-integration-technical-specification.md); the personas and acceptance criteria are in [`recall-integration-user-stories.md`](recall-integration-user-stories.md).
 
 ---
 
@@ -33,13 +33,13 @@ The trace follows the query through five stages: issue, scope, score, fuse, rank
 
 The agent hands the query string and its tenancy context (`org_id`, `workspace_id`, `project_id`) to the recall pipeline. The pipeline treats the query two ways: as a lexical pattern (for the BM25 paths) and as a 768-dim vector (for the vector paths). Both are derived from the same query string.
 
-Scoping is applied per arm, inside each arm's own predicates. The sessions, memory, and memories arms scope by `org_id` / `workspace_id` / `project_id` plus `agent_id` / `visibility` where their schemas carry them. The Hivenectar arm scopes by the org/workspace/project triple only — file identity is cross-agent, so there is no `agent_id` and no `visibility` on `source_graph_versions`. The arms do not reconcile their scoping; each applies what its schema requires, and the union combines whatever survives.
+Scoping is applied per arm, inside each arm's own predicates. The sessions, memory, and memories arms scope by `org_id` / `workspace_id` / `project_id` plus `agent_id` / `visibility` where their schemas carry them. The Hivenectar arm scopes by the org/workspace/project triple only — file identity is cross-agent, so there is no `agent_id` and no `visibility` on `source_graph_versions`. The arms do not reconcile their scoping; each applies what its schema requires, and fusion combines whatever survives.
 
 ---
 
-## Stage 2 — The four-arm UNION ALL
+## Stage 2 — The four guarded arms
 
-The recall query is a single `UNION ALL` of four arms. Each arm runs both a BM25 lexical path and a 768-dim vector path over its body and vector columns, and returns its top-K rows.
+Recall runs four guarded arms. Each arm runs both a BM25 lexical path and a 768-dim vector path over its body and vector columns, returns its top-K rows, and degrades independently if its table or vector path is unavailable.
 
 | Arm | BM25 over | Vector over | What it finds for "logins" |
 |---|---|---|---|
@@ -70,15 +70,15 @@ A row that matches both paths is a stronger hit than one that matches only one. 
 
 ### Where the described rows come from
 
-The rows the arm scores are produced by the enricher, documented in [`../../ai/enricher-and-llm-model.md`](../../ai/enricher-and-llm-model.md). The enricher is a lazy loop inside the hiveantennae worker that polls `source_graph_versions` rows where `describe_status = 'pending'`, batches them, and fills `title`, `description`, and `concepts` via Gemini 2.5 Flash through the Portkey gateway. A row sits `pending` until the enricher reaches it; recall's `describe_status = 'described'` filter excludes pending rows, so a query mid-brood sees whatever has been described so far. The arm does not block on the enricher; the two proceed concurrently with no coordination.
+The rows the arm scores are produced by the enricher, documented in [`../../ai/enricher-and-llm-model.md`](../../ai/enricher-and-llm-model.md). The enricher is a lazy loop inside the hiveantennae daemon that polls `source_graph_versions` rows where `describe_status = 'pending'`, batches them, and fills `title`, `description`, and `concepts` via Gemini 2.5 Flash through the Portkey gateway. A row sits `pending` until the enricher reaches it; recall's `describe_status = 'described'` filter excludes pending rows, so a query mid-brood sees whatever has been described so far. The arm does not block on the enricher; the two proceed concurrently with no coordination.
 
 ### Where the vectors come from
 
-The `embedding` column is filled by the embeddings daemon, which computes a 768-dim vector over `title + ' ' + description` using nomic-embed-text-v1.5 (q8 quantization, Unix-socket NDJSON IPC). The dimensionality matches `sessions.message_embedding` and `memory.summary_embedding` deliberately, so the same hybrid vector index serves all arms. The embedding is written after the description; between description-write and embedding-write, the row is `described` but has a NULL embedding, and the vector arm simply does not return it.
+The `embedding` column is filled by the configured embedding provider, which computes a 768-dim vector over `title + ' ' + description`. Local nomic is the default provider; Cohere via Portkey is the hosted opt-in provider. The dimensionality matches `sessions.message_embedding` and `memory.summary_embedding` deliberately, so the same hybrid vector index serves all arms. The embedding is written after the description; between description-write and embedding-write, the row is `described` but has a NULL embedding, and the vector path simply does not return it.
 
 ### BM25 fallback keeps the arm alive
 
-When embeddings are off — the daemon is not installed, or it failed to warm up — the `embedding` column is NULL across the arm, the vector path returns nothing, and the BM25 path carries recall alone. The arm does not error, does not return empty, and does not degrade sharply: it returns lexical hits over descriptions, ranked by BM25. This is the same silent-fallback behavior every other recall arm uses. Re-enabling the embeddings daemon restores vector scoring on the next warm-up, with no manual re-index step.
+When embeddings are off — the local provider is unavailable, the hosted provider is unavailable, or embeddings are disabled — the `embedding` column is NULL across the arm, the vector path returns nothing, and the BM25 path carries recall alone. The arm does not error, does not return empty, and does not degrade sharply: it returns lexical hits over descriptions, ranked by BM25. This is the same silent-fallback behavior every other recall arm uses. Restoring the provider restores vector scoring on the next warm-up, with no manual re-index step.
 
 ---
 
@@ -97,7 +97,7 @@ sequenceDiagram
     participant memories as Memories arm
     participant hivenectar as Hivenectar arm
     participant enricher as Enricher
-    participant embeddings as Embeddings daemon
+    participant embeddings as Embedding provider
     participant rrf as RRF fusion
 
     Note over enricher,hivenectar: ahead of time (lazy)
@@ -143,6 +143,6 @@ The agent can now decide: read the code file, replay the session, or trust the d
 
 ## The arc, restated
 
-The query entered as words and a tenancy triple. It was scoped per arm, scored by BM25 and vector over four different bodies, fused by rank into one list, and returned with code files alongside discussions. The enricher's described rows fed the Hivenectar arm's body; the embeddings daemon's vectors fed its vector path; the BM25 fallback kept the arm alive when embeddings were off. Nothing in the path was Hivenectar-specific except the arm's SELECT — the scoping, the fusion, the weighting, and the fallback are all shared with the three arms that predate it. That is the compositional property the fourth arm exists to preserve, and it is the reason a `UNION ALL` arm beats a separate query.
+The query entered as words and a tenancy triple. It was scoped per arm, scored by BM25 and vector over four different bodies, fused by rank into one list, and returned with code files alongside discussions. The enricher's described rows fed the Hivenectar arm's body; the configured embedding provider's vectors fed its vector path; the BM25 fallback kept the arm alive when embeddings were off. Nothing in the path was Hivenectar-specific except the arm's SELECT — the scoping, the fusion, the weighting, and the fallback are all shared with the three arms that predate it. That is the compositional property the fourth arm exists to preserve, and it is the reason a guarded arm beats a separate query.
 
 The deliverable, the two contracts (complementarity and graceful degradation), and the forward pointers to the source schema and the enricher are restated in [`recall-integration-conclusion-and-deliverables.md`](recall-integration-conclusion-and-deliverables.md).

@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS "source_graph" (
 | `fork_content_hash` | TEXT | The content hash at the fork point. Lets the enricher render "this file was copied from X when X looked like Y" — useful for the Obsidian-style interlink view. |
 | `org_id` | TEXT | Tenancy. Explicit because identity is cross-cutting (mirrors the `codebase` table's tenancy columns). |
 | `workspace_id` | TEXT | Tenancy. Same rationale. |
-| `project_id` | TEXT | Project isolation within a workspace. Resolved registry key, same semantics as the `project_id` column on `sessions` and `memory` in the main Honeycomb schema. |
+| `project_id` | TEXT | Project isolation within a workspace. Soft column filter, not a Deep Lake partition or provisioning boundary. |
 | `last_update_date` | TEXT | Denormalized "last observed change" timestamp. Updated whenever a new version row is appended. Lets the projection sync and the dashboard render "recently touched" without scanning the versions table. |
 
 The `nectar` column is the only column that is truly immutable. `derived_from_nectar` and `fork_content_hash` are write-once (set at minting, never updated). Everything else is mutable but rarely changes after the row's first write.
@@ -128,15 +128,19 @@ The `path` and `filename` columns are covered by the standard ILIKE fallback (th
 
 ## Tenancy and isolation
 
-`source_graph` and `source_graph_versions` carry explicit `org_id`, `workspace_id`, and `project_id` columns rather than relying on storage-partition isolation alone. This mirrors the `codebase` table (the CodeGraph's cloud-sync target) and diverges from `sessions`/`memory`, which lean on partition isolation plus `agent_id`/`visibility`. The reason is that file identity is **cross-agent by nature** — every agent and every harness working in the same project should see the same file descriptions, so there is no `agent_id` column and no `visibility` column. Isolation is org→workspace→project, full stop.
+Decision update from `library/requirements/MASTER-PRD-INDEX.md:13`: `project_id` is a soft column-level filter within Honeycomb's org/workspace Deep Lake scope. Hivenectar does not create per-project tables, per-project partitions, or a provisioning event when a project appears; catalog registration plus `withHeal` handles table creation and additive schema convergence on first write.
 
-A team sharing a workspace (the normal Honeycomb collaboration model) therefore shares a single Hivenectar graph per project. A new teammate's `git clone` + `honeycomb daemon` boot pulls the cloud-synced `source_graph_versions` rows for the workspace and re-derives the local projection from them, the same way the CodeGraph's `pullSnapshot` works.
+`source_graph` and `source_graph_versions` carry explicit `org_id`, `workspace_id`, and `project_id` columns. This mirrors the `codebase` table (the CodeGraph's cloud-sync target) and diverges from `sessions`/`memory`, which lean on partition isolation plus `agent_id`/`visibility`. The reason is that file identity is **cross-agent by nature** — every agent and every harness working in the same project should see the same file descriptions, so there is no `agent_id` column and no `visibility` column. Isolation is org→workspace at the Deep Lake scope plus a required `project_id` predicate for project-level filtering.
+
+A team sharing a workspace (the normal Honeycomb collaboration model) therefore shares a single Hivenectar graph per project by filtering on `project_id`. A new teammate's `git clone` + `hivenectar daemon` boot (registered with hivedoctor per ADR-0003) pulls the cloud-synced `source_graph_versions` rows for the workspace and re-derives the local projection from them, the same way the CodeGraph's `pullSnapshot` works.
 
 ---
 
 ## Lazy schema healing
 
-Hivenectar tables participate in the same additive schema-heal pass as the rest of Honeycomb (documented in the main corpus's `data/deeplake-storage.md`). When hiveantennae boots and finds a table missing a column added in a newer version (say `concepts` was added after initial deploy), `withHeal` issues the additive `ALTER` and backfills defaults. Existing rows get `'[]'` for `concepts`; the enricher picks them up on the next lazy pass.
+Decision update from `library/requirements/MASTER-PRD-INDEX.md:13`: there is no explicit DDL pre-step and no per-project provisioning flow. The Hivenectar catalog entries are registered with the daemon's catalog group, and `withHeal` creates or heals tables when the first write needs them.
+
+Hivenectar tables participate in the same additive schema-heal pass as the rest of Honeycomb (documented in the main corpus's `data/deeplake-storage.md`). When hiveantennae writes through the catalog and finds a table missing, or finds an existing table missing a column added in a newer version (say `concepts` was added after initial deploy), `withHeal` creates or heals the table and backfills defaults. Existing rows get `'[]'` for `concepts`; the enricher picks them up on the next lazy pass.
 
 Never hand-roll an `ALTER` against these tables. Define the `ColumnDef` array once in the daemon's schema module, add it to the catalog group, and let the heal pass converge. This is the same rule that governs every other Honeycomb table.
 

@@ -16,15 +16,15 @@ How the two Hivenectar tables compose end-to-end: the write path from nectar min
 
 ## The arc in one sentence
 
-A nectar is minted into `source_graph`, every meaningful edit appends a row to `source_graph_versions`, the enricher fills that row's description and embedding, recall reads the latest described version per nectar through a `UNION ALL` arm, and the projection regenerates from the versions table as a portable cache. Every component talks to the same two tables through well-defined contracts; nothing reaches around them.
+A nectar is minted into `source_graph`, every meaningful edit appends a row to `source_graph_versions`, the enricher fills that row's description and embedding, recall reads the latest described version per nectar through a guarded arm, and the projection regenerates from the versions table as a portable cache. Every component talks to the same two tables through well-defined contracts; nothing reaches around them.
 
-The two tables are the hub. Around them are the writer (the hiveantennae worker's re-association ladder), the enricher (the lazy LLM description pass), the reader (the hybrid recall pipeline), and the projection (the regenerable lockfile). This document traces each path in turn, then names the composite-key invariant that ties the write path's copy-detection to the schema's physical key.
+The two tables are the hub. Around them are the writer (the hiveantennae daemon's re-association ladder), the enricher (the lazy LLM description pass), the reader (the hybrid recall pipeline), and the projection (the regenerable lockfile). This document traces each path in turn, then names the composite-key invariant that ties the write path's copy-detection to the schema's physical key.
 
 ---
 
 ## The write path
 
-The write path is triggered by the hiveantennae worker whenever it observes a new or changed file on disk — during brooding (first scan), live watch (a chokidar event during editing), or cold catch-up (daemon boot after offline changes). In every case the worker runs the re-association ladder (documented in [`../ai/identity-and-reassociation.md`](../../ai/identity-and-reassociation.md)) to decide whether the file is an existing nectar or a new one, then writes accordingly.
+The write path is triggered by the hiveantennae daemon whenever it observes a new or changed file on disk — during brooding (first scan), live watch (`node:fs.watch` observations during editing), or cold catch-up (daemon boot after offline changes). In every case the daemon runs the re-association ladder (documented in [`../ai/identity-and-reassociation.md`](../../ai/identity-and-reassociation.md)) to decide whether the file is an existing nectar or a new one, then writes accordingly.
 
 ```mermaid
 flowchart TD
@@ -58,7 +58,7 @@ Three properties of the write path are load-bearing:
 
 ## The read path
 
-The read path is the recall query. When an agent asks a question, the hybrid recall pipeline runs BM25 lexical and 768-dim vector search over a `UNION ALL` of four tables — `sessions`, `memory`, `memories`, and `source_graph_versions` — fuses the results by reciprocal rank, and returns a single ranked list. Hivenectar's arm is the fourth: a subquery that selects the latest described version per nectar, scoped by tenancy, then filters and scores over `title`, `description`, `concepts`, and `embedding`.
+The read path is the recall query. When an agent asks a question, the hybrid recall pipeline runs guarded BM25 lexical and 768-dim vector arms over `sessions`, `memory`, `memories`, and `source_graph_versions`, fuses the successful results by reciprocal rank, and returns a single ranked list. Hivenectar's arm is the fourth: a subquery that selects the latest described version per nectar, scoped by tenancy, then filters and scores over `title`, `description`, `concepts`, and `embedding`.
 
 ```mermaid
 flowchart LR

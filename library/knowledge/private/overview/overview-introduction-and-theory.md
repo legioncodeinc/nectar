@@ -30,7 +30,7 @@ The two layers are not competing approximations of the same thing. They answer d
 The name is functional, not decorative, and each word maps to a role in the system.
 
 - **The hive** is the team of agents and engineers working in the same repository. They share a codebase, they share context, and they should share the accumulated understanding of what that codebase is for. Hivenectar treats semantic understanding as a *team asset*, not a per-developer index.
-- **The antennae** are what sense the environment — what files exist, what they mean, how they relate. The concrete component is the **hiveantennae** worker, a background service inside the Honeycomb daemon that watches the project directory, mints identity for new files, re-associates identity after moves and edits, and lazily describes file contents. Antennae sense continuously; they do not require the agent to ask before noticing.
+- **The antennae** are what sense the environment — what files exist, what they mean, how they relate. The concrete component is the **Hivenectar daemon** (the `hiveantennae` process), an independent workload daemon registered with **hivedoctor** and surfaced through **thehive** that watches the project directory, mints identity for new files, re-associates identity after moves and edits, and lazily describes file contents. Antennae sense continuously; they do not require the agent to ask before noticing.
 - **A nectar** is the minted identity record for a single file: small, stable, and the raw material from which richer understanding is produced. A nectar is a 26-character ULID. It is not a hash of the content, not a function of the path, and not embedded in the source. It is a pure minted identifier, created once by the daemon and persisted in Deep Lake.
 
 The metaphor also captures the relationship to the hive's broader sustenance. The CodeGraph is the comb — the rigid, deterministic structure. Hivenectar is the forage — the gathered, probabilistic understanding of what each cell of the comb is for. Both belong to the same hive.
@@ -43,7 +43,7 @@ Hivenectar rests on three pillars. Each is individually present in some prior sy
 
 ### Pillar 1 — Stable identity via a daemon-minted nectar, never embedded in source
 
-Every file gets a nectar: a ULID minted once by the hiveantennae worker and persisted in Deep Lake. The nectar never lives inside the file. It survives the four events that defeat every other identity scheme:
+Every file gets a nectar: a ULID minted once by the hiveantennae daemon and persisted in Deep Lake. The nectar never lives inside the file. It survives the four events that defeat every other identity scheme:
 
 - **Edits**, because the nectar is not derived from content. A save appends a version row keyed by the new content hash; the nectar is unchanged.
 - **Renames and moves**, because re-association follows the file on disk through an exact-then-fuzzy ladder, not a comment marker. A `git mv` carries the nectar along.
@@ -88,8 +88,8 @@ The single most important thing to internalize before reading the rest of the co
 
 This thesis has concrete consequences for how the system is built:
 
-- **Two independent workers.** hiveantennae and the CodeGraph worker run side by side inside the daemon, writing to different tables (`source_graph_versions` vs `codebase`), with no coordination between them. A file is in both by default.
-- **Two disjoint recall surfaces.** The CodeGraph's `find/`, `query/`, and `show/` answer symbol-shaped questions. Hivenectar's `UNION ALL` arm in the hybrid recall pipeline answers meaning-shaped questions. A recall hit does not deduplicate against a CodeGraph hit — the agent benefits from seeing both, because each carries information the other lacks.
+- **Two independent workload paths.** hiveantennae runs as the Hivenectar workload daemon, while the CodeGraph worker remains part of Honeycomb's workload. They write to different tables (`source_graph_versions` vs `codebase`), with no coordination between them. A file is in both by default.
+- **Two disjoint recall surfaces.** The CodeGraph's `find/`, `query/`, and `show/` answer symbol-shaped questions. Hivenectar's guarded source-graph arm in the hybrid recall pipeline answers meaning-shaped questions. A recall hit does not deduplicate against a CodeGraph hit — the agent benefits from seeing both, because each carries information the other lacks.
 - **Two different identity models, deliberately.** The CodeGraph keys on symbols and edges derived from ASTs; identity there is structural and reproducible. Hivenectar keys on files and mints identity; identity here is stable across mutation. Trying to unify them would corrupt both.
 
 ```mermaid

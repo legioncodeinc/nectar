@@ -51,7 +51,7 @@ At the end of brooding, N1 has one version row, a description, an embedding, and
 
 ## 2. Live edit (step 2)
 
-The developer opens `src/auth/login.ts` and adds a rate-limit check, then saves. The chokidar watcher fires an `add`/`change` event on the path. The intake debounce (default 2000 ms) collapses any rapid-fire saves into a single signal. Re-association runs:
+The developer opens `src/auth/login.ts` and adds a rate-limit check, then saves. The `node:fs.watch` intake reports a `rename` or `change` observation for the path. The intake debounce collapses any rapid-fire saves into a single signal. Re-association runs:
 
 - Step 1 misses — the content (and therefore the hash) changed, so mtime/size no longer both match.
 - Step 2 hits — the path `src/auth/login.ts` matches N1's latest version, but `sha256(new content) != row.content_hash`.
@@ -61,13 +61,13 @@ The daemon appends a new `source_graph_versions` row for N1 with `seq = 1`, the 
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
-    participant Watch as chokidar watcher
+    participant Watch as fs.watch intake
     participant Ladder as Re-association
     participant DL as Deep Lake
     participant Queue as Enricher queue
 
     Dev->>Watch: save src/auth/login.ts
-    Watch->>Watch: debounce 2000ms
+    Watch->>Watch: debounce path observations
     Watch->>Ladder: path changed signal
     Ladder->>DL: read latest version row for path
     Ladder->>Ladder: step 1 miss, step 2 hit
@@ -94,7 +94,7 @@ On the next daemon boot, cold catch-up runs. The daemon walks disk, hashes each 
 
 The daemon carries N1 to the new path: it appends a `source_graph_versions` row for N1 with `seq = 2`, the new path `src/auth/handlers/login.ts`, and the same content hash. No enrich job is enqueued — the content is unchanged, so the existing description still applies. The previous version row's stale path (`src/auth/login.ts`) is retained as history.
 
-Step 3 is the move detector. In live mode, the chokidar watcher would have correlated the `unlink` on the old path with the `add` on the new path within milliseconds. In cold catch-up, the daemon infers the move from the exact hash match against the missing-files map. Same step, different evidence source.
+Step 3 is the move detector. In live mode, the `node:fs.watch` intake reports changed paths and the daemon refreshes the missing-files map before matching the new path's hash against missing files. In cold catch-up, the daemon infers the move from the exact hash match against the missing-files map after walking final disk state. Same step, different freshness of evidence.
 
 ---
 
@@ -140,7 +140,7 @@ The batched-write shape matters for cold-catch-up performance. The daemon does n
 
 ## 5. Copy-paste by a teammate (provenance edge)
 
-A teammate, working in the same workspace, wants a second login route that shares most of the original's structure. They copy `src/auth/routes/login.ts` to `src/auth/routes/oauth-login.ts`. The chokidar watcher fires an `add` event for the new path. The new file's content hash matches N1's *current* content hash.
+A teammate, working in the same workspace, wants a second login route that shares most of the original's structure. They copy `src/auth/routes/login.ts` to `src/auth/routes/oauth-login.ts`. The `node:fs.watch` intake reports the new path. The new file's content hash matches N1's *current* content hash.
 
 Re-association reaches step 5 (nothing exact or fuzzy resolves it as the *same* file at a new path — the original still exists at its path). Before minting, the daemon runs `classifyNewFile()`:
 

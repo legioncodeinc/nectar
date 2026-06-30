@@ -69,13 +69,13 @@ Every description and every skip produces a committed Deep Lake write. This is t
 
 ### Embedding and the bootstrap write
 
-After a description is written, the enricher computes a 768-dim embedding over `title + ' ' + description`. If the embeddings daemon is unavailable, the embedding is NULL and recall falls back to BM25 — no error, no cliff.
+After a description is written, the enricher computes a 768-dim embedding over `title + ' ' + description` through the embedding provider switch. If the selected provider is unavailable, the embedding is NULL and recall falls back to BM25 — no error, no cliff.
 
 The bootstrap write — the one that only brooding performs — is the initial `.honeycomb/nectars.json`. The daemon regenerates the projection from Deep Lake at the end of the brood (temp file plus atomic rename). This is the artifact that makes the brood durable and shareable: it is what a subsequent clone matches against to inherit identity without re-brooding.
 
 ### Handoff to live watch
 
-With the projection written and all reachable files at a terminal `describe_status`, the daemon switches to live watch. From this point, the chokidar watcher carries move semantics in real time, re-association uses the exact-match steps of the ladder, and the enricher owns description maintenance. Brooding does not re-trigger unless the projection is lost and identity cannot be re-derived.
+With the projection written and all reachable files at a terminal `describe_status`, the daemon switches to live watch. From this point, `node:fs.watch` reports disk observations, re-association reconstructs moves through the exact-match steps of the ladder, and the enricher owns description maintenance. Brooding does not re-trigger unless the projection is lost and identity cannot be re-derived.
 
 ---
 

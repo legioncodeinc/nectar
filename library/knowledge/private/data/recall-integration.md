@@ -2,33 +2,34 @@
 
 > Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
 
-How Hivenectar's `source_graph_versions` table plugs into the existing Honeycomb hybrid recall pipeline: the `UNION ALL` arm, the latest-per-nectar subquery, the weighting and dedup strategy against session/memory/skill hits, and the structural-vs-semantic complementarity that makes recall stronger with both layers than with either alone.
+How Hivenectar's `source_graph_versions` table plugs into the existing Honeycomb hybrid recall pipeline: the guarded source-graph arm, the latest-per-nectar subquery, the weighting and dedup strategy against session/memory/skill hits, and the structural-vs-semantic complementarity that makes recall stronger with both layers than with either alone.
 
 **Related:**
 - [`../overview.md`](../overview.md)
 - [`source-graph-schema.md`](source-graph-schema.md)
 - [`portable-registry.md`](portable-registry.md)
 - [`../ai/enricher-and-llm-model.md`](../ai/enricher-and-llm-model.md)
+- [`../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md)
 
 ---
 
 ## What recall looks like before Hivenectar
 
-The existing Honeycomb hybrid recall pipeline (documented in the main corpus at `ai/retrieval.md` and `ai/hybrid-sql-vector-rationale.md`) answers an agent query by running BM25 lexical and 768-dim vector search over a `UNION ALL` of three tables:
+The existing Honeycomb hybrid recall pipeline (documented in the main corpus at `ai/retrieval.md` and `ai/hybrid-sql-vector-rationale.md`) answers an agent query by running BM25 lexical and 768-dim vector search over three guarded arms:
 
 1. **`sessions`** — raw conversation events. `message` (JSONB) is the body; `message_embedding` is the vector.
 2. **`memory`** — wiki summaries and VFS rows. `summary` is the body; `summary_embedding` is the vector.
 3. **`memories`** — distilled facts from the pipeline. `body` is the text; `body_embedding` is the vector.
 
-Each arm returns its top-K matches with a score; the union is fused by reciprocal rank fusion (RRF — see ADR-0001 in the main corpus) into a single ranked list, scoped by `org_id`/`workspace_id`/`project_id`/`agent_id`/`visibility`. The result tells the agent *what was discussed and what was decided* about the query topic.
+Each arm returns its top-K matches with a score; the results are fused by reciprocal rank fusion (RRF — see ADR-0001 in the main corpus) into a single ranked list, scoped by `org_id`/`workspace_id`/`project_id`/`agent_id`/`visibility` as each arm's schema requires. The result tells the agent *what was discussed and what was decided* about the query topic.
 
 What it does not tell the agent is *what files in the codebase implement the query topic*. The CodeGraph's structural query surface (`find/`, `query/`, `show/`) answers that for symbol-shaped queries (`find/authenticate`), but not for semantic queries ("where is the login logic") — that is the gap Hivenectar fills.
 
 ---
 
-## The added `UNION ALL` arm
+## The added guarded arm
 
-Hivenectar adds a fourth arm to the recall union: `source_graph_versions`, filtered to the latest described version per nectar. The arm contributes a row per matching file, scored by BM25 over `title + description` and vector similarity over `embedding`.
+Hivenectar adds a fourth guarded arm to recall: `source_graph_versions`, filtered to the latest described version per nectar. The arm contributes a row per matching file, scored by BM25 over `title + description` and vector similarity over `embedding`.
 
 ```sql
 -- The Hivenectar recall arm (simplified; the real query is sqlStr/sqlLike-guarded
@@ -61,6 +62,8 @@ LIMIT :k;
 ```
 
 The vector arm is analogous, substituting `<#>` (cosine distance) over `embedding` for the BM25/ILIKE filter, gated on `embedding IS NOT NULL`. When embeddings are off, only the BM25 arm runs — same silent-fallback behavior as every other recall arm in Honeycomb.
+
+The guard is load-bearing. If the Hivenectar tables are not present in a fresh workspace, this arm returns empty and the sessions, memory, and memories arms still answer. The implementation therefore mirrors Honeycomb's per-arm guarded-query pattern (`buildSourceGraphVersionsArmSql` beside the existing arm builders), rather than refactoring recall into one monolithic query.
 
 The `latest-per-nectar` subquery is what makes recall return one row per *current* file rather than one row per *version*. Without it, a file edited 50 times would dominate recall with 50 near-duplicate rows; with it, recall sees only the most recent described state.
 
@@ -140,7 +143,7 @@ The two are not redundant. The CodeGraph cannot find `session-refresh.ts` becaus
 
 ## The fresh-clone and team-share path
 
-Because `source_graph_versions` is a Deep Lake table with tenancy columns, it cloud-syncs the same way every other Honeycomb table does. A teammate who clones the repo and runs `honeycomb daemon` for the first time:
+Because `source_graph_versions` is a Deep Lake table with tenancy columns, it cloud-syncs the same way every other Honeycomb table does. A teammate who clones the repo and runs `hivenectar daemon` (registered with hivedoctor, per ADR-0003) for the first time:
 
 1. Pulls the workspace's `source_graph_versions` rows from Deep Lake (the team-share path documented in the main corpus's `collaboration/` domain).
 2. Re-derives the local `.honeycomb/nectars.json` projection from the pulled rows (or inherits the committed projection if present — see `portable-registry.md`).

@@ -31,7 +31,7 @@ Two Deep Lake tables implement the identity+version split that makes Hivenectar'
 | **Versions are append-only** | Edits append a new `source_graph_versions` row keyed by the new `content_hash`; previous rows are never overwritten. | History is lost; "what did this file look like last week" becomes unanswerable. |
 | **Composite key uniqueness** | `(nectar, content_hash)` is unique. Same content under the same nectar is an idempotent no-op; same content under a different nectar is the copy signal. | Copy-paste detection breaks; provenance edges are lost or spuriously created. |
 | **`seq` is monotonic per nectar** | "Latest version" is `ORDER BY seq DESC LIMIT 1`, with no timestamp parsing and no reliance on `content_hash` ordering. | "Current state" becomes ambiguous or expensive to compute. |
-| **Tenancy is explicit and cross-agent** | `org_id`/`workspace_id`/`project_id` are columns, not partition isolation; there is no `agent_id` or `visibility` column. | Either isolation leaks across projects, or agents in the same project see different file graphs (defeating the point of a shared semantic layer). |
+| **Tenancy is explicit and cross-agent** | `org_id`/`workspace_id`/`project_id` are columns, with `project_id` as a soft filter inside org/workspace scope; there is no `agent_id` or `visibility` column. | Either isolation leaks across projects, or agents in the same project see different file graphs (defeating the point of a shared semantic layer). |
 | **Description is nullable until enriched** | `title`/`description`/`embedding` are empty while `describe_status = 'pending'`; recall filters them out. | Recall surfaces empty/garbage rows, or the schema forces eager description (collapsing the lazy pillar). |
 
 ---
@@ -87,7 +87,7 @@ flowchart LR
 
 - **Minting** ([`../../ai/identity-and-reassociation.md`](../../ai/identity-and-reassociation.md)) writes the `source_graph` row and the initial `source_graph_versions` row.
 - **The enricher** ([`../../ai/enricher-and-llm-model.md`](../../ai/enricher-and-llm-model.md)) updates `source_graph_versions` rows from `describe_status = 'pending'` to `'described'`, filling the title/description/embedding columns.
-- **Recall** ([`../recall-integration.md`](../recall-integration.md)) reads the latest described version per nectar through a `UNION ALL` arm.
+- **Recall** ([`../recall-integration.md`](../recall-integration.md)) reads the latest described version per nectar through a guarded arm.
 - **The projection** ([`../portable-registry.md`](../portable-registry.md)) is regenerated from the versions table and, on a fresh clone, writes inherited rows back into both tables.
 
 ---

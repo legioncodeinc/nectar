@@ -17,7 +17,7 @@ The core algorithm of Hivenectar: how a ULID nectar is minted, how it survives e
 
 ## Why identity is a daemon concept, not a file property
 
-A file on disk has no stable identity of its own. Its path can change (rename, move). Its content can change (edit). Its inode can change (copy, or a save-that-replaces). The only thing that persists across all of these is *the fact that an observer once decided this is the same logical file it saw before*. That decision is the nectar: a 26-character ULID minted by the hiveantennae worker and stored in Deep Lake, never written into the file itself.
+A file on disk has no stable identity of its own. Its path can change (rename, move). Its content can change (edit). Its inode can change (copy, or a save-that-replaces). The only thing that persists across all of these is *the fact that an observer once decided this is the same logical file it saw before*. That decision is the nectar: a 26-character ULID minted by the hiveantennae daemon and stored in Deep Lake, never written into the file itself.
 
 The nectar is stable because it is **not derived from anything about the file**. It is not a hash of the content (that changes per edit). It is not a function of the path (that changes per move). It is not embedded in the source (that collides with the license header and breaks on copy-paste, see `ADR-0001`). It is a pure minted identifier, created once, associated to the file by the daemon's ongoing observation of disk.
 
@@ -137,7 +137,7 @@ function bestFuzzyMatch(
 
 The match is **scored, not binary**. The `source_graph_versions` row appended for a fuzzy match carries a `confidence` field (1 − normalized distance). If confidence is below a "high" band (configurable, default tuned during brooding), the daemon does **not** silently claim the nectar — instead it surfaces the candidate match to the dashboard (or to an interactive `honeycomb hivenectar review-matches` command) for human confirmation. Low-confidence matches mint a new nectar instead.
 
-This step only fires after cold restart with offline changes. During live operation, the chokidar watcher sees moves in real time (a delete event on path A immediately followed by an add event on path B with identical content), so step 3 handles it directly and step 4 is never reached. Step 4 exists for the case where the daemon was not running when the move-and-edit happened.
+This step primarily fires after cold restart with offline changes, but it is not limited to that mode. Hivenectar mirrors Honeycomb's `node:fs.watch` pattern, which reports uncorrelated `(eventType, filename)` observations rather than a rich move object. During live operation the debounced event stream updates the missing-files and new/changed-files sets; step 3 reconstructs ordinary moves by exact hash, and step 4 handles move-and-edit cases when exact hash evidence is not enough.
 
 ### Step 5: nothing matches
 
@@ -151,7 +151,7 @@ Copy-paste is the case that source-embedded serials handle worst and that minted
 
 1. File **A** exists with nectar N1, current content hash H1.
 2. The user copy-pastes A to a new path **B** (Ctrl+C / Ctrl+V in a file explorer, or `cp a.ts b.ts`, or duplicate-in-IDE).
-3. The watcher fires an `add` event for B. B has no nectar. B's content is H1 (identical to A's).
+3. The `node:fs.watch` intake reports B as a new or changed path. B has no nectar. B's content is H1 (identical to A's).
 
 The daemon's logic:
 
@@ -197,11 +197,11 @@ The re-association ladder is the same algorithm in both modes, but the *distribu
 |---|---|---|
 | 1 (exact path/mtime/size) | rare (the watcher already knows nothing changed) | **dominant** — most files are untouched |
 | 2 (path match, content changed) | **dominant** — normal edits | common — offline edits |
-| 3 (exact hash → missing file) | common — moves emit delete+add events the watcher correlates | common — offline renames |
-| 4 (fuzzy TLSH match) | rare — only if the watcher missed a correlated event | occasional — offline move-and-edit |
+| 3 (exact hash → missing file) | common — debounced events plus the missing-files set reconstruct ordinary moves | common — offline renames |
+| 4 (fuzzy TLSH match) | rare — live move-and-edit or incomplete event evidence | occasional — offline move-and-edit |
 | 5 (mint new) | common — new files | occasional — genuinely new files |
 
-Live watch is the easy case because the chokidar event stream carries move semantics. A rename fires `unlink` on the old path and `add` on the new path within milliseconds, often with the chokidar-provided `rename` correlation; the daemon hashes the new path, finds the exact match to the just-deleted file's hash, and carries the nectar without ever touching the fuzzy ladder.
+Live watch is easier than cold catch-up because the daemon sees a fresh stream of disk observations, but `node:fs.watch` does not provide correlated move semantics. A rename or move may arrive as `rename`/`change` observations with only a filename, so the daemon debounces the path, refreshes the missing-files set, hashes the new path when needed, and lets step 3 carry the nectar when the new content matches a missing file's latest hash. The ladder is therefore the source of move reconstruction; the watcher is only the signal that work is needed.
 
 Cold catch-up is the hard case because all the daemon has is the final state of disk, with no event stream to correlate. This is where steps 3 and 4 do their work, and where the `confidence` field on fuzzy matches earns its keep — the daemon cannot ask "was this a move or a coincidence?" of a human in real time, so it surfaces low-confidence matches for review instead of guessing.
 

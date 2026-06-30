@@ -40,7 +40,7 @@ flowchart TD
         c2["Description: per-file LLM title+desc, Deep Lake not sidecar, no source mutation"]
         c3["Delta indexing: content hash as version key, not identity key"]
         c4["Semantic store: file-granular, composes with CodeGraph"]
-        c5["Recall: UNION ALL arm in existing hybrid pipeline"]
+        c5["Recall: guarded arm in existing hybrid pipeline"]
     end
     aura -->|split borrowed, granularity diverged| c1
     mimir -->|minted-not-derived borrowed, granularity diverged| c1
@@ -103,18 +103,18 @@ The divergence is forced by the composition constraint. Hivenectar ships inside 
 
 ---
 
-## Pillar 5 — Recall integration: union arm in the existing hybrid pipeline
+## Pillar 5 — Recall integration: guarded arm in the existing hybrid pipeline
 
-The recall-integration pillar is where the composition argument is load-bearing, because no surveyed predecessor offers a comparable integration point. The design choice — a `UNION ALL` arm over `source_graph_versions` in the existing hybrid recall pipeline (BM25 lexical plus 768-dim vector, fused by reciprocal rank), contributing alongside session, memory, and skill hits — is unique to Hivenectar because Hivenectar is a Honeycomb subsystem.
+The recall-integration pillar is where the composition argument is load-bearing, because no surveyed predecessor offers a comparable integration point. The design choice — a guarded arm over `source_graph_versions` in the existing hybrid recall pipeline (BM25 lexical plus 768-dim vector, fused by reciprocal rank), contributing alongside session, memory, and skill hits — is unique to Hivenectar because Hivenectar composes with Honeycomb over a shared Deep Lake substrate (per ADR-0002 and ADR-0003, it is an independent workload daemon, but the recall arm is a data-layer integration that survives process independence).
 
 Every surveyed predecessor is a standalone semantic-search server. CodeRAG, Codebase Cortex, and Context+ expose search over their own indexes; Smith surfaces descriptions through a navigator; Aura serves behavior-proof through a VCS. None composes code-file recall with conversation-trace recall (the `sessions` table) and distilled-fact recall (the `memory` table) in a single fused query. Hivenectar does, because it plugs into a pipeline that already serves those tables and uses the same 768-dim embedding dimensionality as `sessions.message_embedding` and `memory.summary_embedding`.
 
-This pillar is the one Hivenectar will defend most strongly, because it is the one with the least precedent. The honest framing is: the union-recall composition is not novel as a retrieval technique (hybrid BM25-plus-vector search is well-trodden), but the specific composition of code-file recall with conversation and distilled-fact recall in a single daemon that already serves a multi-harness AI coding memory system is not present in any surveyed predecessor. The wiring is documented in [`../../data/recall-integration.md`](../../data/recall-integration.md).
+This pillar is the one Hivenectar will defend most strongly, because it is the one with the least precedent. The honest framing is: guarded recall fusion is not novel as a retrieval technique (hybrid BM25-plus-vector search is well-trodden), but the specific composition of code-file recall with conversation and distilled-fact recall in a supervised workload daemon that composes with a multi-harness AI coding memory system is not present in any surveyed predecessor. The wiring is documented in [`../../data/recall-integration.md`](../../data/recall-integration.md).
 
 ---
 
 ## The throughline: divergence forced by composition, not preference
 
-Reading the five pillars together, a single throughline emerges. Every divergence is forced by one of four composition constraints: file granularity (forced by row-count budget and CodeGraph coexistence), no source mutation (forced by the AGPL-header rule), Deep Lake as the only store (forced by FR-8), and integration with the existing hybrid recall pipeline (forced by Hivenectar being a Honeycomb subsystem). None of the divergences is a stylistic preference. Each is the consequence of Hivenectar's position inside an existing system, which is why the originality claim is about composition rather than invention.
+Reading the five pillars together, a single throughline emerges. Every divergence is forced by one of four composition constraints: file granularity (forced by row-count budget and CodeGraph coexistence), no source mutation (forced by the AGPL-header rule), Deep Lake as the only store (forced by FR-8), and integration with the existing hybrid recall pipeline (forced by Hivenectar composing with Honeycomb over a shared Deep Lake substrate). None of the divergences is a stylistic preference. Each is the consequence of Hivenectar's data-layer integration with an existing system (it is an independent daemon per ADR-0002, but it shares Honeycomb's substrate), which is why the originality claim is about composition rather than invention.
 
 This throughline is what makes the prior-art survey load-bearing rather than decorative. A contributor who proposes a feature that ignores one of the four constraints is proposing to leave the composition that makes Hivenectar defensible. The [user-stories doc](prior-art-user-stories.md) codifies the audits that catch such proposals; the [conclusion](prior-art-conclusion-and-deliverables.md) restates the narrow defensibility claim that the composition supports.

@@ -28,7 +28,7 @@ The matrix maps Hivenectar and twelve prior systems across the five pillars. The
 
 | System | Stable identity | LLM description | Semantic store | Watcher-driven | Daemon-minted |
 |---|---|---|---|---|---|
-| **Hivenectar** | ULID nectar | per-file title+desc+concepts | Deep Lake | chokidar | yes (Deep Lake row) |
+| **Hivenectar** | ULID nectar | per-file title+desc+concepts | Deep Lake | `node:fs.watch` + debounce | yes (Deep Lake row) |
 | Aura | identity anchor + content hash | no (structural only) | shadow branch | git-hooked | no (content-derived) |
 | Orbit | id + identity_key + object_hash | no (structural only) | SQLite sidecar + objects | rebuild-triggered | partially (location-derived) |
 | Cartog | content_hash + subtree_hash (Merkle) | no (structural only) | on-disk graph | watcher (`--debounce`) | no (content-derived) |
@@ -72,9 +72,9 @@ The table below is the closing reference matrix from the crosswalk, restated ver
 | Description producer | Per-chunk embedding model (CodeRAG family) or LLM (Smith) | LLM (Gemini 2.5 Flash) for title+description, separate embedding model for the vector |
 | Store | SQLite (Grove, Orbit sidecar), LanceDB (CodeRAG family), FAISS (Cortex), on-disk objects (synrepo) | Deep Lake (Honeycomb substrate) |
 | Source mutation | Smith mutates `CLAUDE.md`; others do not | Never mutates source; projection is a separate committed file |
-| Recall integration | Standalone semantic search server | UNION ALL arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
+| Recall integration | Standalone semantic search server | Guarded arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
 | Team share | Smith commits `.meta`; others re-index per clone | Committed `nectars.json` projection + Deep Lake cloud sync |
-| Watcher | Cartog, Cortex, Context+ have watchers; others are manual | chokidar watcher in the daemon, same as CodeGraph build triggers |
+| Watcher | Cartog, Cortex, Context+ have watchers; others are manual | `node:fs.watch` + debounce, mirroring Honeycomb's file-watcher pattern |
 
 ---
 
@@ -84,7 +84,7 @@ After surveying the field, the specific composition that no prior system deliver
 
 - [ ] **1. Daemon-minted identity** (not content-derived, not source-embedded, not path-keyed). Partially present in Mimir at symbol granularity and in Aura at function granularity. **Not present at file granularity with a pure minted ULID** in any surveyed system.
 - [ ] **2. LLM-minted per-file description** (not per-symbol AST chunk). Partially present in Smith and codeindex. **Neither has stable identity, and neither persists to a shared multi-tenant store.**
-- [ ] **3. Deep Lake as the durable store** (not SQLite, not LanceDB, not FAISS, not a sidecar). **Unique to Hivenectar** because it is a Honeycomb subsystem; no prior art uses Deep Lake because Deep Lake is Honeycomb's substrate.
+- [ ] **3. Deep Lake as the durable store** (not SQLite, not LanceDB, not FAISS, not a sidecar). **Unique to Hivenectar** among surveyed tools; no prior art uses Deep Lake because Deep Lake is the shared substrate Hivenectar composes with Honeycomb over (per ADR-0002, Hivenectar is an independent daemon, not a Honeycomb subsystem, but it shares Honeycomb's Deep Lake datasets at the data layer).
 - [ ] **4. Integration into an existing hybrid recall pipeline** that already serves session, memory, and skill recall. **No prior system** composes code-file recall with conversation-trace recall and distilled-fact recall in a single fused query.
 - [ ] **5. Portable projection as a committed lockfile** for fresh-clone identity inheritance. Smith commits descriptions, but in source-mutating `.meta` sidecars; **Hivenectar commits a regenerable projection that never touches source.**
 

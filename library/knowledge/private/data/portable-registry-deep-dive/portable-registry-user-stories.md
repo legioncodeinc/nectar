@@ -22,7 +22,7 @@ Engineering and operator user stories for the portable registry projection, scop
 These are engineering-scope user stories, not a PRD. They describe the behaviors the portable registry must exhibit from the perspective of each actor that interacts with it, with acceptance criteria precise enough to drive implementation and verification against the contract in [`portable-registry-technical-specification.md`](portable-registry-technical-specification.md). The personas:
 
 - **The teammate** — a developer on a fresh `git clone` whose checkout inherits identity through the committed projection.
-- **The daemon** — the hiveantennae worker that loads, validates, and regenerates the projection at boot and at the end of brood/enrich cycles.
+- **The daemon** — the hiveantennae process that loads, validates, and regenerates the projection at boot and at the end of brood/enrich cycles.
 - **The reviewer** — a human reading the projection diff in a PR, sanity-checking newly-committed descriptions.
 - **The operator** — a human running `honeycomb hivenectar rebuild-projection` to repair a corrupt, lost, or stale projection.
 - **The contributor** — a developer whose PR adds a new described file, producing one new projection entry.

@@ -2,7 +2,7 @@
 
 > Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
 
-Why Hivenectar earns a fourth arm in the Honeycomb hybrid recall pipeline: the conceptual gap between recall over what was *discussed and decided* versus what *implements the topic*, and why closing that gap inside the existing UNION ALL — rather than beside it — is the load-bearing design decision.
+Why Hivenectar earns a fourth arm in the Honeycomb hybrid recall pipeline: the conceptual gap between recall over what was *discussed and decided* versus what *implements the topic*, and why closing that gap inside Honeycomb's guarded arm set — rather than beside it — is the load-bearing design decision.
 
 **Related:**
 - [`../recall-integration.md`](../recall-integration.md)
@@ -25,7 +25,7 @@ This document is the conceptual entry point for the recall-integration deep-dive
 
 ## What recall looked like before Hivenectar
 
-The recall union before Hivenectar has three arms. Each arm is a table in Deep Lake, each contributes a body column and a vector column, and each is scored by both BM25 lexical and 768-dim vector similarity before reciprocal rank fusion merges them.
+The recall flow before Hivenectar has three guarded arms. Each arm reads a table in Deep Lake, each contributes a body column and a vector column, and each is scored by both BM25 lexical and 768-dim vector similarity before reciprocal rank fusion merges the successful arms.
 
 | Arm | Table | Body column | Vector column | What it answers |
 |---|---|---|---|---|
@@ -70,7 +70,7 @@ The two are not redundant. The CodeGraph cannot find `session-refresh.ts` for th
 
 ---
 
-## Why a UNION ALL arm, not a separate query
+## Why a guarded arm, not a separate query
 
 The most natural-looking alternative to a fourth recall arm is a separate query: run recall for discussions, run the Hivenectar arm for files, return two lists and let the agent merge them. This is the fragmented path the gap section above describes, and it is rejected for a concrete reason.
 
@@ -88,8 +88,8 @@ flowchart TD
         l1 -. no common rank .-> merge1["agent merges"]
         l2 -. no common rank .-> merge1
     end
-    subgraph chosen["Chosen: fourth UNION ALL arm"]
-        q2["query"] --> u["UNION ALL - 4 arms"]
+    subgraph chosen["Chosen: fourth guarded arm"]
+        q2["query"] --> u["guarded arms - 4 sources"]
         u --> rrf["RRF fusion"]
         rrf --> single["single ranked list"]
     end
@@ -115,7 +115,7 @@ The independence clause is why the arm can ship at all: it does not have to wait
 
 The conceptual frame is now set. The remaining documents in this deep-dive take it apart along different axes:
 
-- [`recall-integration-technical-specification.md`](recall-integration-technical-specification.md) — the SQL contract: the four-arm UNION ALL, the latest-per-nectar subquery, the per-arm BM25+vector scoring, RRF fusion, the SQL-guard requirement.
+- [`recall-integration-technical-specification.md`](recall-integration-technical-specification.md) — the SQL contract: the fourth guarded arm, the latest-per-nectar subquery, the per-arm BM25+vector scoring, RRF fusion, and the SQL-guard requirement.
 - [`recall-integration-ecosystem-story-arc.md`](recall-integration-ecosystem-story-arc.md) — a single query traced end-to-end through the four arms, with a sequence diagram of the fused path.
 - [`recall-integration-user-stories.md`](recall-integration-user-stories.md) — engineering and operator acceptance criteria, persona by persona.
 - [`recall-integration-conclusion-and-deliverables.md`](recall-integration-conclusion-and-deliverables.md) — the deliverable restated, the two contracts (complementarity, graceful degradation) restated, forward pointers to the source schema and the enricher.

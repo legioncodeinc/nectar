@@ -2,7 +2,7 @@
 
 > Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
 
-The SQL contract for the Hivenectar recall arm: the four-arm `UNION ALL`, the latest-per-nectar subquery that collapses the version chain to one row per current file, the `describe_status = 'described'` filter, the tenancy scoping, the per-arm BM25+vector scoring, and the reciprocal-rank-fusion merge that produces a single ranked list.
+The SQL contract for the Hivenectar recall arm: the fourth guarded arm, the latest-per-nectar subquery that collapses the version chain to one row per current file, the `describe_status = 'described'` filter, the tenancy scoping, the per-arm BM25+vector scoring, and the reciprocal-rank-fusion merge that produces a single ranked list.
 
 **Related:**
 - [`../recall-integration.md`](../recall-integration.md)
@@ -31,7 +31,7 @@ This document does not reproduce the helpers' internals (they live in the siblin
 
 ## The Hivenectar recall arm (annotated)
 
-The arm contributes a row per matching file to the recall union. The SELECT below is the lexical (BM25) arm, annotated clause by clause. The source-of-truth version is in [`../recall-integration.md`](../recall-integration.md); the column catalog it reads from is in [`../source-graph-schema.md`](../source-graph-schema.md).
+The arm contributes a row per matching file to recall's fused arm set. The SELECT below is the lexical (BM25) arm, annotated clause by clause. The source-of-truth version is in [`../recall-integration.md`](../recall-integration.md); the column catalog it reads from is in [`../source-graph-schema.md`](../source-graph-schema.md).
 
 ```sql
 SELECT
@@ -114,25 +114,25 @@ ORDER BY v.embedding <#> :query_vector     -- cosine distance, 768-dim
 LIMIT :k;
 ```
 
-The `<#>` operator is cosine distance over the 768-dim `embedding` column. The dimensionality matches `sessions.message_embedding` and `memory.summary_embedding` deliberately — the hybrid recall pipeline's vector index expects consistent dimensionality across the tables it unions over. The embedding is computed over `title + ' ' + description` by the embeddings daemon, documented in [`../../ai/enricher-and-llm-model.md`](../../ai/enricher-and-llm-model.md).
+The `<#>` operator is cosine distance over the 768-dim `embedding` column. The dimensionality matches `sessions.message_embedding` and `memory.summary_embedding` deliberately — the hybrid recall pipeline's vector index expects consistent dimensionality across semantic arms. The embedding is computed over `title + ' ' + description` by the configured embedding provider, documented in [`../../ai/enricher-and-llm-model.md`](../../ai/enricher-and-llm-model.md).
 
 ### Graceful BM25-only fallback
 
-When embeddings are off — the optional embeddings daemon is not installed, or it failed to warm up — the `embedding` column is NULL and the vector arm returns nothing. Recall silently falls back to BM25 over `title` and `description`. This is the same fallback every other recall arm uses; there is no error, no quality cliff, just lexical-only recall over descriptions until embeddings are available. The arm stays alive on its lexical scoring alone.
+When embeddings are off — the local provider is not installed/warmed up, the hosted provider is unavailable, or embeddings are disabled — the `embedding` column is NULL and the vector path returns nothing. Recall silently falls back to BM25 over `title` and `description`. This is the same fallback every other recall arm uses; there is no error, no quality cliff, just lexical-only recall over descriptions until embeddings are available. The arm stays alive on its lexical scoring alone.
 
 ---
 
-## The four-arm UNION ALL
+## The fourth guarded arm
 
-The Hivenectar arm is the fourth arm of a `UNION ALL` whose first three arms predate Hivenectar. Each arm returns its top-K rows with a score; the union is fused into one ranked list.
+The Hivenectar arm is the fourth guarded arm beside the three arms that predate Hivenectar. Each arm returns its top-K rows with a score; successful arms are fused into one ranked list. If the Hivenectar table is absent, that arm contributes no rows and the other arms still answer.
 
 ```mermaid
 flowchart TD
-    q["agent query"] --> union["UNION ALL - 4 arms"]
-    union --> arm1["arm 1: sessions - message / message_embedding"]
-    union --> arm2["arm 2: memory - summary / summary_embedding"]
-    union --> arm3["arm 3: memories - body / body_embedding"]
-    union --> arm4["arm 4: source_graph_versions - title+description / embedding"]
+    q["agent query"] --> arms["guarded recall arms"]
+    arms --> arm1["arm 1: sessions - message / message_embedding"]
+    arms --> arm2["arm 2: memory - summary / summary_embedding"]
+    arms --> arm3["arm 3: memories - body / body_embedding"]
+    arms --> arm4["arm 4: source_graph_versions - title+description / embedding"]
     arm1 --> rrf["RRF fusion"]
     arm2 --> rrf
     arm3 --> rrf
@@ -140,7 +140,7 @@ flowchart TD
     rrf --> ranked["single ranked list - discussions + facts + files"]
 ```
 
-Each arm is independently scoped by tenancy before scoring. The sessions, memory, and memories arms carry `agent_id` and `visibility` in addition to the org/workspace/project triple; the Hivenectar arm carries only the triple, because file identity is cross-agent. The union does not reconcile these scoping differences — each arm applies the scoping its schema requires, and the union combines whatever survives.
+Each arm is independently scoped by tenancy before scoring. The sessions, memory, and memories arms carry `agent_id` and `visibility` in addition to the org/workspace/project triple; the Hivenectar arm carries only the triple, because file identity is cross-agent. The arm set does not reconcile these scoping differences — each arm applies the scoping its schema requires, and fusion combines whatever survives.
 
 ---
 
@@ -163,7 +163,7 @@ The score distributions differ across arms — sessions JSONB is noisy, Hivenect
 
 Reciprocal rank fusion merges the per-arm ranked lists into one. Each row's fused score is the sum, over every arm that returned it, of `multiplier / (k + rank)`, where `k` is the RRF constant (shared across arms) and `multiplier` is a per-arm weight. A row that ranks first in an arm contributes `multiplier / (k + 1)`; a row that ranks tenth contributes `multiplier / (k + 10)`.
 
-RRF is rank-based by design, and that is the property that makes the four-arm union tractable. A Hivenectar hit at rank 1 contributes the same fused weight as a sessions hit at rank 1, even though their raw BM25/vector scores are computed over different text and live on different scales. The fusion does not need the arms to agree on what a "score" means — it only needs each arm to produce a rank order.
+RRF is rank-based by design, and that is the property that makes the four-arm fusion tractable. A Hivenectar hit at rank 1 contributes the same fused weight as a sessions hit at rank 1, even though their raw BM25/vector scores are computed over different text and live on different scales. The fusion does not need the arms to agree on what a "score" means — it only needs each arm to produce a rank order.
 
 ### The default multiplier
 

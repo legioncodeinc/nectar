@@ -21,10 +21,10 @@ These are engineering-scope stories, not product requirements. They describe wha
 
 The personas recur across the stories:
 
-- **The enricher loop** — the background poller inside the hiveantennae worker.
+- **The enricher loop** — the background poller inside the hiveantennae daemon.
 - **The operator** — the engineer who configures `agent.yaml` / Portkey routing and runs `honeycomb` commands.
 - **The reviewer** — the engineer who audits description provenance per row.
-- **The watcher** — the chokidar intake that fires on disk changes and triggers re-description.
+- **The watcher intake** — the `node:fs.watch` path that reports disk observations and triggers debounced re-description.
 - **The cost-bound operator** — the operator operating under a cost cap or budget.
 
 ---
@@ -78,13 +78,13 @@ The personas recur across the stories:
 
 **US-EN-007** — As the watcher, I debounce per-path events within a configurable window, so that a developer hitting Cmd-S ten times in ten seconds produces one "the file at this path changed" signal.
 **Acceptance criteria:**
-(a) Multiple events on the same path within the window (default 2000 ms) collapse to a single signal.
+(a) Multiple `node:fs.watch` observations on the same path within the configured debounce window collapse to a single signal.
 (b) The collapsed signal enters re-association once.
 (c) The window is configurable independently of the enricher poll interval.
 
 **US-EN-008** — As the watcher, my debounce window is shorter than Cartog's AST-rebuild debounce, because re-association is cheaper than a full AST re-extraction.
 **Acceptance criteria:**
-(a) The default watcher debounce (2000 ms) is shorter than Cartog's default (5000 ms).
+(a) The watcher debounce is configurable and mirrors Honeycomb's `fs.watch` + timer pattern rather than Cartog's richer watcher dependency.
 (b) The two workers (CodeGraph and Hivenectar) run concurrently against the same file without coordination.
 (c) Each writes to its own table (`codebase` vs `source_graph_versions`).
 
@@ -219,7 +219,7 @@ The personas recur across the stories:
 
 ## BM25 fallback when embeddings are off
 
-**US-EN-025** — As the enricher loop, when the embeddings daemon is unavailable I still write the description and mark the row `described`, leaving the embedding NULL, so recall falls back to BM25 with no quality cliff.
+**US-EN-025** — As the enricher loop, when the configured embedding provider is unavailable I still write the description and mark the row `described`, leaving the embedding NULL, so recall falls back to BM25 with no quality cliff.
 **Acceptance criteria:**
 (a) The description is written regardless of daemon availability.
 (b) The embedding column is left NULL when the daemon is down or uninstalled.

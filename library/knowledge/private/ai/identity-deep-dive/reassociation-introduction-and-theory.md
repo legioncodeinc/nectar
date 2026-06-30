@@ -25,7 +25,7 @@ Read this before arguing with the ladder's design, and before proposing a "smart
 
 ## The hardest problem is cold catch-up
 
-A daemon that watches disk continuously has an easy job. The chokidar watcher emits an event stream that carries move semantics: a rename fires `unlink` on the old path and `add` on the new path within milliseconds, often with a chokidar-provided correlation. The daemon hashes the new path, finds the exact match to the just-deleted file's hash, and carries the nectar. No guessing, no ambiguity, no fuzzy matching.
+A daemon that watches disk continuously has more evidence than a cold boot, but the watcher is not the authority for identity. Hivenectar mirrors Honeycomb's `node:fs.watch` pattern: the watcher emits uncorrelated `rename`/`change` observations with filenames, then the daemon debounces, refreshes the missing-files set, hashes changed paths, and lets the re-association ladder decide. Ordinary moves still resolve exactly through step 3 when the new path's content hash matches a missing file's latest hash; no richer move-correlation API is required.
 
 The hard problem arrives the moment the laptop was closed.
 
@@ -137,7 +137,7 @@ The projection does not replace the ladder; it sits in front of it. Files whose 
 
 The re-association ladder is identical whether it runs during live watch or during cold catch-up. What differs is the *distribution* of which steps fire, and that difference is the reason cold catch-up is the hard case.
 
-During live watch, the chokidar event stream carries move semantics. A rename is a `unlink` on the old path plus an `add` on the new path within milliseconds, and the daemon correlates them. Most edits hit step 2 (path match, content changed) because the path is stable and only the content differs. Moves hit step 3 (exact hash to a missing file) because the watcher saw the delete and can match the new path's hash to the just-deleted file's hash. Step 4 (fuzzy TLSH) is rare in live mode — it fires only if the watcher missed a correlated event.
+During live watch, `node:fs.watch` provides a fresh signal that a path changed, but not a reliable move object. Most edits hit step 2 (path match, content changed) because the path is stable and only the content differs. Moves hit step 3 (exact hash to a missing file) because the daemon refreshes the missing-files set and matches the new path's hash to a missing file's latest hash. Step 4 (fuzzy TLSH) is rare in live mode — it fires for live move-and-edit cases or incomplete event evidence.
 
 During cold catch-up, the daemon has no event stream. Step 1 dominates (most files were untouched), step 2 catches offline edits, and steps 3 and 4 do the real work of reconstructing moves without a correlation signal. Step 4 earns its complexity here: it is the only mechanism that can recover a file that was moved *and* edited while the daemon was offline, because the move broke the path match (step 2) and the edit broke the exact hash match (step 3).
 

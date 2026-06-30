@@ -82,7 +82,7 @@ The registry is a **projection**, not a sidecar. The distinction matters and is 
 ### What it deliberately omits
 
 - **The full version chain.** Only the latest described version per nectar is included. Historical versions stay in Deep Lake. Including them would bloat the file and serve no recall purpose.
-- **Embeddings.** The 768-dim vectors are not in the projection. They are regenerable from `title + description` via the embeddings daemon, and including them would make the file megabytes instead of kilobytes. A fresh clone recomputes embeddings locally on first daemon boot (or skips them if the embeddings daemon is not installed).
+- **Embeddings.** The 768-dim vectors are not in the projection. They are regenerable from `title + description` via the configured embedding provider, and including them would make the file megabytes instead of kilobytes. A fresh clone recomputes embeddings on first daemon boot when a provider is available (or skips them when embeddings are unavailable).
 - **Undescribed files.** A nectar minted but never described (brooding was interrupted, or the file was skipped as binary) appears with a minimal entry (`path`, `content_hash`, but empty `title`/`description`) so identity is preserved, but recall will not surface it until described.
 - **Internal IDs.** No Deep Lake row IDs, no internal indices. The projection is portable across Deep Lake instances.
 

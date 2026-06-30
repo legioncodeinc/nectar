@@ -24,7 +24,7 @@ This doc maps each prior system to the pillars it covers, notes what Hivenectar 
 
 | System | Stable identity | LLM description | Semantic store | Watcher-driven | Daemon-minted |
 |---|---|---|---|---|---|
-| **Hivenectar** | ULID nectar | per-file title+desc+concepts | Deep Lake | chokidar | yes (Deep Lake row) |
+| **Hivenectar** | ULID nectar | per-file title+desc+concepts | Deep Lake | `node:fs.watch` + debounce | yes (Deep Lake row) |
 | Aura | identity anchor + content hash | no (structural only) | shadow branch | git-hooked | no (content-derived) |
 | Orbit | id + identity_key + object_hash | no (structural only) | SQLite sidecar + objects | rebuild-triggered | partially (location-derived) |
 | Cartog | content_hash + subtree_hash (Merkle) | no (structural only) | on-disk graph | watcher (`--debounce`) | no (content-derived) |
@@ -143,13 +143,13 @@ After surveying the field, the specific composition that no prior system deliver
 
 1. **Daemon-minted identity** (not content-derived, not source-embedded, not path-keyed) — present in Mimir at symbol granularity, in Aura at function granularity, but not at file granularity with a pure minted ULID.
 2. **LLM-minted per-file description** (not per-symbol AST chunk) — present in Smith and codeindex, but neither has stable identity, and neither persists to a shared multi-tenant store.
-3. **Deep Lake as the durable store** (not SQLite, not LanceDB, not FAISS, not a sidecar) — unique to Hivenectar because it is a Honeycomb subsystem; no prior art uses Deep Lake because Deep Lake is Honeycomb's substrate.
+3. **Deep Lake as the durable store** (not SQLite, not LanceDB, not FAISS, not a sidecar) — unique to Hivenectar among surveyed tools; no prior art uses Deep Lake because Deep Lake is the shared substrate Hivenectar composes with Honeycomb over (see ADR-0002 — Hivenectar is an independent daemon, not a Honeycomb subsystem, but it shares Honeycomb's Deep Lake datasets at the data layer).
 4. **Integration into an existing hybrid recall pipeline** that already serves session, memory, and skill recall — no prior system composes code-file recall with conversation-trace recall and distilled-fact recall in a single fused query.
 5. **Portable projection as a committed lockfile** for fresh-clone identity inheritance — Smith commits descriptions, but in source-mutating `.meta` sidecars; Hivenectar commits a regenerable projection that never touches source.
 
 Each pillar alone has precedent. The five-way composition does not. The closest single system is Smith, which covers pillars 2 and 5 partially but lacks pillars 1, 3, and 4 entirely.
 
-The honest claim is not "Hivenectar invented codebase semantic search" — it did not. The honest claim is "Hivenectar is the first system to combine daemon-minted file identity, LLM file description, Deep Lake persistence, and union-recall with conversation memory, in a single daemon that already serves a multi-harness AI coding memory system." That is a narrower and more defensible novelty than "first codebase semantic search."
+The honest claim is not "Hivenectar invented codebase semantic search" — it did not. The honest claim is "Hivenectar is the first system to combine daemon-minted file identity, LLM file description, Deep Lake persistence, and guarded recall fusion with conversation memory, in a supervised workload daemon that composes with Honeycomb's multi-harness recall substrate." That is a narrower and more defensible novelty than "first codebase semantic search."
 
 ---
 
@@ -166,7 +166,7 @@ The honest claim is not "Hivenectar invented codebase semantic search" — it di
 | **Context+** | Obsidian-style concept-tag interlinking |
 | **Honeycomb CodeGraph** | Discovery (`git ls-files`), atomic write patterns, content-addressed caching, daemon-as-only-storage-client |
 
-Hivenectar is a synthesis. It would be dishonest to present any single pillar as original. The originality is in the composition, and in the integration with Honeycomb's existing memory substrate.
+Hivenectar is a synthesis. It would be dishonest to present any single pillar as original. The originality is in the composition, and in the data-layer integration with Honeycomb's existing memory substrate (Hivenectar is an independent daemon per ADR-0002, but it composes with Honeycomb by sharing the same Deep Lake datasets and recall union).
 
 ---
 
@@ -180,9 +180,9 @@ Hivenectar is a synthesis. It would be dishonest to present any single pillar as
 | Description producer | Per-chunk embedding model (CodeRAG family) or LLM (Smith) | LLM (Gemini 2.5 Flash) for title+description, separate embedding model for the vector |
 | Store | SQLite (Grove, Orbit sidecar), LanceDB (CodeRAG family), FAISS (Cortex), on-disk objects (synrepo) | Deep Lake (Honeycomb substrate) |
 | Source mutation | Smith mutates `CLAUDE.md`; others do not | Never mutates source; projection is a separate committed file |
-| Recall integration | Standalone semantic search server | UNION ALL arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
+| Recall integration | Standalone semantic search server | Guarded arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
 | Team share | Smith commits `.meta`; others re-index per clone | Committed `nectars.json` projection + Deep Lake cloud sync |
-| Watcher | Cartog, Cortex, Context+ have watchers; others are manual | chokidar watcher in the daemon, same as CodeGraph build triggers |
+| Watcher | Cartog, Cortex, Context+ have watchers; others are manual | `node:fs.watch` + debounce, mirroring Honeycomb's file-watcher pattern |
 
 ---
 

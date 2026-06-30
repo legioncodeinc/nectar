@@ -11,6 +11,7 @@ The synthesis: what Hivenectar delivers restated as concrete outcomes, the non-g
 - [`overview-ecosystem-story-arc.md`](overview-ecosystem-story-arc.md)
 - [`overview-user-stories.md`](overview-user-stories.md)
 - [`../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md)
+- [`../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md)
 - [`../reference/prior-art-crosswalk.md`](../reference/prior-art-crosswalk.md)
 
 ---
@@ -25,11 +26,11 @@ Every file in a project carries a nectar: a daemon-minted 26-character ULID that
 
 ### Outcome 2 — Semantic recall
 
-An agent can ask *"everything associated with logins"* and receive files scattered across directories that are not named `login-*`, because each file carries an LLM-minted title and description surfaced through hybrid recall. The semantic arm unions with the existing structural, session, memory, and skill arms in a single fused query. The agent gets, in one ranked list: the code files that implement the topic (by meaning, not just by name), the session traces where humans discussed it, and the distilled facts that were decided about it. The recall wiring is in [`../data/recall-integration.md`](../data/recall-integration.md); the description pipeline that produces the titles and descriptions is in [`../ai/brooding-pipeline.md`](../ai/brooding-pipeline.md) and [`../ai/enricher-and-llm-model.md`](../ai/enricher-and-llm-model.md).
+An agent can ask *"everything associated with logins"* and receive files scattered across directories that are not named `login-*`, because each file carries an LLM-minted title and description surfaced through hybrid recall. The semantic arm follows Honeycomb's guarded per-arm recall pattern and fuses with the existing structural, session, memory, and skill signals. The agent gets, in one ranked list: the code files that implement the topic (by meaning, not just by name), the session traces where humans discussed it, and the distilled facts that were decided about it. The recall wiring is in [`../data/recall-integration.md`](../data/recall-integration.md); the description pipeline that produces the titles and descriptions is in [`../ai/brooding-pipeline.md`](../ai/brooding-pipeline.md) and [`../ai/enricher-and-llm-model.md`](../ai/enricher-and-llm-model.md).
 
 ### Outcome 3 — Team-share
 
-Hivenectar is a team asset, not a per-developer index. The semantic graph is scoped by org→workspace→project and cloud-syncs the same way every other Honeycomb table does, so a team sharing a workspace shares a single Hivenectar graph per project. The brooding cost is paid once by whoever broods first; every teammate thereafter inherits the descriptions. There is no `agent_id` or `visibility` column on the source-graph tables, because file identity is cross-agent by nature — every agent and every harness working in the same project sees the same file descriptions.
+Hivenectar is a team asset, not a per-developer index. The semantic graph is scoped by Honeycomb's org/workspace Deep Lake scope plus `project_id` as a soft column filter, so a team sharing a workspace shares a single Hivenectar graph per project. The brooding cost is paid once by whoever broods first; every teammate thereafter inherits the descriptions. There is no `agent_id` or `visibility` column on the source-graph tables, because file identity is cross-agent by nature — every agent and every harness working in the same project sees the same file descriptions.
 
 ### Outcome 4 — Zero-cost clones
 
@@ -70,7 +71,7 @@ Success is measurable. The properties below are the verifiable claims that disti
 
 ### Property 1 — A fresh clone with a current projection achieves zero LLM calls
 
-Given a repository with a committed, current `.honeycomb/nectars.json`, a fresh `git clone` followed by `honeycomb daemon` boot makes zero Gemini description calls and zero fuzzy TLSH matches. Every on-disk file's content hash matches a projection entry, and every nectar and description is inherited into local Deep Lake. The cost counter on the dashboard reads $0 for the inheritance pass. Recall is live immediately. (This is the central fresh-clone claim; see [`../data/portable-registry.md`](../data/portable-registry.md).)
+Given a repository with a committed, current `.honeycomb/nectars.json`, a fresh `git clone` followed by `hivenectar daemon` boot (registered with hivedoctor, per ADR-0003) makes zero Gemini description calls and zero fuzzy TLSH matches. Every on-disk file's content hash matches a projection entry, and every nectar and description is inherited into local Deep Lake. The cost counter in thehive's dashboard reads $0 for the inheritance pass. Recall is live immediately. (This is the central fresh-clone claim; see [`../data/portable-registry.md`](../data/portable-registry.md).)
 
 ### Property 2 — Identity survives a move plus an edit
 
@@ -98,7 +99,7 @@ A full brood of a 2000-file repository costs under ~$3; a 10000-file monorepo co
 
 The deliverable is not "the first codebase semantic search tool." Each of Hivenectar's pillars has precedent: Aura's identity-anchor-vs-content-hash split, Mimir's minted identity, Smith's lazy description and committed cache, the Grove/Cartog delta-indexing patterns. The survey in [`../reference/prior-art-crosswalk.md`](../reference/prior-art-crosswalk.md) credits each.
 
-The honest claim is narrower and more defensible: Hivenectar is the first system to combine **daemon-minted file identity**, **LLM per-file description**, **Deep Lake persistence**, **union-recall with conversation memory**, and **a portable committed projection for fresh-clone inheritance**, in a single daemon worker that already serves a multi-harness AI coding memory system. The originality is in the composition and the integration with Honeycomb's existing substrate — not in any single pillar.
+The honest claim is narrower and more defensible: Hivenectar is the first system to combine **daemon-minted file identity**, **LLM per-file description**, **Deep Lake persistence**, **guarded recall fusion with conversation memory**, and **a portable committed projection for fresh-clone inheritance**, in a supervised workload daemon that composes with Honeycomb's multi-harness recall substrate. The originality is in the composition and the integration with Honeycomb's existing substrate — not in any single pillar.
 
 ---
 
@@ -130,7 +131,8 @@ Read in this order for a complete conceptual and contractual picture:
 
 - [`../data/source-graph-schema.md`](../data/source-graph-schema.md) — the full DDL for `source_graph` and `source_graph_versions`, the indexing strategy, and the tenancy model.
 - [`../data/portable-registry.md`](../data/portable-registry.md) — the `nectars.json` projection: format, fresh-clone inheritance, generation, and the projection-vs-sidecar rule.
-- [`../data/recall-integration.md`](../data/recall-integration.md) — the `UNION ALL` arm, latest-per-nectar subquery, RRF fusion, and weighting.
+- [`../data/recall-integration.md`](../data/recall-integration.md) — the guarded source-graph arm, latest-per-nectar subquery, RRF fusion, and weighting.
+- [`../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md) — the hivedoctor registry, thehive portal, and workload-daemon boundary.
 
 ### Context and prior art
 
