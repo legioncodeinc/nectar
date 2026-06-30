@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS "source_graph_versions" (
   description     TEXT NOT NULL DEFAULT '',
   concepts        TEXT NOT NULL DEFAULT '[]',
   embedding       FLOAT4[],
+  confidence      REAL,
   described_at    TEXT NOT NULL DEFAULT '',
   describe_model  TEXT NOT NULL DEFAULT '',
   describe_status TEXT NOT NULL DEFAULT 'pending',
@@ -100,9 +101,10 @@ CREATE TABLE IF NOT EXISTS "source_graph_versions" (
 | `description` | TEXT | LLM-minted, 1–3 sentences. Nullable until enriched. Same lifecycle as `title`. |
 | `concepts` | TEXT | JSON-encoded string array (`'["auth","session","jwt"]'`). LLM-minted concept tags for the Obsidian-style interlink layer. |
 | `embedding` | FLOAT4[] | 768-dim vector over `title + ' ' + description`. **Same dimensionality as `sessions.message_embedding` and `memory.summary_embedding`** so the same hybrid recall pipeline queries all three. Nullable until enriched. |
+| `confidence` | REAL | Set only on rows appended by re-association ladder step 4 (TLSH fuzzy match); the value is `1 − normalizedTLSHDistance`. NULL for all other rows. Supports the audit query "show me all auto-carried matches below a given confidence." |
 | `described_at` | TEXT | Timestamp of the enricher run that filled `title`/`description`. Empty while pending. |
 | `describe_model` | TEXT | Model identifier that produced the description (e.g. `gemini-2.5-flash` via `portkey`). Auditable, and lets a model swap trigger re-description selectively. |
-| `describe_status` | TEXT | One of `pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`. Lets recall filter out undescribed rows and lets the enricher resume after failures. |
+| `describe_status` | TEXT | One of `pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`, `skipped-deleted`. Lets recall filter out undescribed rows and lets the enricher resume after failures. `skipped-deleted` marks a row whose file vanished while pending — distinct from `failed` (retryable LLM failure) so the enricher doesn't keep retrying a file that's gone. |
 | `observed_at` | TEXT | Timestamp the version row was appended (distinct from `mtime_observed`, which is the file's own clock). |
 | `org_id`, `workspace_id`, `project_id` | TEXT | Tenancy, denormalized from `source_graph` so the versions table is queryable in isolation for recall. |
 | `last_update_date` | TEXT | Standard Honeycomb UPDATE-coalescing workaround column. |

@@ -26,6 +26,17 @@ These are settled — recorded here for traceability, no action needed.
 | 12 | Ports: honeycomb=3850, embeddings=3851, hivedoctor-status=3852, thehive=3853, hivenectar=3854 | PRD-001b, 004, all |
 | 13 | confidence column: durable, added to source_graph_versions | PRD-005b, 006d |
 | 14 | skipped-deleted: added to describe_status enum | PRD-005b, 016c |
+| 15 | Default model id: `gemini-2.5-flash` (canonical id; confirm against Portkey registry before first brood) | PRD-010b |
+| 16 | Cohere embed model: `embed-english-v3.0` (English-only; reconcile the 1024→768 dim mismatch per PRD-014b's dim contract) | PRD-014b |
+| 17 | Recall arm weight: `ARM_CLASS_WEIGHT` for source_graph_versions = 1.0 (peer with distilled memory); operator-tunable via `hivenectar_rrf_multiplier` at runtime | PRD-013a |
+| 18 | CodeGraph access: re-implement `git ls-files` discovery locally in hivenectar (no honeycomb module import, no HTTP service) — keeps hivenectar self-contained across the process boundary | PRD-001c, 002, 007 |
+| 19 | Registry hot-add: next-boot supervision (no SIGHUP/reload, no file-watch) — a newly-registered daemon is supervised at hivedoctor's next boot | PRD-004a/d |
+| 20 | /health shape: FULL parity with honeycomb's /health body (mode-gated reasons block + every field). NOTE: hivenectar lacks honeycomb's local/team/hybrid auth modes, so several fields will be inert/stubbed for hivenectar — the implementer should not chase phantom functionality behind those fields; parity is cosmetic/consistency, not functional | PRD-001b, 003a |
+| 21 | Tenancy enforcement: hivedoctor-mediated assertion — hivedoctor gains a Deep Lake scope-comparison capability and refuses to supervise a daemon whose org/workspace scope mismatches another registered daemon's. Centralizes the invariant in the supervisor (heavier lift than a bootstrap check, but architecturally cleaner). PRD-004 must document hivedoctor's new scope-awareness | PRD-001c, 004, 009a |
+| 22 | Batch size: DYNAMIC — pack files until estimated context (input tokens) approaches the batch budget, capped by the 100KB cumulative (`BATCH_TOTAL_SIZE`) + a max-files safety ceiling (the corpus's 30-50 band). Adapts to actual file sizes rather than counting files; preserves the cost math. Replaces the fixed-40 default | PRD-007b |
+| 23 | OS service names: mirror honeycomb's convention — launchd `com.hivenectar.daemon`, systemd `hivenectar`, schtasks `HivenectarDaemon` | PRD-003b |
+| 24 | TLSH impl: native addon (NAPI) — fastest fuzzy-match computation; same install-time native-build risk honeycomb's tree-sitter already manages | PRD-006d |
+| 25 | review-matches: interactive prompt by default (list → choose → confirm); NO flag grammar committed. Optional batch flags deferred to implementation | PRD-006d |
 
 ---
 
@@ -100,7 +111,7 @@ The QA audit caught two places where the Hivenectar knowledge corpus (`library/k
 
 2. **`skipped-deleted` enum value.** The enricher failure-modes table (in `ai/enricher-and-llm-model.md`) uses `describe_status = 'skipped-deleted'`, but `data/source-graph-schema.md`'s enum only lists 5 values. **Resolved in PRDs:** `skipped-deleted` added to PRD-005b's enum. **Corpus action needed:** add `skipped-deleted` to the enum in `data/source-graph-schema.md`'s describe_status column description.
 
-3. **(Bonus, from earlier in this session)** The corpus says "chokidar" in many places; the code uses `node:fs.watch`. PRDs use `fs.watch` per decision #4. **Corpus action needed:** correct "chokidar" → "fs.watch" across the corpus.
+3. **(Bonus, from earlier in this session)** The corpus says "chokidar" in many places; the code uses `node:fs.watch`. PRDs use `fs.watch` per decision #4. **Corpus action needed:** correct "chokidar" → "fs.watch" across the corpus. **STATUS: no-op.** On applying this edit, a corpus-wide grep found **zero** chokidar references — every watcher reference in the corpus already correctly says `node:fs.watch`. The QA finding that flagged "the corpus says chokidar" was itself a false positive (the auditor likely conflated the corpus with the original spec sketch). No edit needed; the corpus and PRDs already agree on `fs.watch`.
 
 ---
 
