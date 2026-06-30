@@ -38,3 +38,18 @@ Create any of these as needed: `ai/`, `auth/`, `data/`, `frontend/`, `infrastruc
 - Customer-facing content (put in `knowledge/public/`)
 - PRDs or IRDs (put in `requirements/` or `issues/`)
 - Brand assets (put in `legion-shared/brands/`)
+
+## Domain map
+
+This repo's domain folders and their contents (9 core documents, each expanded into a five-document deep-dive):
+
+| Folder | Core documents | Deep-dive sub-folder |
+|---|---|---|
+| `overview/` | (root) `overview.md` | `overview/` — 5 expanded docs |
+| `architecture/` | `ADR-0001-minted-nectar-over-source-embedded-serial.md` | `architecture/identity-model/` — 5 expanded docs |
+| `ai/` | `identity-and-reassociation.md`, `brooding-pipeline.md`, `enricher-and-llm-model.md` | `ai/identity-deep-dive/`, `ai/brooding-deep-dive/`, `ai/enricher-deep-dive/` — 5 each |
+| `data/` | `source-graph-schema.md`, `portable-registry.md`, `recall-integration.md` | `data/source-graph-deep-dive/`, `data/portable-registry-deep-dive/`, `data/recall-integration-deep-dive/` — 5 each |
+| `reference/` | `prior-art-crosswalk.md` | `reference/prior-art-deep-dive/` — 5 expanded docs |
+| `standards/` | `documentation-framework.md` | (canonical standard; not expanded) |
+
+Each deep-dive folder contains: `*-user-stories.md` (engineering/operator scope), `*-technical-specification.md`, `*-introduction-and-theory.md`, `*-ecosystem-story-arc.md`, `*-conclusion-and-deliverables.md`. Customer-facing translations live in `../public/`.

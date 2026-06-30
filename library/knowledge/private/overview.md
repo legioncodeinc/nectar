@@ -142,3 +142,21 @@ Integrating with recall: [`data/recall-integration.md`](data/recall-integration.
 The portable projection and fresh-clone story: [`data/portable-registry.md`](data/portable-registry.md).
 
 How this compares to existing tools: [`reference/prior-art-crosswalk.md`](reference/prior-art-crosswalk.md).
+
+## Expanded deep dives
+
+Each of the nine core documents above has been expanded into a five-document deep-dive (user stories & acceptance criteria, technical specification, introduction & theory, ecosystem story arc, conclusion & deliverables). The deep dives live alongside their source:
+
+| Core document | Deep-dive folder |
+|---|---|
+| this overview | [`overview/`](overview/) |
+| `architecture/ADR-0001...` | [`architecture/identity-model/`](architecture/identity-model/) |
+| `ai/identity-and-reassociation.md` | [`ai/identity-deep-dive/`](ai/identity-deep-dive/) |
+| `ai/brooding-pipeline.md` | [`ai/brooding-deep-dive/`](ai/brooding-deep-dive/) |
+| `ai/enricher-and-llm-model.md` | [`ai/enricher-deep-dive/`](ai/enricher-deep-dive/) |
+| `data/source-graph-schema.md` | [`data/source-graph-deep-dive/`](data/source-graph-deep-dive/) |
+| `data/portable-registry.md` | [`data/portable-registry-deep-dive/`](data/portable-registry-deep-dive/) |
+| `data/recall-integration.md` | [`data/recall-integration-deep-dive/`](data/recall-integration-deep-dive/) |
+| `reference/prior-art-crosswalk.md` | [`reference/prior-art-deep-dive/`](reference/prior-art-deep-dive/) |
+
+Customer-facing translations of the above live under [`../public/`](../public/) (overview, guides, FAQs).

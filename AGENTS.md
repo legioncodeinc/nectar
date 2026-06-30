@@ -121,5 +121,5 @@ alternatives:
 When the SQL schema in `data/source-graph-schema.md` or the recall arm in
 `data/recall-integration.md` is touched, recall that the implementation lives
 in the Honeycomb daemon and must use that repo's SQL string-guarding helpers
-(`sqlStr`, `sqlLike`, `sqlIdent`) and `withHeal` for additive schema changes —
+(`sqlStr`, `sqlLike`) and `withHeal` for additive schema changes —
 never hand-roll an `ALTER` against these tables.
