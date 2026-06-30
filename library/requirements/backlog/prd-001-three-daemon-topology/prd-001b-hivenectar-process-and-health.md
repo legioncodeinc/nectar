@@ -54,16 +54,56 @@ The pattern to mirror is `acquireSingleInstanceLock` ([`honeycomb/src/daemon/run
 
 ## `/health` endpoint contract
 
-hivenectar exposes a `/health` endpoint answering the same coarse `ok`/`degraded`/`unconfigured` bit honeycomb's dashboard, connectivity banner, and 503 gate consume ([`honeycomb/src/daemon/runtime/health.ts:42`](../../../../honeycomb/src/daemon/runtime/health.ts) `PipelineStatus = "ok" | "degraded" | "unconfigured"`). hivedoctor probes it identically to how it probes honeycomb — a `GET /health` over `node:http` with a short timeout ([`honeycomb/hivedoctor/src/health-probe.ts:4`](../../../../honeycomb/hivedoctor/src/health-probe.ts), probing `http://127.0.0.1:3850/health` today).
+hivenectar exposes a `/health` endpoint that hivedoctor probes identically to how it probes honeycomb — a `GET /health` over `node:http` with a short timeout ([`honeycomb/hivedoctor/src/health-probe.ts:4`](../../../../honeycomb/hivedoctor/src/health-probe.ts)). The endpoint is **purpose-built for hivenectar**, not a parity copy of honeycomb's `/health`: the top-level coarse bit (`ok`/`degraded`) is the field hivedoctor classifies on (modeled on honeycomb's `PipelineStatus` at [`honeycomb/src/daemon/runtime/health.ts:42`](../../../../honeycomb/src/daemon/runtime/health.ts)), but the body carries hivenectar-native subsystem fields honeycomb's `/health` does not have — because hivenectar and honeycomb answer *different* operational questions (hivenectar has brooding, an enricher queue, a projection writer, and per-provider embeddings state; honeycomb does not). Copying honeycomb's body would ship inert fields (hivenectar has no local/team/hybrid auth modes) while omitting the signal an operator actually needs.
 
 | Property | Value | Citation / status |
 |---|---|---|
 | Path | `/health` | mirrors [`honeycomb/src/daemon/runtime/server.ts:72`](../../../../honeycomb/src/daemon/runtime/server.ts) (the unprotected `/health` route group) |
 | Protection | unprotected (no auth, no session) | mirrors [`honeycomb/src/daemon/runtime/server.ts:72`](../../../../honeycomb/src/daemon/runtime/server.ts) `{ path: "/health", protect: false, session: false }` |
-| Body (coarse) | `{ status: "ok" | "degraded" | "unconfigured" }` | [`honeycomb/src/daemon/runtime/health.ts:42`](../../../../honeycomb/src/daemon/runtime/health.ts) |
-| hivedoctor probe URL | `http://127.0.0.1:3854/health` | **DEFAULT** port 3854; modeled on [`honeycomb/hivedoctor/src/config.ts:75`](../../../../honeycomb/hivedoctor/src/config.ts) `healthUrl: "http://127.0.0.1:3850/health"` |
+| hivedoctor probe URL | `http://127.0.0.1:3854/health` | **CONFIRMED** port 3854; modeled on [`honeycomb/hivedoctor/src/config.ts:75`](../../../../honeycomb/hivedoctor/src/config.ts) `healthUrl: "http://127.0.0.1:3850/health"` |
 
-> **DEFAULT — confirm before implementation.** Whether hivenectar's `/health` carries the per-subsystem `reasons` block (storage/embeddings/schema/portkey, [`honeycomb/src/daemon/runtime/health.ts:70-79`](../../../../honeycomb/src/daemon/runtime/health.ts)) or only the coarse bit is left to PRD-002/003. The contract here is only the coarse bit hivedoctor classifies on; the `reasons` block is an additive, mode-gated extension and does not change hivedoctor's probe.
+### Body shape (CONFIRMED — decision #20 revised)
+
+```jsonc
+{
+  "status": "ok" | "degraded",     // the coarse bit hivedoctor classifies on
+  "uptimeMs": 12345,                // process uptime
+
+  "brooding": {                     // brooding subsystem (PRD-007)
+    "active": false,                // is a brood currently running
+    "filesDescribed": 1840,         // progress: files described so far this brood
+    "filesTotal": 2000,             // progress: total files in this brood
+    "lastEventAt": "2026-06-30T..." // last brooding event timestamp
+  },
+
+  "enricher": {                     // enricher subsystem (PRD-016)
+    "queueDepth": 12,               // pending source_graph_versions rows (describe_status='pending')
+    "lastCycleAt": "2026-06-30T...",
+    "consecutiveFailures": 0,       // so the 5-cycle persistent-failure alert is visible, not just logged
+    "lastFileDescribed": "src/auth/login.ts"  // the "last file read" — operator's #1 triage field
+  },
+
+  "projection": {                   // portable projection (PRD-011)
+    "lastWriteAt": "2026-06-30T...",
+    "lastContentHash": "sha256-abc..."  // so an operator can see if nectars.json is stale vs live
+  },
+
+  "cost": {                         // cost telemetry
+    "broodTotalTokens": 2150000,
+    "broodTotalUsd": 3.05           // rolling counter for the current brood
+  },
+
+  "embeddings": {                   // provider state (PRD-014)
+    "provider": "local-nomic"        // local-nomic | cohere | off
+  },
+
+  "portkey": {
+    "enabled": true                 // PRD-010
+  }
+}
+```
+
+> **HTTP status gating:** `/health` returns `200` when `status === "ok"` and `503` when `status === "degraded"` (so a client distinguishes daemon-down from a degraded sub-dependency, exactly as honeycomb gates at [`honeycomb/src/daemon/runtime/server.ts:318-341`](../../../../honeycomb/src/daemon/runtime/server.ts)). hivedoctor only reads the top-level `status`; every other field is operator-facing detail surfaced for thehive dashboard and CLI triage, not for hivedoctor's classification.
 
 ## Deep Lake client (hivenectar's own)
 

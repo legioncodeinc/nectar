@@ -10,7 +10,7 @@ This sub-PRD implements the process-surface contract PRD-001b already locked —
 
 ## Goals
 
-- hivenectar mounts an unprotected `/health` route that returns a coarse `ok`/`degraded` status plus an `uptimeMs` and `checks` map, mirroring honeycomb's `/health` body.
+- hivenectar mounts an unprotected `/health` route that returns a **purpose-built** body: the top-level `ok`/`degraded` status bit (what hivedoctor classifies on) plus hivenectar-native subsystem fields (brooding progress, enricher queue depth + last file, projection last-write, cost telemetry, embeddings provider, portkey state). **Not** a parity copy of honeycomb's `/health` — hivenectar answers different operational questions. Full body shape is owned by [PRD-001b](../prd-001-three-daemon-topology/prd-001b-hivenectar-process-and-health.md) § "/health endpoint contract"; this PRD wires the route + the HTTP-status gating.
 - `/health` returns `200` when healthy and `503` when degraded (so a client distinguishes daemon-down from a down sub-dependency, exactly as honeycomb gates at `server.ts:318-341`).
 - hivenectar acquires a single-instance lock before binding the socket, writes `~/.honeycomb/hivenectar.pid` + `~/.honeycomb/hivenectar.lock`, throws on a live second start, and reclaims a stale lock.
 - The PID file is operator-facing convenience (a single `ls ~/.honeycomb/*.pid` enumerates every live daemon); the lock file is what the guard checks.
@@ -18,7 +18,8 @@ This sub-PRD implements the process-surface contract PRD-001b already locked —
 ## Non-Goals
 
 - hivenectar's composition root, bootstrap sequence, and the graceful shutdown that *removes* the PID/lock — **PRD-002**. This PRD states the requirement (a clean restart leaves no `hivenectar.lock`) but does not implement the signal handlers.
-- The per-subsystem `reasons` detail block (storage/embeddings/schema/portkey) — honeycomb exposes it mode-gated (`health.ts:70-152`); hivenectar's `/health` carries the coarse bit hivedoctor classifies on. Whether hivenectar mirrors the `reasons` block is a flagged default below.
+- The `/health` **body shape** (which subsystem fields, the JSON structure) — owned by [PRD-001b](../prd-001-three-daemon-topology/prd-001b-hivenectar-process-and-health.md). This PRD specifies the route + HTTP-status gating + the top-level status bit hivedoctor consumes; it does not re-enumerate the subsystem fields.
+- Parity with honeycomb's mode-gated `reasons` block — explicitly rejected (decision #20 revised). hivenectar carries its own hivenectar-native fields instead.
 - hivedoctor's probe implementation (the `node:http` GET over a short timeout) — hivedoctor owns that; this PRD specifies only the contract hivenectar satisfies.
 - The OS service unit that *starts* hivenectar — **003b**.
 
@@ -35,8 +36,9 @@ hivenectar exposes an unprotected `/health` route, mirroring honeycomb's `/healt
 | Coarse status | `"ok" \| "degraded"` | honeycomb's `PipelineStatus` adds `"unconfigured"` ([`health.ts:42`](../../../../honeycomb/src/daemon/runtime/health.ts)); hivenectar reports `ok`/`degraded` — see default below |
 | HTTP gate | `200` when ok, `503` when degraded | mirrors [`server.ts:318-341`](../../../../honeycomb/src/daemon/runtime/server.ts) (status = pipeline degraded ? 503 : 200) |
 | hivedoctor probe URL | `http://127.0.0.1:3854/health` | port 3854 confirmed in [`prd-001b`](../prd-001-three-daemon-topology/prd-001b-hivenectar-process-and-health.md); modeled on [`hivedoctor/src/config.ts:75`](../../../../honeycomb/hivedoctor/src/config.ts) default `http://127.0.0.1:3850/health` |
+| **Body shape** | **purpose-built** (not honeycomb parity) | owned by [`prd-001b`](../prd-001-three-daemon-topology/prd-001b-hivenectar-process-and-health.md) § "/health endpoint contract" — the top-level `status` is what hivedoctor classifies on; the brooding/enricher/projection/cost/embeddings/portkey fields are operator-facing detail |
 
-hivedoctor probes this endpoint identically to how it probes honeycomb today — a `GET /health` over `node:http` with a short timeout — and classifies on the coarse status. The supervisor's `tick` reads the probe result and routes `ok` vs anything-else into the heal path ([`hivedoctor/src/supervisor.ts:261-320`](../../../../honeycomb/hivedoctor/src/supervisor.ts)).
+hivedoctor probes this endpoint identically to how it probes honeycomb today — a `GET /health` over `node:http` with a short timeout — and classifies on the coarse status. The supervisor's `tick` reads the probe result and routes `ok` vs anything-else into the heal path ([`hivedoctor/src/supervisor.ts:261-320`](../../../../honeycomb/hivedoctor/src/supervisor.ts)). The body's subsystem fields are for thehive dashboard and CLI triage; hivedoctor ignores them.
 
 ### Response shape (DEFAULT — confirm before implementation)
 
