@@ -86,3 +86,16 @@ typings/
 
 # DynamoDB Local files
 .dynamodb/
+
+# --- Hivenectar custom rules ---
+# Office lock files (transient, machine-specific; created when a .docx is open in Word)
+~$*
+
+# Binary exports of markdown source (regenerable, opaque diffs, bloat the repo)
+*.pdf
+*.docx
+
+# Per-tool agent guidance files live in AGENTS.md (the authoritative root file);
+# tool-specific companions are not version-controlled here.
+CLAUDE.md
+
