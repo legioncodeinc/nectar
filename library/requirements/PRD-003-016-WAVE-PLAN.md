@@ -6,8 +6,6 @@ The ordered, gated execution plan that turns the `[PRD-003-016-DEPENDENCY-MAP.md
 
 ---
 
-
-
 ## 1. Purpose and wave-gate methodology
 
 **Purpose.** Sequence the 16-PRD Hivenectar program (across three repositories) so that at any moment a driver knows which PRDs may start, which are gated, what each wave's exit criteria are, and which model and watchdog policy applies. This plan is grounded in the dependency map; it does not re-derive edges.
@@ -27,8 +25,6 @@ The ordered, gated execution plan that turns the `[PRD-003-016-DEPENDENCY-MAP.md
 
 ---
 
-
-
 ## 2. The two orderings, reconciled
 
 **Master index linear order** (bottom of `MASTER-PRD-INDEX.md`):
@@ -42,8 +38,6 @@ The ordered, gated execution plan that turns the `[PRD-003-016-DEPENDENCY-MAP.md
 **Reconciliation.** The one substantive change is that 010 (Portkey) and 014 (embeddings provider) move earlier, into Wave B, so they precede the pipeline PRDs 007 and 016 in Wave C. The master index lists 010/014 after 007/011/016, but PRD-007 delegates its model call to PRD-010 and its embed to PRD-014, and PRD-016 calls the model via PRD-010 and embeds via PRD-014; their acceptance criteria cannot be verified without 010/014 present (dependency map D-6). This is a topological refinement, offered in the same spirit as the master index's own six locked decisions refining the original spec, not a correction of prior authoring. Two other master-index sequencing calls are preserved: PRD-009 lands last, after PRD-013 (the master index defers it, and 009 verifies 013's arm); PRD-015 lands last, as the terminal dashboard consumer.
 
 ---
-
-
 
 ## 3. Wave 0 (prerequisites): the design and QA gate
 
@@ -66,18 +60,16 @@ Wave 0 is the gate before any 005-016 implementation. It has four workstreams, a
 
 **Wave 0 exit gate (all must pass):**
 
-- [ ] PRD-002 in-flight work closed; lifecycle location reconciled.
-- [ ] All twelve of PRD-005 to PRD-016 carry a QA report with a PASS at medium-and-above.
-- [ ] W-1 closed in PRD-003 (link-form honeycomb refs = 0).
-- [ ] PRD-004d confirmed authored + QA-passed; its DEFAULT service-unit-name flags signed off.
-- [ ] Every DEFAULT-confirm flag is signed off or its deferral is user-authorized.
-- [ ] Every deliberate spec gap is confirmed unresolved by design.
+- [x] PRD-002 in-flight work closed; lifecycle location reconciled.
+- [x] All twelve of PRD-005 to PRD-016 carry a QA report with a PASS at medium-and-above.
+- [x] W-1 closed in PRD-003 (link-form honeycomb refs = 0).
+- [x] PRD-004d confirmed authored + QA-passed; its DEFAULT service-unit-name flags signed off.
+- [x] Every DEFAULT-confirm flag is signed off or its deferral is user-authorized.
+- [x] Every deliberate spec gap is confirmed unresolved by design.
 
 **Model routing (Wave 0):** QA passes on `claude-4.6-sonnet-medium-thinking` (balanced daily-driver, independent of any authoring bee), with a cross-model second pass on `gpt-5.5-medium` for high-risk PRDs (005, 006, 013) to avoid correlated blind spots, mirroring the PRD-002 double-pass pattern in the ledger. The W-1 doc conversion and any 004d authoring go to `claude-opus-4-8-thinking-high` (deep, nuanced multi-file doc work). **Watchdog:** the twelve QA passes run in parallel; a QA pass stalled beyond its timer is terminated and redistributed.
 
 ---
-
-
 
 ## 4. Implementation waves (A through E)
 
@@ -111,7 +103,7 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 
 **Exit gate (tied to ACs):**
 
-- [ ] 003: hivedoctor probes `/health`, the installer appends hivenectar's registry entry, and the lock-held-and-healthy guard skips a redundant restart (PRD-003 AC-1..AC-5).
+- [x] 003: hivedoctor probes `/health`, the installer appends hivenectar's registry entry, and the lock-held-and-healthy guard skips a redundant restart (PRD-003 AC-1..AC-5).
 - [ ] 004b: `hivedoctor status` reports every registered daemon (PRD-004 AC-6).
 - [ ] 004c: thehive serves the dashboard shell on boot without waiting for a workload daemon, and is upgradeable without restarting hivedoctor (PRD-004 AC-3, AC-4).
 - [ ] 006: `node:fs.watch` intake debounces to one cycle; classification maps to new/changed/missing; the 5-step ladder is implemented with the deliberate gaps preserved (PRD-006 ACs).
@@ -179,8 +171,6 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 
 ---
 
-
-
 ## 5. Critical path
 
 The terminal long pole is **PRD-015** (the dashboard page), the deepest node in the graph. A representative longest hard-dependency chain to it is:
@@ -200,8 +190,6 @@ Two chains run in parallel and must converge at 015:
 Separately, the **load-bearing agent-facing integration** is a shorter path: PRD-001 -> PRD-005 -> PRD-014 -> PRD-013 (-> PRD-009 documentation). This is not the 015 long pole. The commissioning brief proposed the critical path as 001 -> 005 -> 013/014 -> 008/012 -> 015; the correction is that PRD-013 feeds the agent recall path (and PRD-009), not the dashboard: the 015 long pole runs through 014 -> {007, 012} -> 008, with 013 on a parallel branch. Shortening the program end-to-end means protecting the 005 -> 014 root and the 007/008 funnel, and signing off 004d's service-unit DEFAULT flags early so the thehive host chain does not become the binding constraint at the very end.
 
 ---
-
-
 
 ## 6. Blockers and risks register
 
@@ -226,8 +214,6 @@ Severity: HIGH (blocks a wave gate or the program), MEDIUM (blocks a PRD or need
 
 ---
 
-
-
 ## 7. Definition of 100 percent complete
 
 The program is complete only when all of the following hold, across all three repositories:
@@ -242,8 +228,6 @@ The program is complete only when all of the following hold, across all three re
   - Every deliberate spec gap (R-8): resolving one requires explicit user authorization, and the default posture is to keep it open by design.
 4. **The load-bearing integration works end-to-end:** a query like "where is the login logic" returns a Hivenectar file description fused with session/memory hits in every armed harness (PRD-013 + PRD-009), and the operator dashboard renders the Source Graph page with live search and status (PRD-015).
 5. **The lifecycle-equals-location invariant holds:** completed PRD folders (index + sub-PRDs + `qa/`) are moved to `completed/`; in-progress PRDs live in `in-work/` (R-12).
-
-
 
 ### Wave-gate checklist template (copy per wave)
 
