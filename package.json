@@ -24,9 +24,9 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test \"test/**/*.test.ts\"",
-    "start": "node dist/cli.js daemon",
-    "daemon": "node dist/cli.js daemon",
+    "test": "npm run build && node --experimental-sqlite --test \"test/**/*.test.ts\"",
+    "start": "node --experimental-sqlite dist/cli.js daemon",
+    "daemon": "node --experimental-sqlite dist/cli.js daemon",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepack": "npm run build"
   },

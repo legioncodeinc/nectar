@@ -1,0 +1,155 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  DEFAULT_LOG_ROW_CAP,
+  LogWriter,
+  createLogTap,
+  levelFromLine,
+  messageFromLine,
+  redactLogMessage,
+} from "../../dist/telemetry/logs.js";
+import { openTelemetryDb } from "../../dist/telemetry/db.js";
+import { rmDirWithRetry } from "./test-helpers.ts";
+
+function tmpDir() {
+  return mkdtempSync(join(tmpdir(), "hivenectar-logs-"));
+}
+
+function allLogs(db) {
+  return db.prepare("SELECT * FROM service_logs ORDER BY id ASC").all();
+}
+
+test("write appends a row carrying a timestamp and a verbosity level (AC-017c.1.1 / AC-017c.3.1)", () => {
+  const dir = tmpDir();
+  try {
+    const db = openTelemetryDb(join(dir, "t.sqlite"));
+    const writer = new LogWriter({ db, now: () => "2026-07-01T00:00:00.000Z" });
+    writer.write("info", "listening on 3854");
+    const rows = allLogs(db);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]["ts"], "2026-07-01T00:00:00.000Z");
+    assert.equal(rows[0]["level"], "info");
+    assert.equal(rows[0]["message"], "listening on 3854");
+    db.close();
+  } finally {
+    rmDirWithRetry(dir);
+  }
+});
+
+test("rotation keeps the store within its bound under sustained writes (AC-017c.2.1/2.2)", () => {
+  const dir = tmpDir();
+  try {
+    const db = openTelemetryDb(join(dir, "t.sqlite"));
+    const writer = new LogWriter({ db, rowCap: 10, now: () => "t" });
+    for (let i = 0; i < 250; i++) writer.write("debug", `line ${i}`);
+
+    const rows = allLogs(db);
+    assert.equal(rows.length, 10, "bounded by the retention policy, not by total lines ever emitted");
+    assert.equal(rows[rows.length - 1]["message"], "line 249", "the newest rows survive rotation");
+    assert.equal(rows[0]["message"], "line 240", "only the newest `rowCap` rows remain");
+    db.close();
+  } finally {
+    rmDirWithRetry(dir);
+  }
+});
+
+test("the default row cap matches Contract B's ~5,000-row bound", () => {
+  assert.equal(DEFAULT_LOG_ROW_CAP, 5000);
+});
+
+test("redactLogMessage strips a bearer token and an apikey=... field, leaving the rest of the line intact", () => {
+  const redacted = redactLogMessage('calling deep lake with Authorization: Bearer sk-abc123XYZ and apikey=topsecret456');
+  assert.ok(!redacted.includes("sk-abc123XYZ"));
+  assert.ok(!redacted.includes("topsecret456"));
+  assert.ok(redacted.includes("calling deep lake with"));
+});
+
+test("redactLogMessage drops (returns null for) an oversized line rather than writing it (AC-017c.3.2)", () => {
+  const hugeFileBody = "x".repeat(5000);
+  assert.equal(redactLogMessage(hugeFileBody), null);
+});
+
+test("write drops rather than persists an unredactable (oversized) line", () => {
+  const dir = tmpDir();
+  try {
+    const db = openTelemetryDb(join(dir, "t.sqlite"));
+    const writer = new LogWriter({ db, now: () => "t" });
+    writer.write("info", "x".repeat(5000));
+    assert.equal(allLogs(db).length, 0, "the oversized line was dropped, never written");
+    db.close();
+  } finally {
+    rmDirWithRetry(dir);
+  }
+});
+
+test("no log row ever contains a raw authorization header, token, or credential value (AC-10 / AC-017c.3.2)", () => {
+  const dir = tmpDir();
+  try {
+    const db = openTelemetryDb(join(dir, "t.sqlite"));
+    const writer = new LogWriter({ db, now: () => "t" });
+    writer.write("error", 'deeplake auth failed: authorization="Bearer super-secret-token-value"');
+    writer.write("error", "client_secret: hunter2hunter2hunter2");
+    const rows = allLogs(db);
+    for (const row of rows) {
+      assert.ok(!String(row["message"]).includes("super-secret-token-value"));
+      assert.ok(!String(row["message"]).includes("hunter2hunter2hunter2"));
+    }
+    db.close();
+  } finally {
+    rmDirWithRetry(dir);
+  }
+});
+
+test("a log write failure is fail-soft and never throws (AC-7)", () => {
+  const brokenDb = {
+    prepare() {
+      throw new Error("db is closed");
+    },
+  };
+  const writer = new LogWriter({ db: brokenDb, now: () => "t" });
+  assert.doesNotThrow(() => writer.write("error", "boom"));
+});
+
+test("levelFromLine maps a valid level through and defaults an invalid/missing one to info", () => {
+  assert.equal(levelFromLine({ level: "warn" }), "warn");
+  assert.equal(levelFromLine({ level: "trace" }), "info");
+  assert.equal(levelFromLine({}), "info");
+});
+
+test("messageFromLine renders the line (minus level) as a compact string", () => {
+  const msg = messageFromLine({ level: "info", scope: "daemon", msg: "listening", port: 3854 });
+  assert.ok(msg.includes("daemon"));
+  assert.ok(msg.includes("listening"));
+  assert.ok(!msg.includes('"level"'), "level is not duplicated into the message text");
+});
+
+test("createLogTap mirrors every line into the telemetry sink while preserving the original sink's behavior unchanged", () => {
+  const baseLines = [];
+  const baseLog = (line) => baseLines.push(line);
+  const mirrored = [];
+  const sink = { log: (level, message) => mirrored.push({ level, message }) };
+  const tapped = createLogTap(baseLog, sink);
+
+  tapped({ level: "warn", scope: "daemon", msg: "degraded" });
+
+  assert.equal(baseLines.length, 1, "the original sink still received the exact line");
+  assert.deepEqual(baseLines[0], { level: "warn", scope: "daemon", msg: "degraded" });
+  assert.equal(mirrored.length, 1, "the telemetry sink also received a mirrored line");
+  assert.equal(mirrored[0].level, "warn");
+});
+
+test("createLogTap never lets a telemetry mirror failure affect the wrapped sink", () => {
+  const baseLines = [];
+  const baseLog = (line) => baseLines.push(line);
+  const throwingSink = {
+    log() {
+      throw new Error("telemetry is down");
+    },
+  };
+  const tapped = createLogTap(baseLog, throwingSink);
+  assert.doesNotThrow(() => tapped({ level: "info", msg: "hi" }));
+  assert.equal(baseLines.length, 1, "the real sink still ran despite the telemetry failure");
+});

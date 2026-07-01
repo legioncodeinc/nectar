@@ -169,6 +169,40 @@ export type {
   ServiceFs,
 } from "./service/index.js";
 
+// PRD-017: service check-in and local SQLite telemetry.
+export {
+  createTelemetry,
+  createNullTelemetry,
+  wrapStoreWithMetrics,
+  createLogTap,
+  redactLogMessage,
+  levelFromLine,
+  messageFromLine,
+  defaultTelemetryDbPath,
+  telemetryDbPathForRuntimeDir,
+  TELEMETRY_DIR_NAME,
+  TELEMETRY_DB_FILE_NAME,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_LOG_ROW_CAP,
+  MAX_LOG_MESSAGE_LENGTH,
+  LOG_LEVELS,
+  CheckinService,
+  CheckinWriter,
+  MetricsWriter,
+  LogWriter,
+} from "./telemetry/index.js";
+export type {
+  Telemetry,
+  CreateTelemetryOptions,
+  StartCheckinOptions,
+  StopHeartbeat,
+  MetricsSnapshot,
+  PipelineMetricsSink,
+  LogLevel,
+  LogSink,
+  SqliteDatabaseLike,
+} from "./telemetry/index.js";
+
 // PRD-003c: hivenectar's entry in hivedoctor's daemon registry.
 export {
   HIVENECTAR_DAEMON_NAME,
