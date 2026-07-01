@@ -1,26 +1,28 @@
 # PRD-004c: thehive portal daemon — bootstrap, always-on dashboard serving, API aggregation
 
-> **Codebase:** `honeycomb` repo → a new `thehive/` package (a new daemon). This is an out-of-band sub-PRD; it lands in the honeycomb repo, not hivenectar.
+> **Codebase:** the `the-hive` repo (a first-class product, sibling to `honeycomb` and `hivenectar`). This is an out-of-band sub-PRD; it lands in `the-hive`, not hivenectar. It is implemented by the-hive's own [`prd-001`](../../../../../the-hive/library/requirements/in-work/prd-001-thehive-portal-daemon/prd-001-thehive-portal-daemon-index.md); the mechanism framings below are reconciled to the-hive [`ADR-0001`](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md) (copy-and-own) and [`ADR-0002`](../../../../../the-hive/library/knowledge/private/architecture/ADR-0002-server-side-bff-proxy-for-dashboard-federation.md) (server-side proxy).
 
 ## Overview
 
-**thehive** is a new always-on portal daemon — the single source of always-on UI truth. It boots immediately on OS start (supervised by hivedoctor like the other daemons), is updateable independently of hivedoctor, and serves the unified dashboard by **reusing honeycomb's existing dashboard code** (`src/dashboard/web/`) rather than rewriting it, and by **fetching data from each registered daemon's API** rather than owning any workload data itself. This is decision #1's part (b): the dashboard is up the moment the device boots, regardless of which workload daemon is healthy.
+**thehive** is a new always-on portal daemon — the single source of always-on UI truth. It boots immediately on OS start (supervised by hivedoctor like the other daemons), is updateable independently of hivedoctor, and serves the unified dashboard by **owning a copy of honeycomb's dashboard code** (copied and owned in the `the-hive` repo, not imported at runtime), and by **fetching data from each registered daemon's API through a server-side proxy** rather than owning any workload data itself. This is decision #1's part (b): the dashboard is up the moment the device boots, regardless of which workload daemon is healthy.
 
-Today the dashboard lives inside the honeycomb daemon's HTTP server (`src/daemon/runtime/server.ts` mounts `/` as an unprotected route at `server.ts:108`) and is served alongside honeycomb's `/health` (`server.ts:319-341`) and `/api/*` groups (`server.ts:71-109`). When honeycomb is down, the dashboard is down. thehive lifts the dashboard surface into its own always-on process so it survives any single workload daemon's outage.
+> **Implementation note (reconciled):** two mechanism framings in this sub-PRD were superseded once thehive became a first-class product in its own `the-hive` repository. (1) The dashboard is **copied and owned** by thehive and **retired** from honeycomb, not imported at runtime and not left live in honeycomb (the-hive [`ADR-0001`](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md)). (2) API aggregation is a **server-side BFF proxy**: the browser talks to thehive's origin only, and thehive proxies each `/api/*` over loopback to the owning daemon (the-hive [`ADR-0002`](../../../../../the-hive/library/knowledge/private/architecture/ADR-0002-server-side-bff-proxy-for-dashboard-federation.md)). The acceptance criteria below are annotated where a mechanism changed; the boundaries (always-on, no Deep Lake client, independent cadence) are unchanged.
+
+Today the dashboard lives inside the honeycomb daemon's HTTP server (`src/daemon/runtime/server.ts` mounts `/` as an unprotected route at `server.ts:108`) and is served alongside honeycomb's `/health` (`server.ts:319-341`) and `/api/*` groups (`server.ts:71-109`). When honeycomb is down, the dashboard is down. thehive lifts the dashboard surface into its own always-on process so it survives any single workload daemon's outage; honeycomb's `/` dashboard mount and `web/` subtree are then retired (the-hive ADR-0001).
 
 ## Goals
 
-- thehive is a standalone TS/Node + Hono daemon in the honeycomb repo, with its own OS process, own `/health`, own PID/lock, and own port.
-- thehive serves the unified dashboard by reusing the existing `src/dashboard/web/` code (route registry, pages, shell) — no dashboard rewrite.
+- thehive is a standalone TS/Node + Hono daemon (a first-class product in the `the-hive` repo), with its own OS process, own `/health`, own PID/lock, and own port.
+- thehive serves the unified dashboard from a copy of the dashboard code it OWNS (copied from honeycomb and retired there, the-hive ADR-0001): no dashboard rewrite, no cross-repo runtime import.
 - thehive is always-on: it boots immediately on OS start (004d's service unit) and stays up independent of any workload daemon's health.
-- thehive aggregates data by fetching each registered daemon's `/api/*` endpoints, so a workload daemon's pages hydrate from that daemon's own API through thehive.
+- thehive aggregates data through a SERVER-SIDE proxy: the browser fetches thehive same-origin, and thehive proxies each `/api/*` over loopback to the owning daemon (the-hive ADR-0002), so a workload daemon's pages hydrate from that daemon's own API without the browser crossing origins.
 - thehive is updateable independently of hivedoctor: upgrading thehive does not restart hivedoctor, and vice versa.
 
 ## Non-Goals
 
 - thehive owns NO workload/data logic. Every row it renders comes from a registered daemon's API; thehive is a portal + aggregation layer.
 - thehive does NOT host the loopback comfort status page — that stays hivedoctor's (`hivedoctor/src/status-page/server.ts`). thehive's dashboard is the workload surface; hivedoctor's page is the supervisor surface.
-- thehive does NOT replace honeycomb's own dashboard server. honeycomb may still serve its dashboard directly when up; thehive is the always-on instance that is up even when honeycomb is not. (DEFAULT — confirm before implementation: whether honeycomb's in-process dashboard is later removed in favor of thehive-only is a follow-up decision, out of scope here.)
+- honeycomb does NOT keep serving the dashboard. Its `/` dashboard mount and `web/` subtree are retired; thehive is the only dashboard (the-hive [`ADR-0001`](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md) Decision A). honeycomb keeps only its data plane (`/api/*` + `/health`), which thehive proxies. (This supersedes the earlier "honeycomb may still serve its dashboard" framing, which was flagged DEFAULT and is now decided.)
 - thehive does NOT register new daemons at runtime. Registration is a file edit by installers (004d).
 - This sub-PRD does NOT define dashboard *page content* (the Source Graph page is PRD-015). It delivers the thehive process + dashboard-serving + aggregation contract.
 
@@ -43,7 +45,7 @@ Today the dashboard lives inside the honeycomb daemon's HTTP server (`src/daemon
 
 | ID | Criterion |
 |---|---|
-| c-AC-3 | Given the dashboard route registry (`src/dashboard/web/registry.tsx:196-218` `ROUTES`), when thehive serves the dashboard, then it renders the same registry entries (Dashboard, Projects, Harnesses, Memories, Memory Graph, Sync, Logs, ROI, Settings) — thehive imports and serves `ROUTES` rather than re-declaring it. |
+| c-AC-3 | Given the dashboard route registry (`ROUTES`), when thehive serves the dashboard, then it renders the same registry entries (Dashboard, Projects, Harnesses, Memories, Memory Graph, Sync, Logs, ROI, Settings). **Reconciled (the-hive ADR-0001):** thehive serves a copy of `ROUTES` it OWNS (copied from honeycomb and retired there), rather than importing honeycomb's module at runtime (a cross-repository runtime import is not available, and honeycomb's copy is retired). |
 | c-AC-4 | Given a dashboard page component (`src/dashboard/web/pages/*`, taking `PageProps` per `registry.tsx:91`), when thehive mounts it, then the page hydrates through the same `usePoll`/`wire` pattern the existing pages use (per the "how to add a page" contract at `registry.tsx:10-22`). |
 
 ### US-3 — API aggregation from each daemon
@@ -52,7 +54,7 @@ Today the dashboard lives inside the honeycomb daemon's HTTP server (`src/daemon
 
 | ID | Criterion |
 |---|---|
-| c-AC-5 | Given a registered daemon's `/api/*` surface (e.g. honeycomb's mounted groups at `src/daemon/runtime/server.ts:71-109`), when a dashboard page requests data owned by that daemon, then thehive proxies/fetches from that daemon's `/api/*` endpoint and returns the result. |
+| c-AC-5 | Given a registered daemon's `/api/*` surface (e.g. honeycomb's mounted groups at `src/daemon/runtime/server.ts:71-109`), when a dashboard page requests data owned by that daemon, then thehive proxies/fetches from that daemon's `/api/*` endpoint and returns the result. **Reconciled (the-hive ADR-0002):** this proxy is SERVER-SIDE: the browser fetches thehive's own origin same-origin, and thehive's server (`the-hive/src/daemon/proxy.ts`) forwards it over loopback to the owning daemon. (An earlier implementation federated client-side from the browser; that is superseded because it forced CORS onto every workload daemon.) |
 | c-AC-6 | Given thehive aggregates from N daemons, when one daemon's `/api/*` is unreachable, then thehive returns a fail-soft empty/unreachable result for that source and the rest of the dashboard keeps working (mirroring the graceful-degradation posture). |
 
 ### US-4 — Independent updateability
@@ -75,17 +77,17 @@ thehive is a TS/Node + Hono daemon. Its HTTP server mirrors honeycomb's `createD
 
 **PID/lock (DEFAULT — confirm before implementation):** thehive writes `~/.honeycomb/thehive.pid` / `~/.honeycomb/thehive.lock` — the single-instance guard hivedoctor's restart rung respects via the registry entry's `pidPath` (004a, `hivedoctor/src/remediation.ts:111, 147-151`).
 
-### Reusing the dashboard code (no rewrite)
+### Copy-and-own the dashboard code (no rewrite, no runtime import)
 
-thehive imports honeycomb's dashboard module rather than forking it. The route registry is the single extension point: `ROUTES` (`src/dashboard/web/registry.tsx:196-218`) is an ordered list of `RouteEntry` (`registry.tsx:83-94`) that BOTH the sidebar and the router outlet read (`registry.tsx:6-9`). thehive mounts the same shell that consumes `ROUTES` + `matchRoute` (`registry.tsx:230-240`) + `DEFAULT_ROUTE` (`registry.tsx:221`), so every existing page (Dashboard, Projects, Harnesses, Memories, Memory Graph, Sync, Logs, ROI, Settings) renders through thehive unchanged. Adding the Source Graph page (PRD-015) is then one `RouteEntry` in `ROUTES` (`registry.tsx:10-22`) — and it automatically appears in thehive because thehive reads the same list (c-AC-3).
+thehive **owns a copy** of honeycomb's dashboard code (copied per the-hive [`ADR-0001`](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md); honeycomb's copy is retired, so there is no second live copy to diverge from) rather than importing honeycomb's module across the repository boundary or forking it. The route registry is the single extension point: `ROUTES` is an ordered list of `RouteEntry` that BOTH the sidebar and the router outlet read. thehive mounts the same shell that consumes `ROUTES` + `matchRoute` + `DEFAULT_ROUTE`, so every existing page (Dashboard, Projects, Harnesses, Memories, Memory Graph, Sync, Logs, ROI, Settings) renders through thehive unchanged. Adding the Source Graph page (PRD-015) is then one `RouteEntry` in thehive's `ROUTES`; it appears in the portal without touching any other daemon (c-AC-3).
 
 This delivers c-AC-4 too: every page component takes `PageProps` (`registry.tsx:91`) and hydrates via the shared `wire` client + `usePoll` (`registry.tsx:13-16`); thehive passes its own `wire` (the API-aggregation client below) down, so the pages work identically whether served by honeycomb or thehive.
 
 ### API aggregation layer
 
-thehive's `wire` client (the `PageProps.wire` the pages hydrate through) is an aggregation client that routes each request to the owning daemon. Today honeycomb's dashboard `wire` calls honeycomb's own `/api/*` in-process. thehive's `wire` instead maps a request to the registered daemon that owns it (honeycomb's `/api/memories`, `/api/graph`, etc. per `server.ts:74-107`; hivenectar's `/api/source-graph/*` per PRD-008) and fetches that daemon's `/api/*` endpoint, returning the result to the page. This is c-AC-5/c-AC-6: the dashboard surface is unified, the data is federated.
+**Reconciled to a server-side proxy (the-hive [`ADR-0002`](../../../../../the-hive/library/knowledge/private/architecture/ADR-0002-server-side-bff-proxy-for-dashboard-federation.md)).** The dashboard `wire` (the `PageProps.wire` the pages hydrate through) fetches **thehive's own origin same-origin**, exactly as honeycomb's original in-process dashboard did. thehive's SERVER owns the federation: a proxy handler (`the-hive/src/daemon/proxy.ts`) maps each request to the registered daemon that owns it (honeycomb's `/api/memories`, `/api/graph`, etc.; hivenectar's `/api/source-graph/*`), fetches that daemon's `/api/*` over loopback with the browser's headers passed through, and returns the result to the page. This is c-AC-5/c-AC-6: the dashboard surface is unified, the data is federated server-side. Because the browser never crosses origins, no workload daemon needs CORS.
 
-The registry (004a) is the routing table for this aggregation: each registry entry's `healthUrl` host tells thehive where that daemon's `/api/*` lives (the `/health` and `/api/*` share a host/port — honeycomb mounts both at `server.ts:71-109` + `:319`). A daemon absent from the registry, or failing `/health`, yields the fail-soft unreachable result for its pages (c-AC-2/c-AC-6).
+The registry (004a) is the routing table for this aggregation: each registry entry's `healthUrl` host tells thehive where that daemon's `/api/*` lives (the `/health` and `/api/*` share a host/port — honeycomb mounts both at `server.ts:71-109` + `:319`). A daemon absent from the registry, or failing `/health` / the proxied fetch, yields the fail-soft unreachable result for its pages (c-AC-2/c-AC-6).
 
 ### Independent updateability + supervision
 
@@ -96,6 +98,7 @@ thehive is supervised by hivedoctor exactly like the others: it has a registry e
 - [`prd-004d-thehive-service-unit-and-registration.md`](./prd-004d-thehive-service-unit-and-registration.md) — thehive's OS service unit + registry entry.
 - [`prd-004a-hivedoctor-registry-config-and-supervisor-instances.md`](./prd-004a-hivedoctor-registry-config-and-supervisor-instances.md) — the registry thehive's aggregation routes over.
 - [`prd-004-hivedoctor-registry-and-thehive-index.md`](./prd-004-hivedoctor-registry-and-thehive-index.md) — module scope.
-- **Design references (corpus):** [`ADR-0004-thehive-portal-daemon-role-and-boundaries.md`](../../../knowledge/private/architecture/ADR-0004-thehive-portal-daemon-role-and-boundaries.md) (the four binding boundaries this sub-PRD implements: always-on + boot-order, API-aggregation-not-Deep-Lake, dashboard ownership + honeycomb code reuse, independent update cadence) and [`thehive-portal-daemon.md`](../../../knowledge/private/architecture/thehive-portal-daemon.md) (the full thehive design reference).
+- **Design references (corpus):** [`ADR-0004-thehive-portal-daemon-role-and-boundaries.md`](../../../knowledge/private/architecture/ADR-0004-thehive-portal-daemon-role-and-boundaries.md) (the four binding boundaries this sub-PRD implements: always-on + boot-order, API-aggregation-not-Deep-Lake, dashboard ownership, independent update cadence) and [`thehive-portal-daemon.md`](../../../knowledge/private/architecture/thehive-portal-daemon.md) (the full thehive design reference).
+- **Mechanism ADRs (the-hive repo):** [`ADR-0001` copy-and-own + retire honeycomb dashboard](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md) (refines ADR-0004 decision #3) and [`ADR-0002` server-side BFF proxy](../../../../../the-hive/library/knowledge/private/architecture/ADR-0002-server-side-bff-proxy-for-dashboard-federation.md) (refines ADR-0004 decision #2's mechanism).
 - **Topology ADR:** [`ADR-0003-three-daemon-topology-and-thehive-portal.md`](../../../knowledge/private/architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md) (the three-daemon topology that introduces thehive).
 - **Dashboard-page consumer:** PRD-015 (the Source Graph page that lands in thehive's dashboard).

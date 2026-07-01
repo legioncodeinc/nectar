@@ -4,7 +4,7 @@
 > **Supersedes:** none · **Superseded by:** none
 > **Owners:** platform, thehive, daemon
 > **Related:** `ADR-0003-three-daemon-topology-and-thehive-portal.md`, `ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`, `../../../requirements/MASTER-PRD-INDEX.md`, `../../../requirements/backlog/prd-004-hivedoctor-registry-and-thehive/`, `../../../requirements/backlog/prd-015-dashboard-source-graph-page/`
-> **Refined by:** [the-hive ADR-0001, retire honeycomb dashboard and copy-and-own into thehive](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md), which supersedes decision #3's reuse-by-runtime-import mechanism with copy-and-own plus honeycomb dashboard retirement (thehive is now a first-class product of the-hive repository, separate from honeycomb).
+> **Refined by:** [the-hive ADR-0001, retire honeycomb dashboard and copy-and-own into thehive](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md), which supersedes decision #3's reuse-by-runtime-import mechanism with copy-and-own plus honeycomb dashboard retirement (thehive is now a first-class product of the-hive repository, separate from honeycomb); and [the-hive ADR-0002, server-side BFF proxy for dashboard federation](../../../../../the-hive/library/knowledge/private/architecture/ADR-0002-server-side-bff-proxy-for-dashboard-federation.md), which fixes decision #2's aggregation mechanism as a server-side proxy (browser same-origin to thehive) rather than client-side federation.
 
 ## Context
 
@@ -44,6 +44,8 @@ This is the load-bearing property. Anything that makes thehive's shell depend on
 thehive does **not** read Deep Lake directly. It does not hold a Deep Lake client, does not resolve tenancy scope, and does not run queries. It fetches data from each registered daemon's HTTP API — `/api/*` on honeycomb and hivenectar — and aggregates the responses into the unified dashboard. The aggregation layer is fail-soft per daemon: if honeycomb's API is unreachable, the honeycomb-sourced dashboard sections render empty or "daemon unreachable," while the hivenectar-sourced sections still render.
 
 This keeps thehive a thin portal. The workload daemons own their data contracts, their tenancy scoping, and their query surfaces; thehive owns only the presentation + aggregation seam. A new workload daemon joins the dashboard by exposing an API thehive aggregates — not by sharing a Deep Lake client.
+
+> **Refined by the-hive ADR-0002 (2026-07):** the aggregation BOUNDARY here (no Deep Lake client, every row from a daemon's `/api/*`, fail-soft per daemon) is unchanged. the-hive [`ADR-0002`](../../../../../the-hive/library/knowledge/private/architecture/ADR-0002-server-side-bff-proxy-for-dashboard-federation.md) fixes the MECHANISM: aggregation is a SERVER-SIDE proxy on thehive (the browser fetches thehive same-origin; thehive proxies over loopback to the owning daemon), not a client-side federated `wire` fetching each daemon's origin from the browser. This removes the CORS allowance every workload daemon would otherwise owe and keeps the loopback-trust decision server-side.
 
 ### 3. Dashboard ownership + reuse of Honeycomb's dashboard code
 

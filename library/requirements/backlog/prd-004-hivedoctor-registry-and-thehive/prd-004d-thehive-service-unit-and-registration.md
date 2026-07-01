@@ -1,6 +1,6 @@
 # PRD-004d: thehive OS service unit + daemon registration
 
-> **Codebase:** `honeycomb` repo → `thehive/` package (service unit) + each installer (registry edits). This is an out-of-band sub-PRD; it lands in the honeycomb repo, not hivenectar.
+> **Codebase:** the `the-hive` repo (thehive's own service unit, implemented by the-hive [`prd-001d`](../../../../../the-hive/library/requirements/in-work/prd-001-thehive-portal-daemon/prd-001d-service-unit-and-registration.md)) + each daemon's installer (registry edits). This is an out-of-band sub-PRD; it lands in `the-hive` (and the installers), not hivenectar.
 
 ## Overview
 
