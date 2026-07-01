@@ -49,6 +49,8 @@ export class PollLoop {
   private inFlight = false;
   private handle: unknown = null;
   private currentDelayMs: number;
+  /** Bumped on every start() and stop(); a pump/schedule from an older generation is ignored. */
+  private generation = 0;
 
   constructor(opts: PollLoopOptions) {
     this.tick = opts.tick;
@@ -72,13 +74,15 @@ export class PollLoop {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.generation += 1;
     this.currentDelayMs = this.floorMs;
-    this.schedule(0);
+    this.schedule(0, this.generation);
   }
 
-  /** Disarm the loop. Idempotent. An in-flight tick is allowed to finish. */
+  /** Disarm the loop. Idempotent. An in-flight tick is allowed to finish but cannot reschedule. */
   stop(): void {
     this.running = false;
+    this.generation += 1;
     if (this.handle !== null) {
       this.timer.clear(this.handle);
       this.handle = null;
@@ -104,16 +108,20 @@ export class PollLoop {
     }
   }
 
-  private schedule(delayMs: number): void {
-    if (!this.running) return;
+  private schedule(delayMs: number, gen: number): void {
+    if (!this.running || gen !== this.generation) return;
     this.handle = this.timer.set(() => {
-      void this.pump();
+      void this.pump(gen);
     }, delayMs);
   }
 
-  private async pump(): Promise<void> {
-    if (!this.running) return;
+  private async pump(gen: number): Promise<void> {
+    if (!this.running || gen !== this.generation) return;
     const didWork = await this.runOnce();
+    // A stop()/start() may have happened while the tick was in flight; if so this
+    // is a stale generation and must not reschedule (that would leave two active
+    // schedules on one loop).
+    if (!this.running || gen !== this.generation) return;
     // Backoff: schedule the NEXT tick at the current delay, then advance the
     // delay for the tick after that. A tick that did work resets to the floor;
     // an idle tick steps toward the ceiling. This makes the first idle tick fire
@@ -125,6 +133,6 @@ export class PollLoop {
           this.ceilingMs,
           Math.max(this.floorMs, Math.round(this.currentDelayMs * this.backoffFactor)),
         );
-    this.schedule(nextDelay);
+    this.schedule(nextDelay, gen);
   }
 }

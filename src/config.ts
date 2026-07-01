@@ -51,6 +51,13 @@ function envInt(name: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+/** Read a string env var, treating unset OR blank/whitespace-only as absent (so it falls back to the default). */
+function envStr(name: string): string | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return undefined;
+  return raw;
+}
+
 /**
  * Resolve the runtime config. Overrides win, then env, then defaults. The env
  * layer keeps the daemon operable without a config file; overrides exist so
@@ -59,10 +66,10 @@ function envInt(name: string): number | undefined {
 export function resolveConfig(overrides: RuntimeConfigOverrides = {}): RuntimeConfig {
   const runtimeDir =
     overrides.runtimeDir ??
-    process.env.HIVENECTAR_RUNTIME_DIR ??
+    envStr("HIVENECTAR_RUNTIME_DIR") ??
     join(homedir(), RUNTIME_DIR_NAME);
 
-  const host = overrides.host ?? process.env.HIVENECTAR_HOST ?? DEFAULT_HOST;
+  const host = overrides.host ?? envStr("HIVENECTAR_HOST") ?? DEFAULT_HOST;
   const port = overrides.port ?? envInt("HIVENECTAR_PORT") ?? DEFAULT_PORT;
   const pollIntervalMs =
     overrides.pollIntervalMs ??

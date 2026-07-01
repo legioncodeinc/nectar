@@ -92,12 +92,17 @@ export class HiveantennaeWorker {
 
     try {
       await handler(job);
-      await this.source.complete(job.id);
     } catch (err) {
       this.onError(err);
       const reason = err instanceof Error ? err.message : String(err);
       await this.source.fail(job.id, reason);
+      return true;
     }
+    // Completion is deliberately OUTSIDE the handler try: a transient
+    // source.complete() failure is a queue problem, not a job failure. Routing
+    // it to source.fail() after the handler already committed its side effects
+    // could duplicate work or corrupt queue state, so let it propagate instead.
+    await this.source.complete(job.id);
     return true;
   }
 

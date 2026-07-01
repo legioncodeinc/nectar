@@ -9,7 +9,16 @@
  *   - the lock file is the guard; the PID file is operator-facing convenience
  *     (`cat ~/.honeycomb/hivenectar.pid`).
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { DaemonAlreadyRunningError } from "./errors.js";
 
@@ -56,16 +65,46 @@ export interface LockPaths {
  */
 export function acquireSingleInstanceLock(paths: LockPaths): void {
   mkdirSync(dirname(paths.lockFilePath), { recursive: true });
+  const pid = String(process.pid);
 
-  const existingPid = readPidFile(paths.lockFilePath);
-  if (existingPid !== null && isPidAlive(existingPid)) {
-    throw new DaemonAlreadyRunningError(existingPid, paths.lockFilePath);
+  // Acquire the lock via an atomic exclusive-create ("wx"), so two concurrent
+  // launches cannot both win the read-then-write race. If the lock already
+  // exists, reclaim it only when its recorded PID is dead, then retry once.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let fd: number;
+    try {
+      fd = openSync(paths.lockFilePath, "wx");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      const existingPid = readPidFile(paths.lockFilePath);
+      if (existingPid !== null && isPidAlive(existingPid)) {
+        throw new DaemonAlreadyRunningError(existingPid, paths.lockFilePath);
+      }
+      // Stale lock (dead or unreadable PID): drop it and retry the exclusive create.
+      rmSync(paths.lockFilePath, { force: true });
+      continue;
+    }
+
+    try {
+      writeSync(fd, pid);
+    } finally {
+      closeSync(fd);
+    }
+
+    // Write the operator-facing PID file; on failure, roll the lock back so a
+    // partial acquisition never leaves a stale lock wedging the next start.
+    try {
+      writeFileSync(paths.pidFilePath, pid, "utf8");
+    } catch (err) {
+      rmSync(paths.lockFilePath, { force: true });
+      throw err;
+    }
+    return;
   }
 
-  // Fresh acquire or stale reclaim: stamp our PID into both files.
-  const pid = String(process.pid);
-  writeFileSync(paths.lockFilePath, pid, "utf8");
-  writeFileSync(paths.pidFilePath, pid, "utf8");
+  // Both attempts lost to a live lock created between our checks.
+  const racedPid = readPidFile(paths.lockFilePath);
+  throw new DaemonAlreadyRunningError(racedPid ?? -1, paths.lockFilePath);
 }
 
 /**

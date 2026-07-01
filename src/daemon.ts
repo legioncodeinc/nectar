@@ -75,31 +75,35 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
   const lockPaths = { lockFilePath: config.lockFilePath, pidFilePath: config.pidFilePath };
 
   let server: HttpServer | null = null;
-  let started = false;
   let closed = false;
   let signalsInstalled = false;
+  /** The one in-flight (or settled) startup. Concurrent/repeat callers share it, so nobody observes a "started" port before listen() actually succeeds. */
+  let startPromise: Promise<number> | null = null;
 
   async function start(): Promise<number> {
-    if (started) return server?.port ?? config.port;
+    if (startPromise !== null) return startPromise;
 
-    // Step 5 (PRD-002a): acquire the single-instance lock BEFORE the bind.
-    acquireSingleInstanceLock(lockPaths);
-    started = true;
-    closed = false;
-
-    try {
+    startPromise = (async () => {
+      // Step 5 (PRD-002a): acquire the single-instance lock BEFORE the bind.
+      acquireSingleInstanceLock(lockPaths);
+      closed = false;
       // Step 6: start services (the worker's adaptive poll loop).
       worker.start();
       health.markStarted();
-
-      // Step 7: bind the socket. Bind failure rolls the lifecycle back.
+      // Step 7: bind the socket.
       server = createHttpServer(health, config.host, config.port);
       const boundPort = await server.listen();
       log({ level: "info", scope: "daemon", msg: "listening", host: config.host, port: boundPort });
       return boundPort;
+    })();
+
+    // Only the caller that created the promise drives rollback; concurrent
+    // callers returned the shared promise above and observe the same result.
+    try {
+      return await startPromise;
     } catch (err) {
       log({ level: "error", scope: "daemon", msg: "start failed, rolling back", err: String(err) });
-      await shutdown();
+      await shutdown(); // clears startPromise so a later start() can retry cleanly
       throw err;
     }
   }
@@ -114,7 +118,7 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
       server = null;
     }
     releaseSingleInstanceLock(lockPaths);
-    started = false;
+    startPromise = null; // allow a fresh start after a clean shutdown
     log({ level: "info", scope: "daemon", msg: "shutdown complete" });
   }
 
