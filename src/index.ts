@@ -44,7 +44,7 @@ export type {
   SourceGraphRow,
   SourceGraphVersionRow,
 } from "./source-graph/model.js";
-export { DESCRIBE_STATUSES, EMBED_DIMS, isValidEmbedding } from "./source-graph/model.js";
+export { DESCRIBE_STATUSES, EMBED_DIMS, isValidEmbedding, inTenancy } from "./source-graph/model.js";
 export type { SourceGraphStore, AsyncSourceGraphStore, LatestVersion } from "./source-graph/store.js";
 export { InMemorySourceGraphStore } from "./source-graph/memory-store.js";
 export { mintNectar, nectarCreatedAt, nectarTimestampMs, isValidNectar } from "./source-graph/ulid.js";
@@ -92,16 +92,49 @@ export { classifyPath } from "./registration/classify.js";
 export type { PathObservation, LadderInput, LadderInputKind } from "./registration/classify.js";
 export { classifyNewFile } from "./registration/copy-detect.js";
 export type { NewFileDecision } from "./registration/copy-detect.js";
-export { reassociate } from "./registration/ladder.js";
+export { reassociate, carryNectar } from "./registration/ladder.js";
 export type {
   ObservedFile,
   FuzzyStep,
   FuzzyOutcome,
+  FuzzyCandidate,
+  ReviewCandidate,
   LadderDeps,
   LadderResult,
   LadderStep,
   LadderAction,
 } from "./registration/ladder.js";
+export {
+  createDefaultIgnore,
+  loadIgnorePrefixes,
+  ALWAYS_IGNORED_SEGMENTS,
+  GRAPH_IGNORE_FILE,
+} from "./registration/ignore.js";
+export type { IgnorePredicate } from "./registration/ignore.js";
+export {
+  computeFingerprint,
+  fingerprintDistance,
+  distanceToConfidence,
+  createTlshFuzzyStep,
+  DEFAULT_TUNABLE_FUZZY_CONFIG,
+  MAX_DISTANCE,
+  SIZE_BUCKET_TOLERANCE,
+  FINGERPRINT_PREFIX,
+} from "./registration/tlsh.js";
+export type { FuzzyConfig } from "./registration/tlsh.js";
+export { RegistrationService } from "./registration/service.js";
+export type { RegistrationServiceOptions, RegistrationFs, StatResult } from "./registration/service.js";
+export { createDiskRegistrationFs } from "./registration/disk-fs.js";
+export { isSafeRelPath, containedPath, realpathContained } from "./registration/paths-safe.js";
+export {
+  InMemoryPendingReviewStore,
+  FilePendingReviewStore,
+} from "./registration/review-store.js";
+export type { PendingReviewStore, PendingReviewCandidate } from "./registration/review-store.js";
+export { runReviewMatches } from "./registration/review-cli.js";
+export type { ReviewMatchesDeps, ReviewMatchesResult, ReviewDecision } from "./registration/review-cli.js";
+export { runPrune, findPruneCandidates, PRUNE_GRACE_MS } from "./registration/prune-cli.js";
+export type { PruneDeps, PruneCandidate, PruneResult } from "./registration/prune-cli.js";
 
 // PRD-003b: OS service unit (launchd / systemd / schtasks).
 export {

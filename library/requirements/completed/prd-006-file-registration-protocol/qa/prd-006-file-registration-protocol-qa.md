@@ -196,3 +196,131 @@ Both medium Warnings and the cheap broken-link note were remediated in place (no
 - **W-2 resolved:** all 6 honeycomb code refs in the Related sections unwrapped from markdown links to backtick file-path spans (index 3, 006a 2, 006b 1). Grep for `](.../honeycomb` in the PRD folder now returns zero.
 - **N-1 resolved:** the 3 non-resolving `.agents` stinger-guide links (index:27, 006d:111, 006d:158) converted to plain-text citations ("per the `hivenectar-stinger` guide 00 § Principle 3").
 - **Deferred (sub-medium, carried forward, not blocking):** N-2 (corpus-echoed "intake debounce" attribution), N-3 (watcher shape: PRD AC describes per-directory array; in-band `fs-watch.ts:67` uses a single recursive watcher), N-4 (step-1 fast path: PRD says classifier; in-band resolves it at `ladder.ts:81-87`), N-5 (copy-description-inheritance forward note). N-3/N-4 are plan-vs-code doc drift for the PRD-006 implementer to reconcile; recorded for the implementation pass.
+
+---
+
+## Implementation close-out addendum (2026-07-01, the-smoker Wave 3, plan-vs-code)
+
+This is the **implementation** verification pass (plan-vs-code), distinct from the Wave B PRD-vs-corpus conformance pass above. It audits the shipped code (`src/registration/*`, `src/cli.ts`, `src/source-graph/{store,memory-store,deeplake-store,model}.ts`, `src/index.ts`) and its new test suites against the 21 acceptance criteria recorded in `library/ledger/EXECUTION_LEDGER.md` § "Execution Ledger: PRD-006 implementation (the-smoker run, 2026-07-01)" (AC-1..AC-21 + the Security remediation), armed with quality-stinger + hivenectar-stinger. Report-only; no source, corpus, or DDL was modified. All findings at Medium-or-above are listed with `file:line` + a concrete remediation.
+
+### 1. Summary
+
+The implementation is strong and faithful. All 21 ACs trace to real code and to tests that genuinely exercise the behavior (no stubs, no tautologies): the settled handler drains a burst with per-path error isolation (`service.ts:178-198`), a `null` filename triggers a full resync (`service.ts:132-140`, tested), rename→move reconstructs end-to-end through step 3 (tested), the 5-step ladder is first-match-wins (`ladder.ts:111-208`), step 4 is a size-bucketed (±20%) scored TLSH-family match, and every mutation (delete / carry / accept / prune) is tenancy-guarded by the shared `inTenancy` predicate (the security remediation). The deliberate spec gaps are correctly preserved: **no numeric TLSH threshold is pinned as a spec value** (the only numbers are `DEFAULT_TUNABLE_FUZZY_CONFIG` at `tlsh.ts:182-185`, an explicitly-flagged tunable operator default, and `MAX_DISTANCE`/`SIZE_BUCKET_TOLERANCE`, algorithmic constants), and **no `review-matches` accept/reject flag grammar is invented** (interactive readline default, `cli.ts:146-151`). N-3 (watcher shape) and N-4 (step-1 location) are now consistent between docs and code. Repo hygiene on the delta is clean: zero runtime dependencies added, no authored em/en dashes, top-level imports only, exhaustive switches with `never` guards. `npm run build` + `npm run typecheck` are clean; `npm test` is 166/167, the sole failure being the pre-existing flaky live Deep Lake round-trip (`source-graph-deeplake.test.ts:494`, network eventual-consistency), which per instruction is not counted against PRD-006.
+
+The one Medium finding is an integration gap, not a mechanics defect: the `prune` and `review-matches` **CLI verbs** are wired to a throwaway empty in-memory store, so they operate on no real data and (for `prune`) report a misleading success. The command *logic* (`runPrune`/`runReviewMatches`) is complete and well-tested; only the CLI entry point is wrong.
+
+### 2. Verdict per severity
+
+| Severity | Count | Verdict |
+|---|---|---|
+| Critical (blocks ship) | 0 | none |
+| Medium / Warning (should fix) | 1 | W-1 |
+| Suggestion / sub-medium note | 3 | N-1, N-2, N-3 |
+
+### 3. Critical Issues (must fix)
+
+None.
+
+### 4. Warnings (should fix) — Medium
+
+#### W-1 (Correctness / Detrimental Pattern; `src/cli.ts:136`, `src/cli.ts:165`): `prune` and `review-matches` CLI verbs run against a throwaway empty in-memory store
+
+Both operator-facing verbs construct a fresh, empty store on every invocation and never load any persisted/durable identity data:
+
+```136:137:hivenectar/src/cli.ts
+  const store = new InMemorySourceGraphStore();
+  const pendingReviews = new FilePendingReviewStore(join(config.runtimeDir, PENDING_REVIEWS_FILE));
+```
+
+```164:166:hivenectar/src/cli.ts
+function runPruneCommand(rest: readonly string[]): number {
+  const store = new InMemorySourceGraphStore();
+  const confirm = rest.includes("--confirm");
+```
+
+Consequences:
+- `hivenectar prune` / `prune --confirm` always finds an empty store, so it prints `"Nothing to prune: no nectar is missing beyond the grace period."` and deletes nothing **regardless of the real system state**. For a destructive-sounding verb, a definitive "nothing to prune" that is false about the actual durable data is misleading operator feedback.
+- `hivenectar review-matches` reads the real file-backed pending queue (good), but its accept path calls `store.getIdentity(candidateNectar)` against the empty identity store, so `inTenancy`/existence always fails and every accept becomes `"not in scope; dropped stale review"` (`review-cli.ts:81-87`) — accept can never carry a nectar through the CLI.
+
+This deviates from the repo's own staged-CLI honesty convention (`AGENTS.md`: not-yet-wired verbs must "exit with a clear 'owned by PRD-NNN' notice rather than a silent stub", which `brood`/`rebuild-projection` follow at `cli.ts:109-113, 227-234`). `prune`/`review-matches` instead silently no-op on a throwaway store. The failure mode is *safe* (no data loss, no mis-association) and the underlying logic is fully tested, which is why this is Medium, not Critical. AC-18/AC-19 pass at the logic level; the CLI integration is only partially met.
+
+**Remediation (cheap, in-scope; either option):**
+- (a) Gate `prune` and `review-matches` behind the same "owned by PRD-NNN / not yet wired to the durable store" notice used by `brood`/`rebuild-projection` (`cli.ts:227-234`) until the durable store is connected; or
+- (b) Wire both verbs to the durable `DeepLakeSourceGraphStore` (`src/source-graph/deeplake-store.ts`) plus the daemon's resolved tenancy (`resolveTenancy()` already exists at `cli.ts:120-126`) via an async adapter, so they act on real data. Note this depends on the async-store wiring that `store.ts:69-88` documents as deferred, so (a) is the minimal fix for this branch.
+
+### 5. Suggestions / sub-medium notes (non-blocking)
+
+- **N-1 (AC-8 partial — fingerprint durability; `service.ts:87-88`, `service.ts:250-261`, `ladder.ts:157-161`).** The missing-file TLSH fingerprint that step 4 consults is held in an in-process `fingerprintCache` (nectar → fingerprint), populated when content is read at registration — it is **not persisted**. Step 4 therefore works within a live session but degrades after a daemon restart / cold catch-up: candidates carry `fingerprint: null` and are skipped (`tlsh.ts:204`), so a move-and-edit falls through to a fresh mint until re-registration. The degradation is *safe* (mint-fresh, never mis-associate) and is documented in the ledger as an accepted v1 limitation; the clean fix (an additive nullable persisted fingerprint column) requires extending the corpus `source-graph-schema.md`, which is out of scope for this branch. Recorded so the orchestrator knows AC-8's durability half is deferred, not silently dropped.
+- **N-2 (pipeline not live-wired; `src/index.ts:125`, `src/daemon.ts`).** `RegistrationService` is exported but never instantiated by the daemon composition root (`daemon.ts` has zero registration references), so no live watching happens in the running daemon yet. This is consistent with PRD-006a's explicit non-goal ("the daemon worker loop that invokes the settled cycle — PRD-002") and the deferred async-store wiring (`store.ts:69-88`). Context, not a PRD-006 defect — the mechanics are unit-complete; the live worker-loop wiring belongs to a later PRD. (This is the root cause behind W-1: there is no durable registration data for the CLI verbs to find.)
+- **N-3 (branch / commit state).** The working tree is on `feature/prd-004-complete`, not the `feature/prd-006-file-registration-complete` named in the task brief, and the entire PRD-006 delta is **uncommitted** (11 modified + 14 untracked files). No impact on code correctness, but the orchestrator should reconcile the branch name and commit the delta before shipping so the ledger's branch reference matches reality.
+
+### 6. AC traceability (implementation, AC-1..AC-21)
+
+| AC | Behavior | Code | Test that exercises it | Verdict |
+|---|---|---|---|---|
+| AC-1 | `fs.watch` recursive; chokidar absent | `fs-watch.ts:121`; `package.json` (no deps) | "watch intake collapses a burst"; dep tree | PASS |
+| AC-2 | Burst coalesces to one cycle | `fs-watch.ts:104-116` | "watch intake collapses a burst on one path" | PASS |
+| AC-3 | Null filename → full resync, no crash | `fs-watch.ts:72-78`, `service.ts:178-186` | "null-filename observation triggers a full resync settle (AC-3)" | PASS |
+| AC-4 | Settled discover→resolve→persist; per-path isolation; idle drain | `service.ts:164-198` | "settled burst mints and drains"; "per-path failure is isolated" | PASS |
+| AC-5 | Ignore-filtered; no bespoke list | `ignore.ts`; `fs-watch.ts:91`, `service.ts:144` | "ignored paths never trigger a cycle"; `ignore.test` (5) | PASS |
+| AC-6 | Exactly one of NEW/CHANGED/MISSING | `classify.ts:29-39` | "classifyPath returns new/changed/missing and null" | PASS |
+| AC-7 | Step-1 as ladder first rung (no read) | `ladder.ts:115-122` | "step 1: ... never reads content" | PASS (N-4 reconciled) |
+| AC-8 | Missing set carries hash + TLSH fingerprint | `ladder.ts:48-51,157-161`; `service.ts:87-88` | step-4 service + tlsh suites | PASS in-session; durability deferred (N-1) |
+| AC-9 | Rename → move via missing-set + step 3 | `service.ts` end-to-end | "a rename reconstructs a move end-to-end through step 3 (AC-9)" | PASS |
+| AC-10 | Copy detector after 3/4 miss; `classifyNewFile` verbatim; N2 + provenance | `copy-detect.ts:19-33`; `ladder.ts:325-348` | "step 5 copy: ... mints with provenance"; "classifyNewFile ..." | PASS |
+| AC-11 | 5 steps verbatim, first-match-wins | `ladder.ts:111-208` | step 1/2/3/5 + fuzzy tests | PASS |
+| AC-12 | Step 2 append seq+1 pending + enrich | `ladder.ts:129-136,250-256` | "step 2: ... appends a version" | PASS |
+| AC-13 | Step 3 carry on exact sha256, no enrich, leaves set | `ladder.ts:141-150` (no `onEnrichQueued`) | "step 3: exact-hash match ... carries" | PASS |
+| AC-14 | Step 4 TLSH + ±20% bucket + scored confidence | `tlsh.ts:194-224` | "±20% size bucket excludes far-sized (AC-14)"; distance/confidence tests | PASS |
+| AC-15 | Step 4 high carries+enrich; below-high review; none→step5 | `ladder.ts:162-207` | "high-confidence ... carries"; "low-confidence ... review" | PASS |
+| AC-16 | **No numeric threshold pinned** (deliberate gap) | `tlsh.ts:20-25,169-185` | fuzzy band tests use injected config | PRESERVED |
+| AC-17 | native/WASM DEFAULT; pure-TS shipped | `tlsh.ts:1-26` | tlsh suite | PASS |
+| AC-18 | `review-matches` list + accept/reject; **flag grammar not invented** | `review-cli.ts`; `cli.ts:134-157` | review-matches suite (accept/reject/empty/stale) | LOGIC PASS; CLI wiring W-1 |
+| AC-19 | `prune --confirm` sole deletion; bare=preview; 30d grace DEFAULT | `prune-cli.ts:22,68-100`; `cli.ts:164-182` | prune suite (preview/confirm/grace boundary) | LOGIC PASS; CLI wiring W-1 |
+| AC-20 | Tenancy scoping on every mutation | `model.ts:27-29`; `ladder.ts:278`; `review-cli.ts:82`; `prune-cli.ts:93`; `memory-store.ts:87-93`; `deeplake-store.ts:436-445` | security-remediation suite (4 cross-tenancy refusals) | PASS |
+| AC-21 | build/typecheck/test green; new surfaces tested | — | 166/167 (1 = flaky live DL) | PASS |
+
+### 7. Deliberate spec gaps — confirmed preserved (no forbidden pinned numbers)
+
+- **TLSH confidence threshold NOT pinned as a spec value.** The only band numbers are `DEFAULT_TUNABLE_FUZZY_CONFIG = { highConfidence: 0.85, reviewFloor: 0.55 }` (`tlsh.ts:182-185`), which is explicitly documented ("OPERATOR DEFAULT, tunable during brooding ... Do NOT treat these as the spec") and injected via `FuzzyConfig` — the acceptable "clearly-flagged tunable operator default." The distance→confidence map uses only `MAX_DISTANCE` (`tlsh.ts:42`), an algorithmic normalization constant, not a cutoff. No `0.75`/`0.4`/spec distance band is committed. ✔
+- **`review-matches` accept/reject flag grammar NOT invented.** Interactive readline default (`cli.ts:146-151`); the decision is an injected `decide` seam (`review-cli.ts:33`). No `--accept`/`--reject`/`--all` flags. ✔
+- **Flagged DEFAULTs kept:** `DEFAULT_DEBOUNCE_MS = 500` (`fs-watch.ts:39`), `PRUNE_GRACE_MS` = 30 days (`prune-cli.ts:22`), TLSH native/WASM option (`tlsh.ts:1-26`). `SIZE_BUCKET_TOLERANCE = 0.2` is corpus-spec'd (±20%), not a forbidden number. ✔
+
+### 8. Doc reconciliation (N-3 / N-4 from the Wave B pass) — now consistent
+
+- **N-3 (watcher shape):** 006a:36 + AC 006a:106 now document the single recursive watcher as the chosen implementation (per-directory array as fallback); code `fs-watch.ts:121` uses `watch(root, { recursive: true }, ...)`. Consistent. ✔
+- **N-4 (step-1 location):** 006b:54,100 + 006d:47,205 now say step 1 is resolved as the ladder's first rung (no content read); code resolves it at `ladder.ts:115-122`; `classify.ts` only distinguishes new/changed/missing. Consistent. ✔
+
+### 9. Hygiene on the delta
+
+- **Zero runtime dependencies** (`package.json` has only `typescript` + `@types/node` devDeps; no chokidar, no tlsh). ✔
+- **No authored em/en dashes** in the delta source/tests (the two in `test/source-graph-deeplake.test.ts` and the ones in `deeplake-{heal,credentials}.ts` are pre-existing PRD-005 content; the em dash at `store.ts:77` is pre-existing — the diff shows this run added only the two `deleteNectar` docblocks). ✔
+- **Top-level imports only** (no inline `import()`/`require()` in `src/registration/*`). ✔
+- **Exhaustive switches with `never` guards:** `service.ts:231-233`, `ladder.ts:184-187`, `review-cli.ts:123-125`. ✔
+
+### 10. Build / test result
+
+- `npm run build` — clean. `npm run typecheck` — clean.
+- `npm test` — **166 pass / 1 fail / 0 skip** of 167. The single failure is `source-graph-deeplake.test.ts:494` "DeepLakeSourceGraphStore live round-trip" (`nextSeq is 1 ... 0 !== 1`), the pre-existing live Deep Lake network eventual-consistency flake; **not counted against PRD-006** per the task brief. All PRD-006 suites (registration-service, tlsh, review-matches, prune, ignore, security-remediation) are green.
+
+### 11. Files audited (read-only)
+
+`src/registration/{service,fs-watch,ladder,tlsh,ignore,review-store,review-cli,prune-cli,paths-safe,disk-fs,copy-detect,classify}.ts`; `src/cli.ts`; `src/index.ts`; `src/source-graph/{model,store,memory-store,deeplake-store}.ts`; `test/{registration-service,security-remediation,tlsh,review-matches,prune,ignore}.test.ts`; PRD-006 docs + ledger. No file outside this `qa/` report was modified.
+
+---
+
+**OVERALL: FAIL at medium+ (1 finding)** — one Medium Warning (W-1: `prune`/`review-matches` CLI verbs wired to a throwaway empty in-memory store; safe but misleading, cheap in-scope remediation). Zero Critical. All 21 ACs are otherwise satisfied by real code + substantive tests, deliberate spec gaps are preserved with no forbidden pinned numbers, N-3/N-4 doc drift is reconciled, hygiene is clean, and build/typecheck/test are green (the one failing test is the pre-existing flaky live Deep Lake round-trip, excluded per brief). A fix pass need only resolve W-1 (or the orchestrator may consciously waive it given the safe, staged posture) to reach a clean pass.
+
+---
+
+## Re-verification note (2026-07-01, Wave 3, W-1 fix pass)
+
+The fix pass addressed W-1. Re-verified against the three confirmation points; **W-1 is genuinely resolved and honest, with no regression.**
+
+1. **W-1 resolved (`src/cli.ts`).** The CLI no longer imports or constructs any store: the previous `InMemorySourceGraphStore`, `FilePendingReviewStore`, `runPrune`, `runReviewMatches`, and `containedPath` imports are gone (`cli.ts:19-22` now imports only daemon/config/service/registry). `prune` and `review-matches` are gated by a `NOT_WIRED` map (`cli.ts:121-126`) checked before dispatch (`cli.ts:163-171`), printing "not yet wired to the durable store ... Refusing to run against an empty in-memory store so a destructive verb never silently no-ops" and exiting code 2. `grep -rn "new InMemorySourceGraphStore" src/` returns zero — **no live CLI path builds an empty store**, so `prune --confirm` can no longer silently delete nothing and `review-matches` can no longer silently drop every candidate. The gating is honest, not defect-hiding: the command mechanics (`runPrune`/`runReviewMatches`/`review-store`/tenancy guards) remain fully implemented in `src/registration/*`, are still exported from `index.ts`, and their tests are untouched; the notice truthfully states the logic is implemented and tested and only the durable-store wiring is pending (the same shape the pre-existing `NOT_YET` verbs use). USAGE (`cli.ts:32-33`) and the file docblock (`cli.ts:9-17`) annotate both verbs accordingly.
+2. **No regression.** Only `src/cli.ts` changed among source files (git status; the other modified/untracked files are the unchanged implementation delta). AC-18/AC-19 *mechanics* and their suites (`test/prune.test.ts`, `test/review-matches.test.ts`) are present and passing; no other AC regressed (`registration-service`, `tlsh`, `security-remediation`, `ignore` suites all green). Deliberate gaps still preserved (no pinned TLSH threshold — only the flagged `DEFAULT_TUNABLE_FUZZY_CONFIG` + algorithmic `MAX_DISTANCE`; no invented `review-matches` flag grammar). No new dependency (`package.json` unchanged; zero runtime deps). Hygiene intact: no em/en dashes in `cli.ts`, top-level imports only.
+3. **Build / test re-run.** `npm run build` clean, `npm run typecheck` clean, `npm test` = **166 pass / 1 fail / 0 skip** of 167. The sole failure is again the pre-existing flaky live Deep Lake round-trip (`source-graph-deeplake.test.ts:494`, "identity round-trips" — network eventual-consistency), excluded per the brief; all PRD-006 suites pass.
+
+Sub-medium notes N-1 (AC-8 in-memory fingerprint durability), N-2 (pipeline not yet instantiated by the live daemon — now explicitly named in the W-1 remediation as the wiring that will unblock these verbs), and N-3 (branch/commit state) remain as recorded, all non-blocking.
+
+**OVERALL: PASS at medium+**

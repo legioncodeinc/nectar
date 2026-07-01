@@ -424,4 +424,23 @@ export class DeepLakeSourceGraphStore implements AsyncSourceGraphStore {
     const all = await this.listLatestVersions(tenancy);
     return all.find((lv) => lv.version.contentHash === contentHash);
   }
+
+  /**
+   * Delete a nectar (identity + versions) scoped to `tenancy`, the SOLE deletion
+   * path (`prune --confirm`, PRD-006d). Both DELETE statements carry the full
+   * tenancy predicate (`org_id`/`workspace_id`/`project_id`, never omitting
+   * `project_id`) alongside the nectar key, so a nectar minted under another
+   * project is never removed by a delete issued in this tenancy (AC-20). Both
+   * are heal-aware: a missing table is a no-op (nothing to delete), not a create.
+   */
+  async deleteNectar(tenancy: Tenancy, nectar: string): Promise<void> {
+    const predicate = tenancyPredicate(tenancy);
+    const nectarKey = sLiteral(nectar);
+    const deleteVersionsSql =
+      `DELETE FROM "${SOURCE_GRAPH_VERSIONS_TABLE_NAME}" WHERE nectar = ${nectarKey} AND ${predicate}`;
+    const deleteIdentitySql =
+      `DELETE FROM "${SOURCE_GRAPH_TABLE_NAME}" WHERE nectar = ${nectarKey} AND ${predicate}`;
+    await withHeal(this.transport, SOURCE_GRAPH_VERSIONS_TABLE, () => this.transport.query(deleteVersionsSql));
+    await withHeal(this.transport, SOURCE_GRAPH_TABLE, () => this.transport.query(deleteIdentitySql));
+  }
 }

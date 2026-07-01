@@ -18,6 +18,16 @@ export interface Tenancy {
   readonly projectId: string;
 }
 
+/**
+ * True when a row's tenancy columns match `t` exactly on all three of
+ * `orgId`/`workspaceId`/`projectId`. The single scoping predicate re-used by
+ * the in-memory store, the ladder's carry guard, and the delete/prune/review
+ * paths so no identity mutation ever crosses a project boundary (AC-20).
+ */
+export function inTenancy(row: { orgId: string; workspaceId: string; projectId: string }, t: Tenancy): boolean {
+  return row.orgId === t.orgId && row.workspaceId === t.workspaceId && row.projectId === t.projectId;
+}
+
 /** `source_graph.kind` discriminator. Only `file` is minted in v1; `directory` reserves the namespace (schema doc YAGNI note). */
 export type NectarKind = "file" | "directory";
 

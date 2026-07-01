@@ -48,13 +48,10 @@ function classifyPath(p, diskStat, knownNectars):
     latestVersion = knownNectars.latestVersionByPath(p)
     if latestVersion is None:
         return NEW                               # → steps 3/4/5 + copy detector
-    if diskStat.mtime == latestVersion.mtime_observed
-       and diskStat.size == latestVersion.size_bytes:
-        return UNCHANGED                         # → no-op (step 1 fast path, resolved here)
-    return CHANGED                               # → step 2 (content-hashed before any decision)
+    return CHANGED                               # → the ladder (step 1 short-circuits UNCHANGED without a read)
 ```
 
-The classifier resolves the **step-1 fast path** itself (mtime+size exact match → UNCHANGED → no ladder step): the corpus states step 1 is "the fast path … the daemon treats it as unchanged without reading or hashing the content" (`identity-and-reassociation.md` § "Step 1"), so a path that matches on path+mtime+size never reaches the ladder. `UNCHANGED` paths drop out of the cycle; only `NEW`, `CHANGED`, and `MISSING` paths proceed. (The mtime/size pair is a cache key only — `identity-and-reassociation.md` § "What re-association explicitly does not do": "mtime is mutable … mtime+size is a fast-path cache key only; any path that is a candidate for steps 2–5 is content-hashed before a decision is made.")
+The **step-1 fast path** (mtime+size exact match, treated as unchanged) is resolved as the ladder's first rung, not inside the classifier. The corpus states step 1 is "the fast path ... the daemon treats it as unchanged without reading or hashing the content" (`identity-and-reassociation.md` § "Step 1"). In the shipped implementation (`src/registration/ladder.ts`), the ladder reads the latest version's `mtime_observed` + `size_bytes` and, on an exact match, returns a no-op before any `readContent`, so an `UNCHANGED` file short-circuits at the top of the ladder before any hashing. The classifier itself is deliberately narrow: it distinguishes only `NEW`, `CHANGED`, and `MISSING`, and a `CHANGED`-classified path whose mtime+size still match is resolved as the ladder's no-op. (The mtime/size pair is a cache key only, per `identity-and-reassociation.md` § "What re-association explicitly does not do": "mtime is mutable ... mtime+size is a fast-path cache key only; any path that is a candidate for steps 2-5 is content-hashed before a decision is made.")
 
 ### Dedup and coalescing
 
@@ -99,8 +96,8 @@ The same classifier and the same missing-files set serve cold catch-up (daemon b
 
 ## Acceptance Criteria
 
-- [ ] Every settled path classifies into exactly one of `NEW` / `CHANGED` / `MISSING` (or drops out as `UNCHANGED` via the step-1 fast path); the classifier is a pure function of (path, disk stat, known-nectars map).
-- [ ] The step-1 fast path (mtime+size exact match → no-op) is resolved in the classifier; `UNCHANGED` paths never reach the ladder, matching `identity-and-reassociation.md` § "Step 1".
+- [ ] Every settled path classifies into exactly one of `NEW` / `CHANGED` / `MISSING`; the classifier is a pure function of (path, disk stat, known-nectars map). A `CHANGED` path whose mtime+size still match short-circuits as `UNCHANGED` at the ladder's step 1 (no content read).
+- [ ] The step-1 fast path (mtime+size exact match, no-op) is resolved as the ladder's first rung (no content read), so an `UNCHANGED` path short-circuits before any hashing, matching `identity-and-reassociation.md` § "Step 1".
 - [ ] The missing-files set is built as the set diff between Deep Lake's known latest-version paths and disk's current paths, keyed by nectar and carrying the latest content hash + TLSH fingerprint (`identity-and-reassociation.md` § "Step 3").
 - [ ] A path touched many times in one burst classifies once, at settle, against final disk state (pending-path set is a `Set<string>`).
 - [ ] An editor delete-then-recreate within one burst classifies as `NEW`/`CHANGED` at settle (intermediate missing observation absorbed by debounce).

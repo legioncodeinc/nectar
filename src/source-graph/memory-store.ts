@@ -13,11 +13,8 @@
  * as the soft-filter contract (PRD-005c) specifies.
  */
 import type { SourceGraphRow, SourceGraphVersionRow, Tenancy } from "./model.js";
+import { inTenancy } from "./model.js";
 import type { LatestVersion, SourceGraphStore } from "./store.js";
-
-function inTenancy(row: { orgId: string; workspaceId: string; projectId: string }, t: Tenancy): boolean {
-  return row.orgId === t.orgId && row.workspaceId === t.workspaceId && row.projectId === t.projectId;
-}
 
 export class InMemorySourceGraphStore implements SourceGraphStore {
   private readonly identities = new Map<string, SourceGraphRow>();
@@ -85,5 +82,13 @@ export class InMemorySourceGraphStore implements SourceGraphStore {
       if (lv.version.contentHash === contentHash) return lv;
     }
     return undefined;
+  }
+
+  deleteNectar(tenancy: Tenancy, nectar: string): void {
+    const identity = this.identities.get(nectar);
+    if (identity === undefined) return; // unknown nectar: no-op
+    if (!inTenancy(identity, tenancy)) return; // refuse a cross-project delete (AC-20)
+    this.identities.delete(nectar);
+    this.versions.delete(nectar);
   }
 }
