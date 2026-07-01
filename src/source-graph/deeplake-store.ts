@@ -119,6 +119,7 @@ function toVersionRow(row: DeepLakeRow): SourceGraphVersionRow {
     concepts: toStr(row.concepts),
     embedding: toEmbedding(row.embedding),
     confidence: toConfidence(row.confidence),
+    fingerprint: typeof row.fingerprint === "string" ? row.fingerprint : null,
     describedAt: toStr(row.described_at),
     describeModel: toStr(row.describe_model),
     describeStatus: toDescribeStatus(row.describe_status),
@@ -196,6 +197,7 @@ function buildInsertVersionSql(row: SourceGraphVersionRow): string {
     "concepts",
     "embedding",
     "confidence",
+    "fingerprint",
     "described_at",
     "describe_model",
     "describe_status",
@@ -220,6 +222,7 @@ function buildInsertVersionSql(row: SourceGraphVersionRow): string {
     eLiteral(row.concepts),
     row.embedding !== null ? sqlFloat4Array(row.embedding) : "NULL",
     row.confidence !== null ? sqlNum(row.confidence) : "NULL",
+    row.fingerprint !== null ? sLiteral(row.fingerprint) : "NULL",
     sLiteral(row.describedAt),
     sLiteral(row.describeModel),
     sLiteral(row.describeStatus),
@@ -423,5 +426,42 @@ export class DeepLakeSourceGraphStore implements AsyncSourceGraphStore {
   async latestVersionByHash(tenancy: Tenancy, contentHash: string): Promise<LatestVersion | undefined> {
     const all = await this.listLatestVersions(tenancy);
     return all.find((lv) => lv.version.contentHash === contentHash);
+  }
+
+  /**
+   * Delete a nectar (identity + versions) scoped to `tenancy`, the SOLE deletion
+   * path (`prune --confirm`, PRD-006d). Both DELETE statements carry the full
+   * tenancy predicate (`org_id`/`workspace_id`/`project_id`, never omitting
+   * `project_id`) alongside the nectar key, so a nectar minted under another
+   * project is never removed by a delete issued in this tenancy (AC-20).
+   *
+   * The delete path deliberately does NOT go through `withHeal`: a missing table
+   * means there is nothing to delete, so it is a harmless no-op, NOT a reason to
+   * CREATE a fresh (empty) table. `deleteTolerant` therefore swallows only the
+   * missing-table transport error (via `isMissingTableError`, the same
+   * classification the read path uses) and lets every other failure propagate.
+   */
+  async deleteNectar(tenancy: Tenancy, nectar: string): Promise<void> {
+    const predicate = tenancyPredicate(tenancy);
+    const nectarKey = sLiteral(nectar);
+    const deleteVersionsSql =
+      `DELETE FROM "${SOURCE_GRAPH_VERSIONS_TABLE_NAME}" WHERE nectar = ${nectarKey} AND ${predicate}`;
+    const deleteIdentitySql =
+      `DELETE FROM "${SOURCE_GRAPH_TABLE_NAME}" WHERE nectar = ${nectarKey} AND ${predicate}`;
+    await this.deleteTolerant(deleteVersionsSql);
+    await this.deleteTolerant(deleteIdentitySql);
+  }
+
+  /**
+   * Run a DELETE, tolerating a missing-table failure as "nothing to delete" (a
+   * no-op). Never creates a table. Any other transport failure propagates.
+   */
+  private async deleteTolerant(sql: string): Promise<void> {
+    try {
+      await this.transport.query(sql);
+    } catch (err: unknown) {
+      if (err instanceof TransportError && isMissingTableError(err)) return;
+      throw err;
+    }
   }
 }

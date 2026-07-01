@@ -4,11 +4,17 @@
  *
  * `hivenectar daemon` is the runnable process (PRD-002c): it invokes the
  * composition root, acquires the single-instance lock before binding
- * 127.0.0.1:3854, serves `/health`, and installs SIGINT/SIGTERM handlers. The
- * operational verbs (brood / prune / review-matches / rebuild-projection) are
- * owned by other PRDs (007 / 006 / 011); until their mechanics land, they exit
- * with a clear "owned by PRD-NNN, not yet implemented" notice and a non-zero
- * code rather than a silent stub.
+ * 127.0.0.1:3854, serves `/health`, and installs SIGINT/SIGTERM handlers.
+ *
+ * The operational verbs exit non-zero with a clear notice rather than a silent
+ * stub, in two shapes:
+ *   - `brood` / `rebuild-projection`: mechanics owned by a later PRD (007 / 011)
+ *     and not yet implemented (the NOT_YET map).
+ *   - `prune` / `review-matches`: mechanics implemented and tested here
+ *     (`runPrune` / `runReviewMatches`), but not yet wired to a durable,
+ *     sync-capable source-graph store (the NOT_WIRED map). They refuse to run
+ *     against a throwaway empty store so a destructive verb never silently
+ *     no-ops; the wiring lands with the daemon's registration-pipeline integration.
  */
 import { assembleDaemon } from "./daemon.js";
 import { resolveConfig } from "./config.js";
@@ -23,8 +29,8 @@ Usage:
   hivenectar uninstall              Deregister the OS service unit (PRD-003b)
   hivenectar service-status         Report the OS service unit's running state (PRD-003b)
   hivenectar brood [flags]          Full-codebase brood            (owned by PRD-007)
-  hivenectar prune --confirm        Prune long-missing nectars     (owned by PRD-006)
-  hivenectar review-matches         Review low-confidence matches  (owned by PRD-006)
+  hivenectar prune [--confirm]      Prune long-missing nectars     (logic implemented; durable wiring pending daemon integration)
+  hivenectar review-matches         Review low-confidence matches  (logic implemented; durable wiring pending daemon integration)
   hivenectar rebuild-projection     Regenerate .honeycomb/nectars.json (owned by PRD-011)
   hivenectar --help                 Show this help
 `;
@@ -96,10 +102,27 @@ async function runServiceStatus(): Promise<number> {
 /** Verbs whose mechanics are owned by not-yet-implemented PRDs. */
 const NOT_YET: Record<string, string> = {
   brood: "PRD-007 (brooding pipeline)",
-  prune: "PRD-006 (re-association + pruning)",
-  "review-matches": "PRD-006 (TLSH review surface)",
   "rebuild-projection": "PRD-011 (portable projection)",
   project: "PRD-011 (project-scoped projection)",
+};
+
+/**
+ * Verbs whose command logic is implemented and tested here (`runPrune` /
+ * `runReviewMatches`, the review store, the tenancy guards), but which are not
+ * yet wired to a durable, sync-capable source-graph store. The live daemon does
+ * not instantiate the registration pipeline (a documented PRD-006a non-goal),
+ * and the durable `DeepLakeSourceGraphStore` is async while `SourceGraphStore`
+ * is sync (a bridge deferred in `store.ts`). Running these against a throwaway
+ * empty in-memory store would make `prune --confirm` silently delete nothing and
+ * `review-matches` silently drop every candidate, so instead they announce this
+ * state and exit non-zero, exactly like the NOT_YET verbs. The wiring lands with
+ * the daemon's registration-pipeline integration.
+ */
+const NOT_WIRED: Record<string, string> = {
+  prune:
+    "PRD-006 (prune mechanics implemented + tested in runPrune; durable-store wiring lands with the daemon's registration-pipeline integration)",
+  "review-matches":
+    "PRD-006 (review-matches mechanics implemented + tested in runReviewMatches; durable-store wiring lands with the daemon's registration-pipeline integration)",
 };
 
 async function runDaemon(): Promise<void> {
@@ -135,6 +158,16 @@ async function main(argv: readonly string[]): Promise<number> {
 
   if (command === "service-status") {
     return runServiceStatus();
+  }
+
+  const notWired = NOT_WIRED[command];
+  if (notWired !== undefined) {
+    process.stderr.write(
+      `hivenectar ${command}: not yet wired to the durable store. ${notWired}.\n` +
+        "The command logic is implemented and tested; it runs against real data once the daemon instantiates the registration pipeline. " +
+        "Refusing to run against an empty in-memory store so a destructive verb never silently no-ops.\n",
+    );
+    return 2;
   }
 
   const owner = NOT_YET[command];

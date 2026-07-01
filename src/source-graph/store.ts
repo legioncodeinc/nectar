@@ -55,6 +55,15 @@ export interface SourceGraphStore {
    * exact-move, and the copy-event index), scoped. Returns the first match.
    */
   latestVersionByHash(tenancy: Tenancy, contentHash: string): LatestVersion | undefined;
+
+  /**
+   * Delete a nectar (its identity row + every version row), scoped to `tenancy`.
+   * This is the SOLE nectar-deletion path (`prune --confirm`, PRD-006d); the
+   * re-association ladder never deletes or reuses nectars. A no-op if the nectar
+   * does not exist OR its identity is outside `tenancy` (a cross-project delete
+   * is refused, never applied, per AC-20).
+   */
+  deleteNectar(tenancy: Tenancy, nectar: string): void;
 }
 
 /**
@@ -104,4 +113,13 @@ export interface AsyncSourceGraphStore {
 
   /** A nectar whose latest version content_hash equals `contentHash`, scoped. First match. */
   latestVersionByHash(tenancy: Tenancy, contentHash: string): Promise<LatestVersion | undefined>;
+
+  /**
+   * Delete a nectar (identity + versions), scoped to `tenancy`. The SOLE
+   * deletion path (`prune --confirm`); a no-op when the nectar does not exist or
+   * its identity is outside `tenancy` (a cross-project delete is refused, AC-20).
+   * The tenancy predicate makes the Deep Lake adapter inherit the same guard the
+   * in-memory adapter enforces, so no delete crosses a project boundary.
+   */
+  deleteNectar(tenancy: Tenancy, nectar: string): Promise<void>;
 }

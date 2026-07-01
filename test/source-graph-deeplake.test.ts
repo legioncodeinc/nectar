@@ -241,6 +241,7 @@ function versionRow(nectar: string, seq: number, path: string, contentHash: stri
     concepts: "[]",
     embedding: null as number[] | null,
     confidence: null as number | null,
+    fingerprint: null as string | null,
     describedAt: "",
     describeModel: "",
     describeStatus: "pending" as const,
@@ -284,6 +285,7 @@ function rawVersionRow(nectar: string, seq: number, path: string, contentHash: s
     concepts: "[]",
     embedding: null,
     confidence: null,
+    fingerprint: null,
     described_at: "",
     describe_model: "",
     describe_status: "pending",
@@ -354,7 +356,7 @@ test("latestVersion returns the row with the highest seq from out-of-order canne
   const nectar = mintNectar();
   const rows = [
     rawVersionRow(nectar, 1, "src/a.ts", "hash1"),
-    rawVersionRow(nectar, 5, "src/a.ts", "hash5", { embedding: [0.1, 0.2, 0.3], confidence: 0.87 }),
+    rawVersionRow(nectar, 5, "src/a.ts", "hash5", { embedding: [0.1, 0.2, 0.3], confidence: 0.87, fingerprint: "H1abcd" }),
     rawVersionRow(nectar, 3, "src/a.ts", "hash3"),
   ];
   const transport = fakeTransport(() => rows);
@@ -366,6 +368,7 @@ test("latestVersion returns the row with the highest seq from out-of-order canne
   assert.equal(latest?.contentHash, "hash5");
   assert.deepEqual(latest?.embedding, [0.1, 0.2, 0.3], "a non-null embedding array round-trips through toVersionRow");
   assert.equal(latest?.confidence, 0.87, "a non-null confidence number round-trips through toVersionRow");
+  assert.equal(latest?.fingerprint, "H1abcd", "a non-null fingerprint round-trips through toVersionRow");
 });
 
 test("latestVersion maps a null embedding/confidence back to null (not 0 or NaN)", async () => {
@@ -376,6 +379,7 @@ test("latestVersion maps a null embedding/confidence back to null (not 0 or NaN)
   const latest = await store.latestVersion(nectar);
   assert.equal(latest?.embedding, null);
   assert.equal(latest?.confidence, null);
+  assert.equal(latest?.fingerprint, null, "a null fingerprint maps back to null");
 });
 
 test("latestVersion returns undefined when there are no version rows", async () => {
@@ -414,6 +418,21 @@ test("appendVersion issues an INSERT against source_graph_versions carrying the 
   assert.match(sql, /^INSERT INTO "source_graph_versions" \(/);
   assert.ok(sql.includes("'src/auth/login.ts'"), "the path value is present, quoted");
   assert.ok(sql.includes(nectar), "the nectar value is present");
+});
+
+test("appendVersion maps the fingerprint column (value when set, NULL when null)", async () => {
+  const nectar = mintNectar();
+  const transport = fakeTransport(() => []);
+  const store = new DeepLakeSourceGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+
+  await store.appendVersion({ ...versionRow(nectar, 0, "src/a.ts", "h0"), fingerprint: "H1deadbeef" });
+  const withFp = transport.calls[0] as string;
+  assert.ok(withFp.includes("fingerprint"), "the fingerprint column is in the INSERT list");
+  assert.ok(withFp.includes("'H1deadbeef'"), "a set fingerprint is written as a quoted literal");
+
+  await store.appendVersion(versionRow(nectar, 1, "src/a.ts", "h1")); // fingerprint: null
+  const withoutFp = transport.calls[1] as string;
+  assert.ok(/,\s*NULL\b/.test(withoutFp), "a null fingerprint is written as NULL");
 });
 
 test("touchIdentity issues an UPDATE against source_graph with the new timestamp", async () => {
@@ -536,6 +555,7 @@ test("DeepLakeSourceGraphStore live round-trip: insert identity + append version
     concepts: "[]",
     embedding: null,
     confidence: null,
+    fingerprint: "H1selftestfingerprint",
     describedAt: "",
     describeModel: "",
     describeStatus: "pending" as const,
@@ -565,6 +585,7 @@ test("DeepLakeSourceGraphStore live round-trip: insert identity + append version
     assert.equal(readVersion?.contentHash, contentHash);
     assert.equal(readVersion?.path, path);
     assert.equal(readVersion?.seq, 0);
+    assert.equal(readVersion?.fingerprint, "H1selftestfingerprint", "fingerprint round-trips through Deep Lake");
 
     const byPath = await store.latestVersionByPath(tenancy, path);
     assert.equal(byPath?.identity.nectar, nectar, "latestVersionByPath finds the row");

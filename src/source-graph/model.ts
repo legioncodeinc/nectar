@@ -18,6 +18,16 @@ export interface Tenancy {
   readonly projectId: string;
 }
 
+/**
+ * True when a row's tenancy columns match `t` exactly on all three of
+ * `orgId`/`workspaceId`/`projectId`. The single scoping predicate re-used by
+ * the in-memory store, the ladder's carry guard, and the delete/prune/review
+ * paths so no identity mutation ever crosses a project boundary (AC-20).
+ */
+export function inTenancy(row: { orgId: string; workspaceId: string; projectId: string }, t: Tenancy): boolean {
+  return row.orgId === t.orgId && row.workspaceId === t.workspaceId && row.projectId === t.projectId;
+}
+
 /** `source_graph.kind` discriminator. Only `file` is minted in v1; `directory` reserves the namespace (schema doc YAGNI note). */
 export type NectarKind = "file" | "directory";
 
@@ -86,6 +96,13 @@ export interface SourceGraphVersionRow {
   embedding: number[] | null;
   /** Set only on ladder step-4 (TLSH fuzzy) rows: 1 - normalizedTLSHDistance. Null otherwise. */
   confidence: number | null;
+  /**
+   * TLSH-family fingerprint of the content (the `computeFingerprint` "H1"-prefixed
+   * digest); set on every content-bearing row, consulted by ladder step 4 for
+   * missing files so cold-catch-up fuzzy matching survives a daemon restart. Null
+   * on pre-fingerprint rows (they self-heal on next observation).
+   */
+  fingerprint: string | null;
   describedAt: string;
   describeModel: string;
   describeStatus: DescribeStatus;

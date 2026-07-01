@@ -33,7 +33,7 @@ This sub-PRD owns the **disk-observation signal**: how hivenectar attaches `node
 
 `file-watcher.ts:333-352` attaches `fs.watch` to the **directory**, not individual files, with a `watchedFiles` filter on the emitted `filename`. The comment block at `file-watcher.ts:320-331` states the rationale: a directory-level watch catches a "delete then recreate" write pattern (common in editors) even when the original inode is gone, and on Node 22 / Linux it is inotify-backed while Windows uses `ReadDirectoryChangesW`, "both stable enough for our use case given the 500ms debounce absorbs any missed events."
 
-Hivenectar mirrors this. The watch attaches at the project workspace root and recurses into subdirectories (one `fs.FSWatcher` per watched directory, tracked in an array as `file-watcher.ts:188` does). Each emitted `(eventType, filename)` is normalized to an absolute path and filtered through the ignore contract (below) before being routed to the debounce scheduler. Observations whose `filename` is `null`/`undefined` (some platforms emit null filenames on directory-level events, per `file-watcher.ts:342-345`) trigger a full resync settle rather than a single-path classification.
+Hivenectar mirrors this. The chosen implementation is a **single recursive watcher** at the project workspace root: `watch(root, { recursive: true }, ...)` (`src/registration/fs-watch.ts`). This is a deliberate, cleaner variant of Honeycomb's per-directory-array shape (`file-watcher.ts:188` keeps one `fs.FSWatcher` per watched directory in an array): `recursive: true` covers the whole subtree with one handle on Node 22's supported platforms, and the 500 ms debounce absorbs the same missed-event window. A per-directory array of watchers remains the documented fallback for any platform where `recursive: true` is unreliable; the intake contract (normalize, ignore-filter, debounce, settle) is identical either way. Each emitted `(eventType, filename)` is normalized to a repo-relative forward-slashed path and filtered through the ignore contract (below) before being routed to the debounce scheduler. Observations whose `filename` is `null`/`undefined` (some platforms emit null filenames on directory-level events, per `file-watcher.ts:342-345`) trigger a full resync settle rather than a single-path classification.
 
 ### Why NOT chokidar
 
@@ -103,7 +103,7 @@ The watch root is the project workspace directory resolved by the daemon's tenan
 
 ## Acceptance Criteria
 
-- [ ] The watcher uses `node:fs.watch` attached at the directory level (one `FSWatcher` per watched directory, tracked in an array), mirroring `file-watcher.ts:333-352`; `chokidar` is NOT present in the dependency tree.
+- [ ] The watcher uses `node:fs.watch` attached at the workspace root with `{ recursive: true }` (a single recursive `FSWatcher`, the chosen implementation; a per-directory array of watchers is the documented fallback for platforms without reliable `recursive: true`), mirroring the `fs.watch` intake of `file-watcher.ts:333-352`; `chokidar` is NOT present in the dependency tree.
 - [ ] A `null`/`undefined` `filename` observation triggers a full resync settle (mirrors `file-watcher.ts:342-345`), not a crash.
 - [ ] The debounce scheduler (`scheduleSyncCycle` shape) cancels-and-reschedules on each qualifying observation so a burst coalesces into one cycle (mirrors `file-watcher.ts:300-316`).
 - [ ] `debounceMs` defaults to `500` (mirrors `file-watcher.ts:177`), is injectable via the service deps, and is flagged **DEFAULT — confirm before implementation**.
