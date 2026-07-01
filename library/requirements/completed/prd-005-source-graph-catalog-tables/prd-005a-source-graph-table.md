@@ -126,7 +126,7 @@ This is flagged as a default pending implementation confirmation. The alternativ
 - [PRD-005b](./prd-005b-source-graph-versions-table.md) — the append-only versions table this row anchors.
 - [PRD-005c](./prd-005c-tenancy-and-project-id-filter.md) — the `project_id` soft-filter contract both tables rely on.
 - [`knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) — the authoritative DDL.
-- [`honeycomb/src/daemon/storage/schema.ts:28-100`](../../../../honeycomb/src/daemon/storage/schema.ts) — `ColumnDef` + load-time guard.
-- [`honeycomb/src/daemon/storage/catalog/types.ts:60-128`](../../../../honeycomb/src/daemon/storage/catalog/types.ts) — `WritePattern` / `CatalogScope` / `CatalogTable` / `defineTable`.
-- [`honeycomb/src/daemon/storage/catalog/product.ts:216-241, 313-319`](../../../../honeycomb/src/daemon/storage/catalog/product.ts) — `CODEBASE_COLUMNS` (the tenant-scoped mirror).
-- [`honeycomb/src/daemon/storage/heal.ts:286-313`](../../../../honeycomb/src/daemon/storage/heal.ts) — `withHeal` lazy-create.
+- `honeycomb/src/daemon/storage/schema.ts:28-100` — `ColumnDef` + load-time guard.
+- `honeycomb/src/daemon/storage/catalog/types.ts:60-128` — `WritePattern` / `CatalogScope` / `CatalogTable` / `defineTable`.
+- `honeycomb/src/daemon/storage/catalog/product.ts:216-241, 313-319` — `CODEBASE_COLUMNS` (the tenant-scoped mirror).
+- `honeycomb/src/daemon/storage/heal.ts:286-313` — `withHeal` lazy-create.

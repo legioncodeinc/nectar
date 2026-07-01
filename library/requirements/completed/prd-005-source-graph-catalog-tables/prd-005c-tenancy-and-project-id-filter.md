@@ -6,7 +6,7 @@
 
 ## Overview
 
-This sub-PRD pins the tenancy contract both source-graph tables share and verifies, against the real Honeycomb code, that `project_id` is a **column-level soft `WHERE` filter within the workspace partition — never a partition**. This is locked decision #3 in [`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md): the user's "auto-create tables per org>workspace>project" reframes to "register the catalog group; tables self-heal on first write; scope by the `project_id` column."
+This sub-PRD pins the tenancy contract both source-graph tables share and verifies, against the real Honeycomb code, that `project_id` is a **column-level soft `WHERE` filter within the workspace partition — never a partition**. This is locked decision #3 in [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md): the user's "auto-create tables per org>workspace>project" reframes to "register the catalog group; tables self-heal on first write; scope by the `project_id` column."
 
 The verification has three legs: (1) `QueryScope` carries only `org` + `workspace`, so the storage layer partitions at the workspace boundary and has no `project` axis; (2) `project_id` is an ordinary `TEXT NOT NULL DEFAULT ''` column on both tables, filtered in query `WHERE` clauses; (3) the tenancy columns mirror the tenant-scoped `codebase` table and diverge deliberately from `sessions`/`memory` (no `agent_id`, no `visibility`) because file identity is cross-agent.
 
@@ -81,7 +81,7 @@ WHERE org_id = <sqlStr(org)>
   -- ... arm-specific predicates (describe_status = 'described', latest-per-nectar subquery, BM25/vector)
 ```
 
-Every dynamic value routes through the daemon's storage-layer SQL guards (`sqlStr`, `sqlLike`, and siblings from `honeycomb/src/daemon/storage/sql.ts`) — never string-interpolated. The Hivenectar corpus names `sqlStr` and `sqlLike`; no helper names outside the corpus are invented (per [`hivenectar-stinger` guide 00 § Principle 1](../../../../../.agents/skills/hivenectar-stinger/guides/00-principles.md)).
+Every dynamic value routes through the daemon's storage-layer SQL guards (`sqlStr`, `sqlLike`, and siblings from `honeycomb/src/daemon/storage/sql.ts`) — never string-interpolated. The Hivenectar corpus names `sqlStr` and `sqlLike`; no helper names outside the corpus are invented (per the `hivenectar-stinger` guide 00 § Principle 1).
 
 The recall arm (PRD-013) applies exactly this scope filter before its BM25/vector predicates; the manual search (PRD-012) and the projection sync (PRD-011) do the same. A query that omits the `project_id` predicate reads across all projects in the workspace — which is never the intended scope for source-graph reads.
 
@@ -99,9 +99,9 @@ The recall arm (PRD-013) applies exactly this scope filter before its BM25/vecto
 - [PRD-005a](./prd-005a-source-graph-table.md) — `source_graph` columns.
 - [PRD-005b](./prd-005b-source-graph-versions-table.md) — `source_graph_versions` columns.
 - [`knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) § "Tenancy and isolation" — the authoritative tenancy rationale.
-- [`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md) decision #3 — the locked lazy-`withHeal` / `project_id`-as-soft-filter decision.
-- [`honeycomb/src/daemon/storage/client.ts:40-46`](../../../../honeycomb/src/daemon/storage/client.ts) — `QueryScope` (org + workspace only).
-- [`honeycomb/src/daemon/storage/catalog/types.ts:60-74`](../../../../honeycomb/src/daemon/storage/catalog/types.ts) — `WritePattern` / `CatalogScope` (`tenant` definition).
-- [`honeycomb/src/daemon/storage/catalog/product.ts:216-219, 313-319`](../../../../honeycomb/src/daemon/storage/catalog/product.ts) — `codebase`, the tenant-scoped table mirrored.
-- [`honeycomb/src/daemon/storage/catalog/index.ts:45-59`](../../../../honeycomb/src/daemon/storage/catalog/index.ts) — the `CATALOG` aggregation the `source-graph` group appends to.
-- [`honeycomb/src/daemon/storage/heal.ts:286-313`](../../../../honeycomb/src/daemon/storage/heal.ts) — `withHeal` lazy-create at the workspace partition.
+- [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md) decision #3 — the locked lazy-`withHeal` / `project_id`-as-soft-filter decision.
+- `honeycomb/src/daemon/storage/client.ts:40-46` — `QueryScope` (org + workspace only).
+- `honeycomb/src/daemon/storage/catalog/types.ts:60-74` — `WritePattern` / `CatalogScope` (`tenant` definition).
+- `honeycomb/src/daemon/storage/catalog/product.ts:216-219, 313-319` — `codebase`, the tenant-scoped table mirrored.
+- `honeycomb/src/daemon/storage/catalog/index.ts:45-59` — the `CATALOG` aggregation the `source-graph` group appends to.
+- `honeycomb/src/daemon/storage/heal.ts:286-313` — `withHeal` lazy-create at the workspace partition.

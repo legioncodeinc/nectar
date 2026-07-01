@@ -57,9 +57,9 @@ CREATE TABLE IF NOT EXISTS "source_graph_versions" (
 ) USING deeplake;
 ```
 
-> **`confidence` column (added per QA finding).** The Hivenectar corpus's `ai/identity-and-reassociation.md` states that fuzzy-match version rows "carry a `confidence` field (1 − normalized distance)." This PRD makes that claim literally true by adding a nullable `confidence REAL` column. It is set only on rows appended by re-association ladder step 4 (TLSH fuzzy match); all other rows leave it NULL. Nullable (like `embedding`), so it is exempt from the NOT-NULL-must-have-DEFAULT rule and heal-safe. The corpus's `source-graph-schema.md` should be updated to match (additive schema change). Supports the audit query: "show me all auto-carried matches below a given confidence."
+> **`confidence` column (nullable; set on TLSH fuzzy-match rows).** The Hivenectar corpus's `ai/identity-and-reassociation.md` states that fuzzy-match version rows "carry a `confidence` field (1 − normalized distance)." This PRD makes that claim literally true by adding a nullable `confidence REAL` column. It is set only on rows appended by re-association ladder step 4 (TLSH fuzzy match); all other rows leave it NULL. Nullable (like `embedding`), so it is exempt from the NOT-NULL-must-have-DEFAULT rule and heal-safe. The corpus's `source-graph-schema.md` carries this column too (`confidence REAL`), so the corpus and this PRD agree. Supports the audit query: "show me all auto-carried matches below a given confidence."
 
-Twenty columns. Nineteen are `NOT NULL` with a `DEFAULT`; `embedding` is the sole nullable column (`FLOAT4[]`, no `NOT NULL`, no `DEFAULT`).
+Twenty-one columns. Nineteen are `NOT NULL` with a `DEFAULT`; `embedding` (`FLOAT4[]`) and `confidence` (`REAL`) are the two nullable columns (no `NOT NULL`, no `DEFAULT`).
 
 ## Column-by-column rationale
 
@@ -81,7 +81,7 @@ Each row cites the verbatim DDL above and the source doc.
 | `embedding` | `FLOAT4[]` | 768-dim vector over `title + ' ' + description`. **Same dimensionality as `sessions.message_embedding` and `memory.summary_embedding`** so the same hybrid recall pipeline queries all three. Nullable until enriched. |
 | `described_at` | `TEXT NOT NULL DEFAULT ''` | Timestamp of the enricher run that filled `title`/`description`. Empty while pending. |
 | `describe_model` | `TEXT NOT NULL DEFAULT ''` | Model identifier that produced the description (e.g. `gemini-2.5-flash` via `portkey`). Auditable; lets a model swap trigger re-description selectively. |
-| `describe_status` | `TEXT NOT NULL DEFAULT 'pending'` | One of `pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`, `skipped-deleted`. Lets recall filter out undescribed rows and lets the enricher resume after failures. `skipped-deleted` (added per QA finding) marks a row whose file vanished while pending — distinct from `failed` (retryable LLM failure) so the enricher doesn't keep retrying a file that's gone. |
+| `describe_status` | `TEXT NOT NULL DEFAULT 'pending'` | One of `pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`, `skipped-deleted`. Lets recall filter out undescribed rows and lets the enricher resume after failures. `skipped-deleted` (also present in the corpus enum) marks a row whose file vanished while pending — distinct from `failed` (retryable LLM failure) so the enricher doesn't keep retrying a file that's gone. |
 | `observed_at` | `TEXT NOT NULL DEFAULT ''` | Timestamp the version row was appended (distinct from `mtime_observed`, which is the file's own clock). |
 | `org_id` | `TEXT NOT NULL DEFAULT ''` | Tenancy, denormalized from `source_graph` so the versions table is queryable in isolation for recall. |
 | `workspace_id` | `TEXT NOT NULL DEFAULT ''` | Tenancy. Same rationale. |
@@ -150,7 +150,7 @@ export const SOURCE_GRAPH_VERSIONS_COLUMNS = Object.freeze([
 
 ## The `embedding` column
 
-`embedding` is the sole nullable column and the sole embedding column in the source-graph schema. Contract, carried from [`source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md):
+`embedding` is the sole embedding column in the source-graph schema (and, with `confidence`, one of its two nullable columns). Contract, carried from [`source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md):
 
 - **Type:** `FLOAT4[]` — nullable until enriched.
 - **Dimensionality:** **768-dim**, vector over `title + ' ' + description`. Same dimensionality as `sessions.message_embedding` and `memory.summary_embedding`, so the same hybrid recall pipeline queries all three.
@@ -178,8 +178,8 @@ Same as `source_graph` (005a). `source_graph_versions` is never pre-created; the
 
 ## Acceptance Criteria
 
-- [ ] The verbatim DDL block above matches [`source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) character-for-character (twenty columns; nineteen `NOT NULL DEFAULT`, one nullable `FLOAT4[]`).
-- [ ] `SOURCE_GRAPH_VERSIONS_COLUMNS` has exactly twenty entries, one per DDL column, in declaration order, with matching `sql` strings — including `embedding` as `"FLOAT4[]"` (no constraints).
+- [ ] The verbatim DDL block above matches [`source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) character-for-character (twenty-one columns; nineteen `NOT NULL DEFAULT`, two nullable: `embedding` `FLOAT4[]` and `confidence` `REAL`).
+- [ ] `SOURCE_GRAPH_VERSIONS_COLUMNS` has exactly twenty-one entries, one per DDL column, in declaration order, with matching `sql` strings — including `embedding` as `"FLOAT4[]"` and `confidence` as `"REAL"` (no constraints).
 - [ ] The array passes `validateColumnDefs("SOURCE_GRAPH_VERSIONS", ...)` at module load (`schema.ts:80-100`); the nullable `embedding` is exempt from the NOT-NULL-must-have-DEFAULT rule.
 - [ ] The `CatalogTable` record declares `embeddingColumns: ["embedding"]`, `scope: tenant`, and the confirmed write pattern.
 - [ ] `defineTable`'s embedding-column assertion (`types.ts:108-116`) passes — `"embedding"` is present in `columns`.
@@ -192,7 +192,7 @@ Same as `source_graph` (005a). `source_graph_versions` is never pre-created; the
 - [PRD-005c](./prd-005c-tenancy-and-project-id-filter.md) — the `project_id` soft-filter contract.
 - [`knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) — the authoritative DDL + indexing strategy.
 - [`knowledge/private/data/recall-integration.md`](../../../knowledge/private/data/recall-integration.md) — the recall arm over `embedding`.
-- [`honeycomb/src/daemon/storage/schema.ts:28-100`](../../../../honeycomb/src/daemon/storage/schema.ts) — `ColumnDef` + load-time guard (nullable-column exemption at `:73-74`).
-- [`honeycomb/src/daemon/storage/catalog/types.ts:60-128`](../../../../honeycomb/src/daemon/storage/catalog/types.ts) — `WritePattern` / `CatalogScope` / `CatalogTable` / `defineTable` (embedding-column assertion at `:108-116`).
-- [`honeycomb/src/daemon/storage/catalog/product.ts:216-241, 313-319`](../../../../honeycomb/src/daemon/storage/catalog/product.ts) — `CODEBASE_COLUMNS` (the tenant-scoped mirror).
-- [`honeycomb/src/daemon/storage/heal.ts:286-313`](../../../../honeycomb/src/daemon/storage/heal.ts) — `withHeal` lazy-create.
+- `honeycomb/src/daemon/storage/schema.ts:28-100` — `ColumnDef` + load-time guard (nullable-column exemption at `:73-74`).
+- `honeycomb/src/daemon/storage/catalog/types.ts:60-128` — `WritePattern` / `CatalogScope` / `CatalogTable` / `defineTable` (embedding-column assertion at `:108-116`).
+- `honeycomb/src/daemon/storage/catalog/product.ts:216-241, 313-319` — `CODEBASE_COLUMNS` (the tenant-scoped mirror).
+- `honeycomb/src/daemon/storage/heal.ts:286-313` — `withHeal` lazy-create.
