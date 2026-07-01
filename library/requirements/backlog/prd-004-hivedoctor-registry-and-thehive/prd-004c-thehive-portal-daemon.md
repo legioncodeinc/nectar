@@ -96,4 +96,6 @@ thehive is supervised by hivedoctor exactly like the others: it has a registry e
 - [`prd-004d-thehive-service-unit-and-registration.md`](./prd-004d-thehive-service-unit-and-registration.md) — thehive's OS service unit + registry entry.
 - [`prd-004a-hivedoctor-registry-config-and-supervisor-instances.md`](./prd-004a-hivedoctor-registry-config-and-supervisor-instances.md) — the registry thehive's aggregation routes over.
 - [`prd-004-hivedoctor-registry-and-thehive-index.md`](./prd-004-hivedoctor-registry-and-thehive-index.md) — module scope.
+- **Design references (corpus):** [`ADR-0004-thehive-portal-daemon-role-and-boundaries.md`](../../../knowledge/private/architecture/ADR-0004-thehive-portal-daemon-role-and-boundaries.md) (the four binding boundaries this sub-PRD implements: always-on + boot-order, API-aggregation-not-Deep-Lake, dashboard ownership + honeycomb code reuse, independent update cadence) and [`thehive-portal-daemon.md`](../../../knowledge/private/architecture/thehive-portal-daemon.md) (the full thehive design reference).
+- **Topology ADR:** [`ADR-0003-three-daemon-topology-and-thehive-portal.md`](../../../knowledge/private/architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md) (the three-daemon topology that introduces thehive).
 - **Dashboard-page consumer:** PRD-015 (the Source Graph page that lands in thehive's dashboard).

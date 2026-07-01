@@ -53,7 +53,7 @@ The decision is a **process-layer** topology change only. The data layer is unch
 
 ## Acceptance Criteria
 
-- [ ] An **ADR-0003** exists at `knowledge/private/architecture/ADR-0003-<three-daemon-topology-slug>.md` recording the three-daemon topology; its header marks it as **superseding ADR-0002's two-daemon framing** while preserving ADR-0002's load-bearing invariants (shared Deep Lake tables, process-layer-only independence).
+- [ ] An **ADR-0003** exists at `knowledge/private/architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md` recording the three-daemon topology; its header records that it **supersedes ADR-0002's two-daemon framing** (specifically the dashboard-in-honeycomb placement) while preserving ADR-0002's load-bearing invariants (shared Deep Lake tables, process-layer-only independence). thehive's role and boundaries are recorded in the companion `ADR-0004-thehive-portal-daemon-role-and-boundaries.md`.
 - [ ] The four roles (hivedoctor, thehive, hivenectar, honeycomb) each have a one-paragraph boundary statement naming what they own and what they explicitly do NOT own; no two roles own the same concern (no overlapping process-boundary, registry, portal, or storage responsibilities).
 - [ ] The PRD states, and the ADR-0003 records, that **no in-process state is shared across any of the four roles** — each daemon is a separate OS process with its own lifecycle, failure domain, and release cadence.
 - [ ] hivenectar's process surface (port, PID/lock paths, `/health` contract, Deep Lake client, tenancy scope) is specified with a Honeycomb code citation for every claim, and the port and paths are flagged as **"DEFAULT — confirm before implementation."**
@@ -90,6 +90,8 @@ The `~/.honeycomb` runtime dir is the honeycomb convention: `LEGACY_CREDENTIALS_
 
 - [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md) — decision #1 (the three-daemon topology) and the PRD-001 brief this expands.
 - [`knowledge/private/architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`](../../../knowledge/private/architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md) — the two-daemon decision this PRD's ADR-0003 supersedes (process-layer framing) while preserving its invariants.
+- [`knowledge/private/architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](../../../knowledge/private/architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md): the three-daemon topology this PRD triggers and conforms to (Status: Active).
+- [`knowledge/private/architecture/ADR-0004-thehive-portal-daemon-role-and-boundaries.md`](../../../knowledge/private/architecture/ADR-0004-thehive-portal-daemon-role-and-boundaries.md): thehive's role and the four binding boundaries the thehive-role contract in `prd-001a` conforms to.
 - [`knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../../../knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md) — the identity-model decision, unaffected by topology.
 - [`knowledge/private/data/recall-integration.md`](../../../knowledge/private/data/recall-integration.md) — the recall composition preserved across the process boundary.
 - [`prd-005-source-graph-catalog-tables`](../prd-005-source-graph-catalog-tables/prd-005-source-graph-catalog-tables-index.md) — owns the shared data layer (tables + tenancy) this PRD states as shared.
