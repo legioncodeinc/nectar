@@ -35,3 +35,45 @@ export type { Job, JobHandler, JobKind, JobSource, WorkerOptions } from "./worke
 export { createHttpServer } from "./server.js";
 export type { HttpServer } from "./server.js";
 export { DaemonAlreadyRunningError } from "./errors.js";
+
+// PRD-005: Source Graph data layer.
+export type {
+  Tenancy,
+  NectarKind,
+  DescribeStatus,
+  SourceGraphRow,
+  SourceGraphVersionRow,
+} from "./source-graph/model.js";
+export { DESCRIBE_STATUSES, EMBED_DIMS, isValidEmbedding } from "./source-graph/model.js";
+export type { SourceGraphStore, LatestVersion } from "./source-graph/store.js";
+export { InMemorySourceGraphStore } from "./source-graph/memory-store.js";
+export { mintNectar, nectarCreatedAt, nectarTimestampMs, isValidNectar } from "./source-graph/ulid.js";
+export { sha256Hex } from "./source-graph/hash.js";
+export { toRepoRelative, filenameOf, extOf } from "./source-graph/paths.js";
+export type { ColumnDef, CatalogTable, SqlType } from "./source-graph/schema.js";
+export {
+  SOURCE_GRAPH_TABLE,
+  SOURCE_GRAPH_VERSIONS_TABLE,
+  SOURCE_GRAPH_CATALOG_GROUP,
+  SOURCE_GRAPH_COLUMNS,
+  SOURCE_GRAPH_VERSIONS_COLUMNS,
+  assertValidCatalogTable,
+} from "./source-graph/schema.js";
+
+// PRD-006: file registration protocol.
+export { WatchIntake, DEFAULT_DEBOUNCE_MS } from "./registration/fs-watch.js";
+export type { WatchIntakeOptions } from "./registration/fs-watch.js";
+export { classifyPath } from "./registration/classify.js";
+export type { PathObservation, LadderInput, LadderInputKind } from "./registration/classify.js";
+export { classifyNewFile } from "./registration/copy-detect.js";
+export type { NewFileDecision } from "./registration/copy-detect.js";
+export { reassociate } from "./registration/ladder.js";
+export type {
+  ObservedFile,
+  FuzzyStep,
+  FuzzyOutcome,
+  LadderDeps,
+  LadderResult,
+  LadderStep,
+  LadderAction,
+} from "./registration/ladder.js";
