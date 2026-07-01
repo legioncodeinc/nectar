@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS "source_graph_versions" (
   concepts        TEXT NOT NULL DEFAULT '[]',
   embedding       FLOAT4[],
   confidence      REAL,
+  fingerprint     TEXT,
   described_at    TEXT NOT NULL DEFAULT '',
   describe_model  TEXT NOT NULL DEFAULT '',
   describe_status TEXT NOT NULL DEFAULT 'pending',
@@ -102,6 +103,7 @@ CREATE TABLE IF NOT EXISTS "source_graph_versions" (
 | `concepts` | TEXT | JSON-encoded string array (`'["auth","session","jwt"]'`). LLM-minted concept tags for the Obsidian-style interlink layer. |
 | `embedding` | FLOAT4[] | 768-dim vector over `title + ' ' + description`. **Same dimensionality as `sessions.message_embedding` and `memory.summary_embedding`** so the same hybrid recall pipeline queries all three. Nullable until enriched. |
 | `confidence` | REAL | Set only on rows appended by re-association ladder step 4 (TLSH fuzzy match); the value is `1 − normalizedTLSHDistance`. NULL for all other rows. Supports the audit query "show me all auto-carried matches below a given confidence." |
+| `fingerprint` | TEXT | TLSH-family locality-sensitive fingerprint of the content, computed on every content-bearing version row. Re-association ladder step 4 matches a moved-and-edited file against the fingerprints of missing files; persisting it here (rather than only in memory) is what lets cold-catch-up fuzzy matching survive a daemon restart. Nullable: rows written before this column existed leave it NULL and self-heal on next observation. |
 | `described_at` | TEXT | Timestamp of the enricher run that filled `title`/`description`. Empty while pending. |
 | `describe_model` | TEXT | Model identifier that produced the description (e.g. `gemini-2.5-flash` via `portkey`). Auditable, and lets a model swap trigger re-description selectively. |
 | `describe_status` | TEXT | One of `pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`, `skipped-deleted`. Lets recall filter out undescribed rows and lets the enricher resume after failures. `skipped-deleted` marks a row whose file vanished while pending — distinct from `failed` (retryable LLM failure) so the enricher doesn't keep retrying a file that's gone. |

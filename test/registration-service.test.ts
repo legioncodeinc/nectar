@@ -5,6 +5,7 @@ import { RegistrationService, type RegistrationFs } from "../dist/registration/s
 import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
 import { InMemoryPendingReviewStore } from "../dist/registration/review-store.js";
 import { createTlshFuzzyStep } from "../dist/registration/tlsh.js";
+import { reassociate, type LadderDeps, type ObservedFile } from "../dist/registration/ladder.js";
 
 const TEN = { orgId: "o1", workspaceId: "w1", projectId: "p1" };
 const NOW = "2026-07-01T00:00:00.000Z";
@@ -196,4 +197,47 @@ test("service: step 4 low-confidence match is queued for review, not auto-claime
   assert.equal(queued.length, 1, "a low-confidence candidate was surfaced for review");
   assert.equal(queued[0]!.newPath, "src/b.ts");
   assert.ok(queued[0]!.mintedNectar.length > 0, "the new path was minted fresh at review time");
+});
+
+function obsFile(relPath: string, content: string, mtime = NOW): ObservedFile {
+  return { relPath, sizeBytes: content.length, mtimeObserved: mtime, readContent: () => content };
+}
+
+test("step 4 reads the PERSISTED fingerprint from the version row (survives restart, no in-memory cache)", () => {
+  const store = new InMemorySourceGraphStore();
+  const original = "the original body of a source file that will move and be edited later on";
+
+  // Register src/a.ts: the mint persists the content fingerprint on the version row.
+  const first = reassociate(obsFile("src/a.ts", original), {
+    store,
+    tenancy: TEN,
+    now: () => NOW,
+    existsOnDisk: (p) => p === "src/a.ts",
+  });
+  const persisted = store.latestVersion(first.nectar)?.fingerprint ?? null;
+  assert.ok(persisted !== null && persisted.startsWith("H1"), "the mint persisted a fingerprint on the version row");
+
+  // "Restart": there is no in-memory fingerprint state anymore. a.ts is now gone;
+  // a moved+edited file appears at src/b.ts. The injected fuzzy step must receive
+  // the missing candidate's PERSISTED fingerprint (read from version.fingerprint).
+  let sawFingerprint: string | null | undefined = undefined;
+  const deps: LadderDeps = {
+    store,
+    tenancy: TEN,
+    now: () => NOW,
+    existsOnDisk: (p) => p === "src/b.ts", // a.ts is gone
+    fuzzy: {
+      match: (_content, candidates) => {
+        const cand = candidates.find((c) => c.identity.nectar === first.nectar);
+        sawFingerprint = cand?.fingerprint ?? null;
+        return { kind: "match", nectar: first.nectar, confidence: 0.9 };
+      },
+    },
+  };
+  const r = reassociate(obsFile("src/b.ts", `${original} with a small edit`), deps);
+
+  assert.equal(sawFingerprint, persisted, "step 4 received the persisted fingerprint from version.fingerprint");
+  assert.equal(r.step, 4);
+  assert.equal(r.action, "carry-nectar");
+  assert.equal(r.nectar, first.nectar, "the nectar was carried via the persisted-fingerprint match, no cache involved");
 });

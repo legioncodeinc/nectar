@@ -26,6 +26,8 @@ import { mintNectar, nectarCreatedAt } from "../source-graph/ulid.js";
 import { sha256Hex } from "../source-graph/hash.js";
 import { filenameOf, extOf } from "../source-graph/paths.js";
 import { classifyNewFile } from "./copy-detect.js";
+// Value import; tlsh's back-edge to this module is `import type` (erased), so there is no runtime cycle.
+import { computeFingerprint } from "./tlsh.js";
 
 /** A file observed on disk, ready to feed the ladder. `readContent` is called only when hashing is needed (not on the step-1 fast path). */
 export interface ObservedFile {
@@ -39,11 +41,12 @@ export interface ObservedFile {
  * A missing-file candidate the fuzzy step (step 4) consults. It is a superset of
  * {@link LatestVersion} (so it still carries `.identity` and `.version`, keeping
  * every existing injected fuzzy step working) plus the missing nectar's latest
- * TLSH fingerprint. The fingerprint is supplied by `LadderDeps.fingerprintOf`
- * (the service caches it when the file is first registered), so step 4 can match
- * against a now-gone file without re-reading it: this is how the missing-files
- * set "carries each missing nectar's latest content hash AND its TLSH
- * fingerprint" (PRD-006b AC / identity-and-reassociation.md Step 3).
+ * TLSH fingerprint. The fingerprint is read from the PERSISTED
+ * `source_graph_versions.fingerprint` column of the candidate's latest version,
+ * so step 4 can match against a now-gone file without re-reading it AND survive a
+ * daemon restart: this is how the missing-files set "carries each missing
+ * nectar's latest content hash AND its TLSH fingerprint" (PRD-006b AC /
+ * identity-and-reassociation.md Step 3).
  */
 export interface FuzzyCandidate extends LatestVersion {
   /** The candidate's latest TLSH fingerprint, or null when none was cached. */
@@ -90,8 +93,6 @@ export interface LadderDeps {
   existsOnDisk(relPath: string): boolean;
   /** Optional step 4. Omit to disable fuzzy matching entirely (then an edited-moved file mints). */
   readonly fuzzy?: FuzzyStep;
-  /** Latest cached TLSH fingerprint for a nectar (feeds the step-4 candidates), or null. */
-  fingerprintOf?(nectar: string): string | null;
   /** Called with a low-confidence step-4 candidate (surfaced to `review-matches`); the ladder then mints. */
   onReviewNeeded?(candidate: ReviewCandidate): void;
   /** Called when a version row is appended and warrants (re)description. */
@@ -121,9 +122,10 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
     return { step: 1, action: "noop", nectar: byPath.identity.nectar };
   }
 
-  // Anything past step 1 requires the content hash.
+  // Anything past step 1 requires the content hash (and the persisted fingerprint).
   const content = file.readContent();
   const hash = sha256Hex(content);
+  const fingerprint = computeFingerprint(content);
 
   // Step 2: path is known; compare content.
   if (byPath !== undefined) {
@@ -131,7 +133,7 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
       // Content identical (mtime/size changed, e.g. `touch`): still a no-op.
       return { step: 2, action: "noop", nectar: byPath.identity.nectar };
     }
-    appendEditVersion(deps, byPath, file, hash);
+    appendEditVersion(deps, byPath, file, hash, fingerprint);
     deps.onEnrichQueued?.(byPath.identity.nectar);
     return { step: 2, action: "append-version", nectar: byPath.identity.nectar };
   }
@@ -144,20 +146,22 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
       // Step 3: the source path is gone -> this is a move. Carry the nectar,
       // inherit the description (content unchanged), enqueue no enrich. The
       // carry is refused (falls through to mint) if the source is out of tenancy.
-      if (writeCarriedRow(store, tenancy, deps.now(), byHash, file, hash, null)) {
+      if (writeCarriedRow(store, tenancy, deps.now(), byHash, file, hash, null, fingerprint)) {
         return { step: 3, action: "carry-nectar", nectar: byHash.identity.nectar };
       }
     }
     // Source still on disk -> a copy. Mint with provenance (step 5).
-    return mintOrCopy(deps, file, hash);
+    return mintOrCopy(deps, file, hash, fingerprint);
   }
 
   // Step 4: fuzzy match to a missing file (only if an injected fuzzy step exists).
+  // Candidates read the missing nectar's PERSISTED fingerprint column, so the
+  // match survives a daemon restart (no in-process cache).
   let review: { nectar: string; confidence: number; distance: number | null } | null = null;
   if (deps.fuzzy !== undefined) {
     const candidates: FuzzyCandidate[] = missingCandidates(deps, file.relPath).map((lv) => ({
       ...lv,
-      fingerprint: deps.fingerprintOf?.(lv.identity.nectar) ?? null,
+      fingerprint: lv.version.fingerprint ?? null,
     }));
     const outcome = deps.fuzzy.match(content, candidates);
     switch (outcome.kind) {
@@ -167,7 +171,16 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
         if (
           carried !== undefined &&
           identity !== undefined &&
-          writeCarriedRow(store, tenancy, deps.now(), { identity, version: carried }, file, hash, outcome.confidence)
+          writeCarriedRow(
+            store,
+            tenancy,
+            deps.now(),
+            { identity, version: carried },
+            file,
+            hash,
+            outcome.confidence,
+            fingerprint,
+          )
         ) {
           // High-confidence carry: content changed, so (re)describe (PRD-006d AC step-4 high band).
           deps.onEnrichQueued?.(outcome.nectar);
@@ -191,7 +204,7 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
   // Step 5: mint (or copy, with provenance). A below-high fuzzy candidate is
   // surfaced for review AFTER the fresh mint so the record can name the minted
   // nectar; accepting it later re-associates the missing nectar onto this path.
-  const result = mintOrCopy(deps, file, hash);
+  const result = mintOrCopy(deps, file, hash, fingerprint);
   if (review !== null) {
     deps.onReviewNeeded?.({
       nectar: review.nectar,
@@ -220,6 +233,7 @@ function baseVersion(
   file: { relPath: string; sizeBytes: number; mtimeObserved: string },
   hash: string,
   seq: number,
+  fingerprint: string | null,
 ): SourceGraphVersionRow {
   return {
     nectar: "",
@@ -235,6 +249,7 @@ function baseVersion(
     concepts: "[]",
     embedding: null,
     confidence: null,
+    fingerprint,
     describedAt: "",
     describeModel: "",
     describeStatus: "pending",
@@ -246,10 +261,16 @@ function baseVersion(
   };
 }
 
-/** Step 2: append an edited version (new content, pending description). */
-function appendEditVersion(deps: LadderDeps, prev: LatestVersion, file: ObservedFile, hash: string): void {
+/** Step 2: append an edited version (new content, pending description). Persists the content fingerprint. */
+function appendEditVersion(
+  deps: LadderDeps,
+  prev: LatestVersion,
+  file: ObservedFile,
+  hash: string,
+  fingerprint: string,
+): void {
   const seq = deps.store.nextSeq(prev.identity.nectar);
-  const row = baseVersion(deps.tenancy, deps.now(), file, hash, seq);
+  const row = baseVersion(deps.tenancy, deps.now(), file, hash, seq, fingerprint);
   row.nectar = prev.identity.nectar;
   deps.store.appendVersion(row);
   deps.store.touchIdentity(prev.identity.nectar, deps.now());
@@ -274,10 +295,11 @@ function writeCarriedRow(
   file: { relPath: string; sizeBytes: number; mtimeObserved: string },
   hash: string,
   confidence: number | null,
+  fingerprint: string | null,
 ): boolean {
   if (!inTenancy(source.identity, tenancy)) return false; // refuse a cross-project carry
   const seq = store.nextSeq(source.identity.nectar);
-  const row = baseVersion(tenancy, now, file, hash, seq);
+  const row = baseVersion(tenancy, now, file, hash, seq, fingerprint);
   row.nectar = source.identity.nectar;
   row.title = source.version.title;
   row.description = source.version.description;
@@ -297,6 +319,12 @@ function writeCarriedRow(
  * AC-18): append a carried version row for `sourceNectar` at `target`. Returns
  * false if the source nectar no longer exists. This is exactly what a
  * high-confidence step 4 does, applied on human confirmation instead.
+ *
+ * The carried row's `fingerprint` is left NULL here: the accept path works from
+ * the persisted pending-candidate metadata (hash/size/mtime), not the file
+ * content, so there is nothing to fingerprint. It self-heals on the next
+ * observation of the file (a step-2 edit persists a fresh fingerprint), per the
+ * nullable-column contract.
  */
 export function carryNectar(
   store: SourceGraphStore,
@@ -318,11 +346,12 @@ export function carryNectar(
     { relPath: target.relPath, sizeBytes: target.sizeBytes, mtimeObserved: target.mtimeObserved },
     target.contentHash,
     confidence,
+    null,
   );
 }
 
-/** Step 5: mint a fresh nectar, or record a copy with provenance. */
-function mintOrCopy(deps: LadderDeps, file: ObservedFile, hash: string): LadderResult {
+/** Step 5: mint a fresh nectar, or record a copy with provenance. Persists the content fingerprint. */
+function mintOrCopy(deps: LadderDeps, file: ObservedFile, hash: string, fingerprint: string): LadderResult {
   const decision = classifyNewFile(deps.store, deps.tenancy, hash);
   const nectar = mintNectar();
   const now = deps.now();
@@ -340,7 +369,7 @@ function mintOrCopy(deps: LadderDeps, file: ObservedFile, hash: string): LadderR
   };
   deps.store.insertIdentity(identity);
 
-  const row = baseVersion(deps.tenancy, now, file, hash, 0);
+  const row = baseVersion(deps.tenancy, now, file, hash, 0, fingerprint);
   row.nectar = nectar;
   deps.store.appendVersion(row);
   deps.onEnrichQueued?.(nectar);

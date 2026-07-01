@@ -6,7 +6,7 @@
  * (`deeplake-store.ts`) registers (mirroring honeycomb's `CatalogTable` /
  * `ColumnDef` and its load-time guard: valid identifiers, no duplicates, and
  * every NOT NULL column carries a DEFAULT, except the nullable
- * `embedding`/`confidence`). Both tables self-create on first write via
+ * `embedding`/`confidence`/`fingerprint`). Both tables self-create on first write via
  * `deeplake-heal.ts`'s `withHeal`; there is no DDL pre-step.
  */
 import { sqlIdent, sqlStr } from "./sql-guards.js";
@@ -43,7 +43,7 @@ export const SOURCE_GRAPH_COLUMNS: readonly ColumnDef[] = [
   { name: "last_update_date", type: "TEXT", notNull: true, default: "" },
 ];
 
-/** `source_graph_versions` (content + description chain). `embedding` + `confidence` are nullable. */
+/** `source_graph_versions` (content + description chain). `embedding` + `confidence` + `fingerprint` are nullable. */
 export const SOURCE_GRAPH_VERSIONS_COLUMNS: readonly ColumnDef[] = [
   { name: "nectar", type: "TEXT", notNull: true, default: "" },
   { name: "content_hash", type: "TEXT", notNull: true, default: "" },
@@ -58,6 +58,7 @@ export const SOURCE_GRAPH_VERSIONS_COLUMNS: readonly ColumnDef[] = [
   { name: "concepts", type: "TEXT", notNull: true, default: "[]" },
   { name: "embedding", type: "FLOAT4[]", notNull: false },
   { name: "confidence", type: "REAL", notNull: false },
+  { name: "fingerprint", type: "TEXT", notNull: false },
   { name: "described_at", type: "TEXT", notNull: true, default: "" },
   { name: "describe_model", type: "TEXT", notNull: true, default: "" },
   { name: "describe_status", type: "TEXT", notNull: true, default: "pending" },

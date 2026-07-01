@@ -77,7 +77,7 @@ test("both tables are tenant-scoped and carry the tenancy columns", () => {
   }
 });
 
-test("every NOT NULL column carries a DEFAULT; embedding + confidence are nullable", () => {
+test("every NOT NULL column carries a DEFAULT; embedding + confidence + fingerprint are nullable", () => {
   for (const t of [SOURCE_GRAPH_TABLE, SOURCE_GRAPH_VERSIONS_TABLE]) {
     for (const c of t.columns) {
       if (c.notNull) assert.notEqual(c.default, undefined, `${t.name}.${c.name} NOT NULL needs DEFAULT`);
@@ -86,6 +86,19 @@ test("every NOT NULL column carries a DEFAULT; embedding + confidence are nullab
   const versionCols = SOURCE_GRAPH_VERSIONS_TABLE.columns;
   assert.equal(versionCols.find((c) => c.name === "embedding")?.notNull, false);
   assert.equal(versionCols.find((c) => c.name === "confidence")?.notNull, false);
+});
+
+test("source_graph_versions carries a nullable fingerprint column (PRD-006 step-4 persistence) and still passes the guard", () => {
+  const versionCols = SOURCE_GRAPH_VERSIONS_TABLE.columns;
+  const fp = versionCols.find((c) => c.name === "fingerprint");
+  assert.ok(fp, "fingerprint column exists");
+  assert.equal(fp?.type, "TEXT");
+  assert.equal(fp?.notNull, false, "fingerprint is nullable (no NOT NULL, no DEFAULT)");
+  assert.equal(fp?.default, undefined, "a nullable column carries no DEFAULT");
+  // Placed immediately after confidence.
+  const idx = versionCols.findIndex((c) => c.name === "fingerprint");
+  assert.equal(versionCols[idx - 1]?.name, "confidence", "fingerprint sits right after confidence");
+  assert.doesNotThrow(() => assertValidCatalogTable(SOURCE_GRAPH_VERSIONS_TABLE), "the table still passes the load-time guard");
 });
 
 test("describe_status default is pending and skipped-deleted is a declared status", () => {

@@ -16,11 +16,16 @@
  *   - a null-filename observation triggers a full workspace resync settle (AC-3);
  *   - observations are ignore-filtered before they reach a cycle (AC-5).
  *
+ * Step-4 fingerprints are PERSISTED on the version row (the
+ * `source_graph_versions.fingerprint` column, written by the ladder), not held
+ * in an in-process cache, so cold-catch-up fuzzy matching survives a daemon
+ * restart (AC-8): step 4 reads each missing candidate's fingerprint straight
+ * from the store.
+ *
  * Move reconstruction (AC-9) falls out of this end-to-end: feed the intake two
  * observations (old path now missing, new path new) and, at settle, the ladder's
  * step 3 carries the nectar when the new content matches the missing file's hash.
  */
-import { computeFingerprint } from "./tlsh.js";
 import { classifyPath } from "./classify.js";
 import { isSafeRelPath } from "./paths-safe.js";
 import { reassociate, type FuzzyStep, type LadderDeps, type ObservedFile, type ReviewCandidate } from "./ladder.js";
@@ -84,9 +89,6 @@ export class RegistrationService {
   private readonly log: (line: Record<string, unknown>) => void;
   private readonly intake: WatchIntake;
 
-  /** nectar -> latest cached TLSH fingerprint, so step 4 can match a now-gone file (AC-8). */
-  private readonly fingerprintCache = new Map<string, string>();
-
   private readonly pending = new Set<string>();
   private resyncRequested = false;
   /** The in-flight (or just-settled) cycle. Tracked so tests can await idle. */
@@ -144,11 +146,6 @@ export class RegistrationService {
     if (this.isIgnored(relPath)) return;
     this.pending.add(relPath);
     this.kick();
-  }
-
-  /** The fingerprint the ladder's step 4 consults for a missing candidate (AC-8). */
-  fingerprintOf(nectar: string): string | null {
-    return this.fingerprintCache.get(nectar) ?? null;
   }
 
   /**
@@ -240,29 +237,15 @@ export class RegistrationService {
   }
 
   private resolveExisting(relPath: string, stat: StatResult): void {
-    let captured: string | Uint8Array | null = null;
     const file: ObservedFile = {
       relPath,
       sizeBytes: stat.sizeBytes,
       mtimeObserved: stat.mtimeObserved,
-      readContent: () => {
-        captured = stat.readContent();
-        return captured;
-      },
+      readContent: () => stat.readContent(),
     };
+    // The ladder persists the content fingerprint on the appended version row, so
+    // there is nothing to cache here; step 4 reads it back from the store (AC-8).
     const result = reassociate(file, this.ladderDeps());
-    // Cache the fingerprint whenever content was actually read and a content-bearing
-    // row was written for the resolved nectar, so a later step 4 can match it once
-    // its file goes missing (AC-8). Step-1 no-ops never read content.
-    if (
-      captured !== null &&
-      (result.action === "append-version" ||
-        result.action === "carry-nectar" ||
-        result.action === "mint" ||
-        result.action === "copy")
-    ) {
-      this.fingerprintCache.set(result.nectar, computeFingerprint(captured));
-    }
     this.log({ level: "debug", scope: "registration.resolve", relPath, step: result.step, action: result.action });
   }
 
@@ -273,7 +256,6 @@ export class RegistrationService {
       now: () => this.nowFn(),
       existsOnDisk: (p) => this.fs.existsOnDisk(p),
       fuzzy: this.fuzzy,
-      fingerprintOf: (nectar) => this.fingerprintOf(nectar),
       onReviewNeeded: (candidate) => this.handleReview(candidate),
       onEnrichQueued: (nectar) => this.onEnrichQueued(nectar),
     };

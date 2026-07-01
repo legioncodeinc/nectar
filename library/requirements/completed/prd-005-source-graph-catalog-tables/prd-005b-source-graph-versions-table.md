@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS "source_graph_versions" (
   concepts        TEXT NOT NULL DEFAULT '[]',
   embedding       FLOAT4[],
   confidence      REAL,
+  fingerprint     TEXT,
   described_at    TEXT NOT NULL DEFAULT '',
   describe_model  TEXT NOT NULL DEFAULT '',
   describe_status TEXT NOT NULL DEFAULT 'pending',
@@ -59,7 +60,9 @@ CREATE TABLE IF NOT EXISTS "source_graph_versions" (
 
 > **`confidence` column (nullable; set on TLSH fuzzy-match rows).** The Hivenectar corpus's `ai/identity-and-reassociation.md` states that fuzzy-match version rows "carry a `confidence` field (1 − normalized distance)." This PRD makes that claim literally true by adding a nullable `confidence REAL` column. It is set only on rows appended by re-association ladder step 4 (TLSH fuzzy match); all other rows leave it NULL. Nullable (like `embedding`), so it is exempt from the NOT-NULL-must-have-DEFAULT rule and heal-safe. The corpus's `source-graph-schema.md` carries this column too (`confidence REAL`), so the corpus and this PRD agree. Supports the audit query: "show me all auto-carried matches below a given confidence."
 
-Twenty-one columns. Nineteen are `NOT NULL` with a `DEFAULT`; `embedding` (`FLOAT4[]`) and `confidence` (`REAL`) are the two nullable columns (no `NOT NULL`, no `DEFAULT`).
+> **`fingerprint` column (nullable; PRD-006 addendum).** Added additively for PRD-006 step-4 fingerprint persistence. It holds the TLSH-family locality-sensitive digest of the content (the `computeFingerprint` "H1"-prefixed string), computed on every content-bearing version row. Re-association ladder step 4 matches a moved-and-edited file against the fingerprints of *missing* files; persisting the fingerprint on the version row (rather than only in an in-process cache) is what lets cold-catch-up fuzzy matching survive a daemon restart. Nullable (like `embedding` and `confidence`), so it is exempt from the NOT-NULL-must-have-DEFAULT rule and heal-safe: rows written before this column existed leave it NULL and self-heal on next observation. The corpus's `source-graph-schema.md` carries this column too (`fingerprint TEXT`), so the corpus and this PRD agree. This is a post-completion addendum recorded to keep the completed PRD's history honest: the column was introduced by PRD-006, not the original PRD-005 tranche.
+
+Twenty-two columns. Nineteen are `NOT NULL` with a `DEFAULT`; `embedding` (`FLOAT4[]`), `confidence` (`REAL`), and `fingerprint` (`TEXT`) are the three nullable columns (no `NOT NULL`, no `DEFAULT`).
 
 ## Column-by-column rationale
 
@@ -112,6 +115,8 @@ export const SOURCE_GRAPH_VERSIONS_COLUMNS = Object.freeze([
 	{ name: "embedding", sql: "FLOAT4[]" },
 	// Confidence (nullable REAL; set only on step-4 TLSH fuzzy-match rows; 1 − normalized distance)
 	{ name: "confidence", sql: "REAL" },
+	// Fingerprint (nullable TEXT; TLSH-family digest on every content-bearing row; step-4 reads it for missing files) — PRD-006 addendum
+	{ name: "fingerprint", sql: "TEXT" },
 	// Description audit
 	{ name: "described_at", sql: "TEXT NOT NULL DEFAULT ''" },
 	{ name: "describe_model", sql: "TEXT NOT NULL DEFAULT ''" },
@@ -150,7 +155,7 @@ export const SOURCE_GRAPH_VERSIONS_COLUMNS = Object.freeze([
 
 ## The `embedding` column
 
-`embedding` is the sole embedding column in the source-graph schema (and, with `confidence`, one of its two nullable columns). Contract, carried from [`source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md):
+`embedding` is the sole embedding column in the source-graph schema (and, with `confidence` and `fingerprint`, one of its three nullable columns). Contract, carried from [`source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md):
 
 - **Type:** `FLOAT4[]` — nullable until enriched.
 - **Dimensionality:** **768-dim**, vector over `title + ' ' + description`. Same dimensionality as `sessions.message_embedding` and `memory.summary_embedding`, so the same hybrid recall pipeline queries all three.
@@ -178,8 +183,8 @@ Same as `source_graph` (005a). `source_graph_versions` is never pre-created; the
 
 ## Acceptance Criteria
 
-- [ ] The verbatim DDL block above matches [`source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) character-for-character (twenty-one columns; nineteen `NOT NULL DEFAULT`, two nullable: `embedding` `FLOAT4[]` and `confidence` `REAL`).
-- [ ] `SOURCE_GRAPH_VERSIONS_COLUMNS` has exactly twenty-one entries, one per DDL column, in declaration order, with matching `sql` strings — including `embedding` as `"FLOAT4[]"` and `confidence` as `"REAL"` (no constraints).
+- [ ] The verbatim DDL block above matches [`source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) character-for-character (twenty-two columns; nineteen `NOT NULL DEFAULT`, three nullable: `embedding` `FLOAT4[]`, `confidence` `REAL`, and `fingerprint` `TEXT`).
+- [ ] `SOURCE_GRAPH_VERSIONS_COLUMNS` has exactly twenty-two entries, one per DDL column, in declaration order, with matching `sql` strings — including `embedding` as `"FLOAT4[]"`, `confidence` as `"REAL"`, and `fingerprint` as `"TEXT"` (no constraints).
 - [ ] The array passes `validateColumnDefs("SOURCE_GRAPH_VERSIONS", ...)` at module load (`schema.ts:80-100`); the nullable `embedding` is exempt from the NOT-NULL-must-have-DEFAULT rule.
 - [ ] The `CatalogTable` record declares `embeddingColumns: ["embedding"]`, `scope: tenant`, and the confirmed write pattern.
 - [ ] `defineTable`'s embedding-column assertion (`types.ts:108-116`) passes — `"embedding"` is present in `columns`.

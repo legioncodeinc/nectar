@@ -96,6 +96,13 @@ export interface SourceGraphVersionRow {
   embedding: number[] | null;
   /** Set only on ladder step-4 (TLSH fuzzy) rows: 1 - normalizedTLSHDistance. Null otherwise. */
   confidence: number | null;
+  /**
+   * TLSH-family fingerprint of the content (the `computeFingerprint` "H1"-prefixed
+   * digest); set on every content-bearing row, consulted by ladder step 4 for
+   * missing files so cold-catch-up fuzzy matching survives a daemon restart. Null
+   * on pre-fingerprint rows (they self-heal on next observation).
+   */
+  fingerprint: string | null;
   describedAt: string;
   describeModel: string;
   describeStatus: DescribeStatus;
