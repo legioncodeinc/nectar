@@ -30,10 +30,10 @@ function okRunner(recordedCalls: { command: string; args: readonly string[] }[] 
   };
 }
 
-function failingRunner(): CommandRunner {
+function failingRunner(overrides: Partial<CommandResult> = {}): CommandRunner {
   return {
     async run(): Promise<CommandResult> {
-      return { ok: false, code: 1, stdout: "", stderr: "boom", detail: "boom" };
+      return { ok: false, code: 1, stdout: "", stderr: "boom", detail: "boom", ...overrides };
     },
   };
 }
@@ -74,8 +74,38 @@ test("install reports ok:false when a manager command fails, but the unit file i
   });
   const result = await svc.install();
   assert.equal(result.ok, false);
-  assert.match(result.message, /service-manager command failed/);
+  assert.match(result.message, /service-manager command failed \(systemctl\): boom/, "the real failure detail is surfaced, not just the command name");
   assert.equal(fs.written.size, 1, "the unit file was still written before the argv ran");
+});
+
+test("install surfaces the real service-manager stderr (e.g. Windows schtasks 'Access is denied') when no runner detail is present", async () => {
+  const fs = fakeFs();
+  const svc = createServiceModule({
+    execPath: "/usr/local/bin/hivenectar",
+    fs,
+    // No `detail` field at all (as a real execFile non-zero-exit failure looks: ok:false, a
+    // real exit code, and only stderr text) - describeFailure must fall back to stderr.
+    runner: failingRunner({ detail: undefined, stderr: "ERROR: Access is denied.\r\n" }),
+    environment: linuxEnv(),
+  });
+  const result = await svc.install();
+  assert.equal(result.ok, false);
+  assert.match(result.message, /ERROR: Access is denied\./);
+});
+
+test("a failure detail longer than the cap is truncated with an ellipsis, never silently dropped", async () => {
+  const fs = fakeFs();
+  const longLine = "x".repeat(500);
+  const svc = createServiceModule({
+    execPath: "/usr/local/bin/hivenectar",
+    fs,
+    runner: failingRunner({ detail: undefined, stderr: longLine }),
+    environment: linuxEnv(),
+  });
+  const result = await svc.install();
+  assert.equal(result.ok, false);
+  assert.match(result.message, /x{200}\.\.\./);
+  assert.ok(!result.message.includes(longLine), "the full 500-char line is not echoed verbatim");
 });
 
 test("install on an unsupported platform returns ok:false, never throws", async () => {
@@ -115,6 +145,7 @@ test("uninstall tolerates a manager command failure (already-gone unit) and stil
   });
   const result = await svc.uninstall();
   assert.equal(result.ok, false);
+  assert.match(result.message, /boom/, "the real failure detail is surfaced");
   assert.equal(fs.removed.length, 1, "the unit file is removed even when the deregister command failed");
 });
 
