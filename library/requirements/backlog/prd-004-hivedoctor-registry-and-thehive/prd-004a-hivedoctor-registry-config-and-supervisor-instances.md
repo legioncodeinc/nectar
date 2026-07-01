@@ -1,6 +1,6 @@
 # PRD-004a: hivedoctor daemon registry — config schema + per-daemon supervisor instances + isolated incident state
 
-> **Codebase:** `honeycomb` repo → `hivedoctor/` package. This is an out-of-band sub-PRD; it lands in the hivedoctor codebase, not hivenectar.
+> **Codebase:** the `hivedoctor` repo. This is an out-of-band sub-PRD; it lands in the hivedoctor codebase, not hivenectar.
 
 ## Overview
 

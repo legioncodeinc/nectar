@@ -115,4 +115,4 @@ Corpus references that describe the dashboard as living in the Honeycomb daemon 
 - `library/requirements/backlog/prd-004-hivedoctor-registry-and-thehive/` — thehive's PRD folder (004a–d).
 - `library/requirements/backlog/prd-015-dashboard-source-graph-page/` — the first thehive-hosted dashboard page.
 - `honeycomb/src/dashboard/web/registry.tsx` — the dashboard route registry thehive reuses.
-- `honeycomb/hivedoctor/src/supervisor.ts` + `honeycomb/hivedoctor/src/service/index.ts` — the supervision + OS-service model thehive is a sibling of.
+- `hivedoctor/src/supervisor.ts` + `hivedoctor/src/service/index.ts` — the supervision + OS-service model thehive is a sibling of.

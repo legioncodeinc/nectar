@@ -53,13 +53,13 @@ This PRD owns four sub-features: the **bootstrap + composition root** (config lo
 
 ## Acceptance Criteria
 
-- [ ] `hivenectar daemon` is a runnable OS process that mirrors honeycomb's `assembleDaemon` composition root ([`honeycomb/src/daemon/runtime/assemble.ts`](../../../../honeycomb/src/daemon/runtime/assemble.ts)) scoped to Hivenectar's job surface; the daemon boots without importing honeycomb's in-process runtime modules (decision #4).
-- [ ] The bootstrap sequence runs in the fixed order: config load → Deep Lake client → auth/scoping → worker start → socket bind → signal handlers, with the **single-instance lock acquired before the socket bind** (mirroring [`honeycomb/src/daemon/index.ts:150-164`](../../../../honeycomb/src/daemon/index.ts) `runAssembledDaemon` — `start()` then `startDaemonListener`, with bind-failure rollback).
-- [ ] The daemon binds `127.0.0.1:3854` (DEFAULT host) and exposes an unprotected `/health` returning the coarse `ok`/`degraded`/`unconfigured` bit ([`honeycomb/src/daemon/runtime/health.ts:42`](../../../../honeycomb/src/daemon/runtime/health.ts)), with no port collision against 3850/3851/3852/3853.
-- [ ] The hiveantennae worker is a lease-based harness modeled on [`honeycomb/src/daemon/runtime/pipeline/stage-worker.ts`](../../../../honeycomb/src/daemon/runtime/pipeline/stage-worker.ts) (`runOnce()` + `start()`/`stop()` + kind-filtered lease) driven by the adaptive poll loop in [`honeycomb/src/daemon/runtime/services/poll-loop.ts`](../../../../honeycomb/src/daemon/runtime/services/poll-loop.ts).
+- [ ] `hivenectar daemon` is a runnable OS process that mirrors honeycomb's `assembleDaemon` composition root (`honeycomb/src/daemon/runtime/assemble.ts`) scoped to Hivenectar's job surface; the daemon boots without importing honeycomb's in-process runtime modules (decision #4).
+- [ ] The bootstrap sequence runs in the fixed order: config load → Deep Lake client → auth/scoping → worker start → socket bind → signal handlers, with the **single-instance lock acquired before the socket bind** (mirroring `honeycomb/src/daemon/index.ts:150-164` `runAssembledDaemon` — `start()` then `startDaemonListener`, with bind-failure rollback).
+- [ ] The daemon binds `127.0.0.1:3854` (DEFAULT host) and exposes an unprotected `/health` returning the coarse `ok`/`degraded`/`unconfigured` bit (`honeycomb/src/daemon/runtime/health.ts:42`), with no port collision against 3850/3851/3852/3853.
+- [ ] The hiveantennae worker is a lease-based harness modeled on `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts` (`runOnce()` + `start()`/`stop()` + kind-filtered lease) driven by the adaptive poll loop in `honeycomb/src/daemon/runtime/services/poll-loop.ts`.
 - [ ] Every CLI command the corpus names appears in 002c with its invocation, its owner-PRD reference for the mechanic it invokes, and a citation to the corpus doc that names it (`overview.md`, `brooding-pipeline.md`, `identity-and-reassociation.md`, `enricher-and-llm-model.md`).
-- [ ] A second `hivenectar daemon` start throws a `DaemonAlreadyRunningError`-equivalent before the socket bind (mirroring [`honeycomb/src/daemon/runtime/assemble.ts:715-723`](../../../../honeycomb/src/daemon/runtime/assemble.ts)), and a stale lock (dead PID) is reclaimed.
-- [ ] `SIGINT`/`SIGTERM` drain services, close the socket, and remove `~/.honeycomb/hivenectar.pid` + `~/.honeycomb/hivenectar.lock` so no stale lock survives a restart (mirroring [`honeycomb/src/daemon/index.ts:166-187`](../../../../honeycomb/src/daemon/index.ts)); close is idempotent and a second signal is ignored.
+- [ ] A second `hivenectar daemon` start throws a `DaemonAlreadyRunningError`-equivalent before the socket bind (mirroring `honeycomb/src/daemon/runtime/assemble.ts:715-723`), and a stale lock (dead PID) is reclaimed.
+- [ ] `SIGINT`/`SIGTERM` drain services, close the socket, and remove `~/.honeycomb/hivenectar.pid` + `~/.honeycomb/hivenectar.lock` so no stale lock survives a restart (mirroring `honeycomb/src/daemon/index.ts:166-187`); close is idempotent and a second signal is ignored.
 
 ---
 
@@ -69,9 +69,9 @@ Three values are defaults pending implementation confirmation. Each is flagged i
 
 | Default | Value | Where | Rationale |
 |---|---|---|---|
-| Config file path | `~/.honeycomb/hivenectar.json` | 002a, 002c | Mirrors honeycomb's config-file convention under the shared `~/.honeycomb` runtime dir ([`honeycomb/src/daemon/runtime/auth/credentials-store.ts:71`](../../../../honeycomb/src/daemon/runtime/auth/credentials-store.ts) `LEGACY_CREDENTIALS_DIR_NAME = ".honeycomb"`). |
+| Config file path | `~/.honeycomb/hivenectar.json` | 002a, 002c | Mirrors honeycomb's config-file convention under the shared `~/.honeycomb` runtime dir (`honeycomb/src/daemon/runtime/auth/credentials-store.ts:71` `LEGACY_CREDENTIALS_DIR_NAME = ".honeycomb"`). |
 | Worker poll interval | 30s | 002b | Matches the enricher's default 30-second interval named in [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md). |
-| Bind host | `127.0.0.1` (loopback) | 002a | Mirrors honeycomb's loopback-only posture ([`honeycomb/embeddings/src/index.ts:67`](../../../../honeycomb/embeddings/src/index.ts) `EMBED_HOST = "127.0.0.1"`); the daemon is reached by hivedoctor + thehive over loopback. |
+| Bind host | `127.0.0.1` (loopback) | 002a | Mirrors honeycomb's loopback-only posture (`honeycomb/embeddings/src/index.ts:67` `EMBED_HOST = "127.0.0.1"`); the daemon is reached by hivedoctor + thehive over loopback. |
 
 The port (3854) and PID/lock filenames are inherited from the [PRD-001 port + path contract](../prd-001-three-daemon-topology/prd-001-three-daemon-topology-index.md) and are not re-registered here.
 
@@ -87,7 +87,7 @@ The port (3854) and PID/lock filenames are inherited from the [PRD-001 port + pa
 - [`knowledge/private/architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`](../../../knowledge/private/architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md) — the independence decision (own client, own auth, shared data layer).
 - [`prd-001-three-daemon-topology`](../prd-001-three-daemon-topology/prd-001-three-daemon-topology-index.md) — the port + path contract this PRD cites (3854, `~/.honeycomb/hivenectar.{pid,lock}`); the process surface in [`prd-001b`](../prd-001-three-daemon-topology/prd-001b-hivenectar-process-and-health.md).
 - [`prd-005-source-graph-catalog-tables`](../prd-005-source-graph-catalog-tables/prd-005-source-graph-catalog-tables-index.md) — owns the tables this daemon writes.
-- [`honeycomb/src/daemon/runtime/assemble.ts`](../../../../honeycomb/src/daemon/runtime/assemble.ts) — the composition-root pattern to mirror (`assembleDaemon`, `acquireSingleInstanceLock`).
-- [`honeycomb/src/daemon/runtime/pipeline/stage-worker.ts`](../../../../honeycomb/src/daemon/runtime/pipeline/stage-worker.ts) — the lease-based worker harness.
-- [`honeycomb/src/daemon/runtime/services/poll-loop.ts`](../../../../honeycomb/src/daemon/runtime/services/poll-loop.ts) — the adaptive poll loop.
-- [`honeycomb/src/daemon/index.ts`](../../../../honeycomb/src/daemon/index.ts) — the `runAssembledDaemon` lifecycle + signal-handler pattern.
+- `honeycomb/src/daemon/runtime/assemble.ts` — the composition-root pattern to mirror (`assembleDaemon`, `acquireSingleInstanceLock`).
+- `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts` — the lease-based worker harness.
+- `honeycomb/src/daemon/runtime/services/poll-loop.ts` — the adaptive poll loop.
+- `honeycomb/src/daemon/index.ts` — the `runAssembledDaemon` lifecycle + signal-handler pattern.

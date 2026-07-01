@@ -1,0 +1,38 @@
+{
+  "name": "@legioncodeinc/hivenectar",
+  "version": "0.0.1",
+  "description": "Hivenectar: a semantic memory layer over a source tree. The hiveantennae daemon mints a stable identity (a nectar) and an LLM-minted description for every file, served through the hybrid recall Honeycomb already uses.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "hivenectar": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test \"test/**/*.test.ts\"",
+    "start": "node dist/cli.js daemon",
+    "daemon": "node dist/cli.js daemon",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "keywords": [
+    "hivenectar",
+    "honeycomb",
+    "semantic-memory",
+    "code-graph",
+    "daemon"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -4,7 +4,7 @@
 > **Priority:** P0
 > **Effort:** M (3-8h)
 > **Schema changes:** None
-> **Codebase:** `hivenectar` repo (this project) — the hivenectar-side of the supervision contract. The hivedoctor-side registry that consumes this PRD is PRD-004 (out-of-band, lands in the `honeycomb` repo's `hivedoctor/` package).
+> **Codebase:** `hivenectar` repo (this project) — the hivenectar-side of the supervision contract. The hivedoctor-side registry that consumes this PRD is PRD-004 (out-of-band, lands in the `hivedoctor` repo).
 
 ---
 
@@ -12,7 +12,7 @@
 
 This PRD is how hivenectar **becomes a supervised daemon**. Per the locked topology (decision #1, [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md)), hivedoctor gains a minimal daemon registry — owned by PRD-004 — and hivenectar is one entry in it. This PRD is the **hivenectar side of that contract**: it specifies the four things hivenectar must provide and do so that hivedoctor can probe it, restart it, and keep it alive across a reboot exactly as it does honeycomb today.
 
-The four surfaces, each modeled on the existing honeycomb/hivedoctor code:
+The four surfaces, each modeled on the existing honeycomb and hivedoctor code:
 
 1. A **`/health` endpoint** answering the coarse `ok`/`degraded` bit hivedoctor classifies on — sub-PRD 003a.
 2. A **PID/lock file** at the path hivedoctor's restart rung reads to respect hivenectar's single-instance guard — sub-PRD 003a.

@@ -34,43 +34,43 @@ Each seam is crossed over the network from hivenectar's own process. None is imp
 
 ### Seam 1 — Portkey gateway (LLM routing + guardrails + semantic cache)
 
-hivenectar routes every LLM call (brooding descriptions, enricher steady-state) through the Portkey gateway, reusing the same transport contract honeycomb uses. The Portkey endpoint is `https://api.portkey.ai/v1` ([`honeycomb/src/daemon/runtime/inference/transport-portkey.ts:74`](../../../../honeycomb/src/daemon/runtime/inference/transport-portkey.ts) `PORTKEY_BASE_URL`), with chat completions at `${PORTKEY_BASE_URL}/chat/completions` ([`:77`](../../../../honeycomb/src/daemon/runtime/inference/transport-portkey.ts)). Auth is the fixed header pair: `x-portkey-api-key` (the Portkey key) + `x-portkey-config` (the config / virtual-key id) ([`:83,86`](../../../../honeycomb/src/daemon/runtime/inference/transport-portkey.ts)), assembled by `buildPortkeyHeaders(apiKey, configId)` ([`:95`](../../../../honeycomb/src/daemon/runtime/inference/transport-portkey.ts)).
+hivenectar routes every LLM call (brooding descriptions, enricher steady-state) through the Portkey gateway, reusing the same transport contract honeycomb uses. The Portkey endpoint is `https://api.portkey.ai/v1` (`honeycomb/src/daemon/runtime/inference/transport-portkey.ts:74` `PORTKEY_BASE_URL`), with chat completions at `${PORTKEY_BASE_URL}/chat/completions` (`honeycomb/src/daemon/runtime/inference/transport-portkey.ts:77`). Auth is the fixed header pair: `x-portkey-api-key` (the Portkey key) + `x-portkey-config` (the config / virtual-key id) (`honeycomb/src/daemon/runtime/inference/transport-portkey.ts:83,86`), assembled by `buildPortkeyHeaders(apiKey, configId)` (`honeycomb/src/daemon/runtime/inference/transport-portkey.ts:95`).
 
 hivenectar reaches Portkey from its **own** inference transport — it does not import honeycomb's `createPortkeyTransport`. The transport shape is reused (same URL, same headers, same body mapping via `toPortkeyBody`), but instantiated in hivenectar's process with hivenectar's own resolved key/config from its own vault read. Per decision #6, semantic caching and guardrails are **Portkey-server-side**, configured in the Portkey dashboard via the config id — hivenectar only accounts for upstream cached tokens; it does not enable caching client-side.
 
 | Property | Value | Citation |
 |---|---|---|
-| Gateway base URL | `https://api.portkey.ai/v1` | [`transport-portkey.ts:74`](../../../../honeycomb/src/daemon/runtime/inference/transport-portkey.ts) |
-| Chat completions URL | `${PORTKEY_BASE_URL}/chat/completions` | [`:77`](../../../../honeycomb/src/daemon/runtime/inference/transport-portkey.ts) |
-| Auth headers | `x-portkey-api-key` + `x-portkey-config` | [`:83,86,95`](../../../../honeycomb/src/daemon/runtime/inference/transport-portkey.ts) |
+| Gateway base URL | `https://api.portkey.ai/v1` | `honeycomb/src/daemon/runtime/inference/transport-portkey.ts:74` |
+| Chat completions URL | `${PORTKEY_BASE_URL}/chat/completions` | `honeycomb/src/daemon/runtime/inference/transport-portkey.ts:77` |
+| Auth headers | `x-portkey-api-key` + `x-portkey-config` | `honeycomb/src/daemon/runtime/inference/transport-portkey.ts:83,86,95` |
 | Client ownership | hivenectar's own transport (not honeycomb's in-process one) | ADR-0002 negative consequence #1 |
 
 > The transport *implementation*, model selection, and the semantic-cache story are **PRD-010**. This PRD states only the seam: same gateway, same headers, own client.
 
 ### Seam 2 — Embeddings daemon (nomic-embed-text-v1.5)
 
-hivenectar embeds descriptions through the **same** embeddings daemon honeycomb uses — the nomic-embed-text-v1.5 daemon pinned at loopback `127.0.0.1:3851` ([`honeycomb/embeddings/src/index.ts:67-68`](../../../../honeycomb/embeddings/src/index.ts) `EMBED_HOST`, `EMBED_PORT = 3851`). The embeddings dimension is fixed at 768 ([`honeycomb/embeddings/src/index.ts:43`](../../../../honeycomb/embeddings/src/index.ts) `EMBED_DIMS = 768`), matching the `FLOAT4[]` columns the schema holds. The client reaches the daemon at `http://127.0.0.1:3851` (default, overridable via `HONEYCOMB_EMBED_URL`), POSTing to `<url>/embed` with `{ text }` and expecting `{ vector: number[] }` ([`honeycomb/src/daemon/runtime/services/embed-client.ts:52-54`](../../../../honeycomb/src/daemon/runtime/services/embed-client.ts)).
+hivenectar embeds descriptions through the **same** embeddings daemon honeycomb uses — the nomic-embed-text-v1.5 daemon pinned at loopback `127.0.0.1:3851` (`honeycomb/embeddings/src/index.ts:67-68` `EMBED_HOST`, `EMBED_PORT = 3851`). The embeddings dimension is fixed at 768 (`honeycomb/embeddings/src/index.ts:43` `EMBED_DIMS = 768`), matching the `FLOAT4[]` columns the schema holds. The client reaches the daemon at `http://127.0.0.1:3851` (default, overridable via `HONEYCOMB_EMBED_URL`), POSTing to `<url>/embed` with `{ text }` and expecting `{ vector: number[] }` (`honeycomb/src/daemon/runtime/services/embed-client.ts:52-54`).
 
 hivenectar reaches the embeddings daemon from its **own** embed client — a POST over HTTP, not an in-process call. The 768-dim contract is binding: a provider that returns a different dimension is discarded by recall's `embed.dim_rejected` guard (decision #5). hivenectar does not host the embeddings daemon; it is shared infrastructure that a single instance serves to whichever daemon embeds.
 
 | Property | Value | Citation |
 |---|---|---|
-| Daemon host/port | `127.0.0.1:3851` | [`honeycomb/embeddings/src/index.ts:67-68`](../../../../honeycomb/embeddings/src/index.ts) |
-| Dimension | 768 | [`honeycomb/embeddings/src/index.ts:43`](../../../../honeycomb/embeddings/src/index.ts) `EMBED_DIMS` |
-| Client protocol | `POST <url>/embed { text }` → `{ vector: number[] }` | [`embed-client.ts:52-54`](../../../../honeycomb/src/daemon/runtime/services/embed-client.ts) |
+| Daemon host/port | `127.0.0.1:3851` | `honeycomb/embeddings/src/index.ts:67-68` |
+| Dimension | 768 | `honeycomb/embeddings/src/index.ts:43` `EMBED_DIMS` |
+| Client protocol | `POST <url>/embed { text }` → `{ vector: number[] }` | `honeycomb/src/daemon/runtime/services/embed-client.ts:52-54` |
 | Client ownership | hivenectar's own embed client (HTTP, not in-process) | ADR-0002 |
 
 > The embeddings *provider switch* (local nomic default vs Cohere-via-Portkey opt-in) is **PRD-014**. This PRD states only the seam: same daemon, same 768-dim, own client.
 
 ### Seam 3 — CodeGraph (file discovery + build)
 
-hivenectar reuses honeycomb's **CodeGraph patterns** for file discovery and the build→extract→persist shape, but does not import the in-process module — per decision #4's principle that patterns are mirrored, not imported, across the process boundary. Specifically, brooding's discovery reuses the `git ls-files` discovery and the `runGraphBuild` discover→extract→persist template ([`honeycomb/src/daemon/runtime/codebase/api.ts:234-261`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts) `buildAggregateSnapshot`). hivenectar calls its own CodeGraph client (or in-process equivalent scoped to hivenectar's job) to obtain the file set it describes; it does not call into honeycomb's daemon over the 3850 RPC for file discovery.
+hivenectar reuses honeycomb's **CodeGraph patterns** for file discovery and the build→extract→persist shape, but does not import the in-process module — per decision #4's principle that patterns are mirrored, not imported, across the process boundary. Specifically, brooding's discovery reuses the `git ls-files` discovery and the `runGraphBuild` discover→extract→persist template (`honeycomb/src/daemon/runtime/codebase/api.ts:234-261` `buildAggregateSnapshot`). hivenectar calls its own CodeGraph client (or in-process equivalent scoped to hivenectar's job) to obtain the file set it describes; it does not call into honeycomb's daemon over the 3850 RPC for file discovery.
 
 > **DEFAULT — confirm before implementation.** Whether hivenectar (a) imports the CodeGraph library as a package into its own process, (b) calls a CodeGraph service over HTTP, or (c) re-implements the minimal `git ls-files` discovery itself is a PRD-002/PRD-007 decision. The contract here is only: same discovery source (the working tree via `git ls-files`), mirrored pattern, not honeycomb's in-process module.
 
 ### Seam 4 — Recall (composition, not a shipped engine)
 
-hivenectar does **not** ship its own recall engine. Per decision #1 and PRD-009's recorded decision, hivenectar composes with honeycomb's recall by **writing `source_graph_versions` rows** that honeycomb's shared recall engine reads. PRD-013 adds the `source_graph_versions` arm to the existing per-arm guarded-query recall ([`honeycomb/src/daemon/runtime/memories/recall.ts`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts)) — the single integration point that surfaces hivenectar's descriptions alongside session/memory/memories hits in every harness honeycomb is armed against.
+hivenectar does **not** ship its own recall engine. Per decision #1 and PRD-009's recorded decision, hivenectar composes with honeycomb's recall by **writing `source_graph_versions` rows** that honeycomb's shared recall engine reads. PRD-013 adds the `source_graph_versions` arm to the existing per-arm guarded-query recall (`honeycomb/src/daemon/runtime/memories/recall.ts`) — the single integration point that surfaces hivenectar's descriptions alongside session/memory/memories hits in every harness honeycomb is armed against.
 
 The composition is a **data-layer** integration, not a process-layer one: hivenectar writes rows under the shared tenancy; honeycomb's recall engine reads them under the same scope. hivenectar never issues a recall query itself for the agent-facing surface (manual source-graph search, PRD-012, is a separate scoped tool, not the fused recall). This is the recall-integration pillar ADR-0002 preserves.
 
@@ -116,11 +116,11 @@ Concretely, hivenectar's Deep Lake client (PRD-001b) and honeycomb's Deep Lake c
 
 ## Implementation notes
 
-- Portkey gateway: [`honeycomb/src/daemon/runtime/inference/transport-portkey.ts:74,77,83,86,95`](../../../../honeycomb/src/daemon/runtime/inference/transport-portkey.ts) (`PORTKEY_BASE_URL`, chat URL, header names, `buildPortkeyHeaders`).
-- Embeddings daemon + dim: [`honeycomb/embeddings/src/index.ts:43,67-68`](../../../../honeycomb/embeddings/src/index.ts) (`EMBED_DIMS = 768`, `EMBED_HOST`, `EMBED_PORT = 3851`).
-- Embeddings client protocol: [`honeycomb/src/daemon/runtime/services/embed-client.ts:52-54,66`](../../../../honeycomb/src/daemon/runtime/services/embed-client.ts) (default URL `http://127.0.0.1:3851`, `POST /embed`, 768-dim).
-- CodeGraph discovery/build pattern: [`honeycomb/src/daemon/runtime/codebase/api.ts:234-261`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts) (`buildAggregateSnapshot` discover→extract→persist; `runGraphBuild`).
-- Recall engine (the shared substrate PRD-013 extends): [`honeycomb/src/daemon/runtime/memories/recall.ts`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts).
+- Portkey gateway: `honeycomb/src/daemon/runtime/inference/transport-portkey.ts:74,77,83,86,95` (`PORTKEY_BASE_URL`, chat URL, header names, `buildPortkeyHeaders`).
+- Embeddings daemon + dim: `honeycomb/embeddings/src/index.ts:43,67-68` (`EMBED_DIMS = 768`, `EMBED_HOST`, `EMBED_PORT = 3851`).
+- Embeddings client protocol: `honeycomb/src/daemon/runtime/services/embed-client.ts:52-54,66` (default URL `http://127.0.0.1:3851`, `POST /embed`, 768-dim).
+- CodeGraph discovery/build pattern: `honeycomb/src/daemon/runtime/codebase/api.ts:234-261` (`buildAggregateSnapshot` discover→extract→persist; `runGraphBuild`).
+- Recall engine (the shared substrate PRD-013 extends): `honeycomb/src/daemon/runtime/memories/recall.ts`.
 - Recall composition spec: [`knowledge/private/data/recall-integration.md`](../../../knowledge/private/data/recall-integration.md).
 - Decisions #5 (embeddings provider switch) and #6 (Portkey semantic cache server-side): [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md).
 
