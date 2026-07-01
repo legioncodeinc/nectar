@@ -4,6 +4,7 @@
 > **Supersedes:** none · **Superseded by:** none
 > **Owners:** platform, thehive, daemon
 > **Related:** `ADR-0003-three-daemon-topology-and-thehive-portal.md`, `ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`, `../../../requirements/MASTER-PRD-INDEX.md`, `../../../requirements/backlog/prd-004-hivedoctor-registry-and-thehive/`, `../../../requirements/backlog/prd-015-dashboard-source-graph-page/`
+> **Refined by:** [the-hive ADR-0001, retire honeycomb dashboard and copy-and-own into thehive](../../../../../library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md), which supersedes decision #3's reuse-by-runtime-import mechanism with copy-and-own plus honeycomb dashboard retirement (thehive is now a first-class product of the-hive repository, separate from honeycomb).
 
 ## Context
 
@@ -26,6 +27,8 @@ The research in `MASTER-PRD-INDEX.md` and PRD-004c/004d grounds each answer in t
 - **No second data plane.** thehive must not become a second Deep Lake client with its own tenancy scope and query surface — that would duplicate the workload daemons' storage contracts and create a new drift source. It is a *portal*, not a *store*.
 - **Reuse over fork.** Honeycomb already ships a working dashboard (`src/dashboard/web/` — registry, pages, wire). Forking it into thehive would duplicate working code and diverge over time.
 
+> **Refined by the-hive ADR-0001 (2026-07):** this driver still holds, but the-hive ADR-0001 realizes it through copy-and-own rather than reuse-by-runtime-import. Because thehive lives in the-hive repository (separate from honeycomb) and honeycomb's dashboard is retired, a one-time copy with ownership transfer replaces a live shared module. This is neither a runtime-shared reuse nor a divergent fork: honeycomb deletes its copy, so there is nothing to diverge from.
+
 ## Decision
 
 thehive is the **always-on portal daemon** of the three-daemon topology. Four binding decisions define it.
@@ -47,6 +50,8 @@ This keeps thehive a thin portal. The workload daemons own their data contracts,
 thehive owns the unified dashboard: every dashboard route (the existing honeycomb pages plus the new Source Graph page per PRD-015) lives in thehive. It reuses Honeycomb's existing dashboard code — the route registry (`honeycomb/src/dashboard/web/registry.tsx`), the page components (`pages/*`), the `wire` data-fetch abstraction — rather than forking it. thehive's `wire` implementation routes each request to the owning daemon's API (per decision 2) instead of honeycomb's in-process handlers, but the component layer is shared.
 
 The Source Graph page (PRD-015) lands in thehive and fetches from hivenectar's `/api/source-graph/*` endpoints (PRD-008) through thehive's aggregation `wire` — not directly into hivenectar's Deep Lake tables.
+
+> **Refined by the-hive ADR-0001 (2026-07):** the reuse-by-runtime-import mechanism named in this decision is superseded by copy-and-own. thehive is now a first-class product of the-hive repository, separate from honeycomb, and honeycomb's dashboard is retired, so thehive copies `honeycomb/src/dashboard/web/*` into the-hive and owns the result rather than importing honeycomb's dashboard module at runtime. See the-hive ADR-0001 and PRD-001b's file-by-file copy-map. The dashboard-ownership half of this decision (thehive owns the unified dashboard) is unchanged.
 
 ### 4. Update-cadence boundary
 
@@ -84,6 +89,8 @@ Rejected because it makes thehive a second data-plane consumer. thehive would ne
 ### Fork Honeycomb's dashboard code into thehive (REJECTED)
 
 Rejected because forks diverge. Honeycomb's dashboard is a working, evolving surface; a fork would duplicate the code and force thehive to manually port every honeycomb dashboard improvement. The reuse decision (shared component layer, thehive-owned `wire`) captures the benefits of a single dashboard codebase while respecting the process boundary.
+
+> **Refined by the-hive ADR-0001 (2026-07):** copy-and-own (the-hive ADR-0001) is distinct from the fork rejected here. A fork keeps two live, diverging copies; copy-and-own is a one-time ownership transfer paired with honeycomb dashboard retirement, so honeycomb keeps no dashboard copy and there is nothing to diverge from. The "manually port every honeycomb dashboard improvement" cost does not arise, because honeycomb no longer has a dashboard to improve.
 
 ### Make thehive a child process of a workload daemon (REJECTED)
 
