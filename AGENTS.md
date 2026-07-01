@@ -4,52 +4,85 @@ Guidance for ZCode agents working in this repository. Read this before editing.
 
 ## What this repository is
 
-Hivenectar is a **design and specification repository**. It documents — but does
-not yet implement — a semantic memory layer that gives every file in a project a
-stable identity (a "nectar": a daemon-minted ULID) and an LLM-minted title +
-description, then serves both back through hybrid semantic/lexical recall so an
-agent can answer "where is the login logic" rather than only "find symbol X".
+Hivenectar is a **functional, evolving TypeScript/Node codebase** (not a
+spec-only repository). It implements a semantic memory layer that gives every
+file in a project a stable identity (a "nectar": a daemon-minted ULID) and an
+LLM-minted title + description, then serves both back through hybrid
+semantic/lexical recall so an agent can answer "where is the login logic"
+rather than only "find symbol X".
 
-- **As of this writing the repo holds design docs only — no source code, build,
-  typecheck, lint, or test step yet.** The documents here are the *specification*
-  for an implementation that does not exist in this repo yet. When you arrive and
-  find code, `package.json` scripts, a `Makefile`, or CI workflows, treat this
-  paragraph as stale and update it: the design docs become the source of truth
-  the implementation must conform to, not the other way around.
+- **The repo holds real, buildable, testable source code.** The daemon lives
+  under `src/`, builds with `npm run build` (tsc to `dist/`), typechecks with
+  `npm run typecheck`, and tests with `npm test` (Node's built-in test runner).
+  The runnable entry point is `hivenectar daemon` (CLI at `src/cli.ts`), which
+  boots the daemon on `127.0.0.1:3854` with a `/health` endpoint, a
+  single-instance PID/lock guard under `~/.honeycomb`, an adaptive worker loop,
+  and graceful shutdown. Implementation proceeds PRD by PRD (see
+  `library/requirements/`); the `library/` docs are the design contract the code
+  conforms to, and both evolve together.
+- **The current implementation status is PRD-002 (the daemon).** The process,
+  lifecycle, lock, `/health`, worker harness, and CLI shell are implemented. The
+  Deep Lake data layer (PRD-005), file-registration/re-association (PRD-006),
+  brooding (PRD-007), Portkey/model routing (PRD-010), the portable projection
+  (PRD-011), recall integration (PRD-013), embeddings provider switch (PRD-014),
+  and the enricher steady-state loop (PRD-016) are the next tranches; CLI verbs
+  that invoke not-yet-built mechanics exit with a clear "owned by PRD-NNN" notice
+  rather than a silent stub.
+- **Zero runtime dependencies by design.** The daemon uses only Node built-ins
+  (`node:http`, `node:fs`, `node:net`, `node:os`), mirroring the sibling
+  **hivedoctor** repo's minimal-footprint ethos. `typescript` and `@types/node`
+  are the only devDependencies. When a later PRD needs the shared Deep Lake
+  client, Portkey transport, or embeddings daemon, Hivenectar reaches them over
+  the network through its own clients (never by importing the honeycomb runtime
+  in-process, per ADR-0002).
 - The documents frequently reference **"the main Honeycomb corpus"** and rules
   like **FR-8** ("durable state goes in Deep Lake, not sidecars") and the AGPL
   license-header convention. These come from the sibling **Honeycomb daemon**
-  repository, whose patterns Hivenectar is designed to reuse (daemon lifecycle,
-  Deep Lake client, auth, observability, hybrid recall, the CodeGraph worker).
-  Cite them as design context for the coming implementation.
-- The library schema itself is defined externally in
-  `legion-shared/standards/library-schema-v2.md` (another sibling repo) and is
-  scaffolded by `pnpm standardize-library --repository <name>`, which is **not**
-  runnable here yet.
+  repository, whose patterns Hivenectar reuses (daemon lifecycle, Deep Lake
+  client, auth, observability, hybrid recall, the CodeGraph worker) by mirroring,
+  not importing, across the process boundary.
 
 ## Repository layout
 
 ```
-library/                         the only meaningful tree (schema v2)
+src/                             the daemon implementation (TypeScript, ESM)
+  index.ts                       public exports (assembleDaemon, config, lock, health, worker)
+  cli.ts                         CLI entry: `hivenectar daemon` (bin target)
+  daemon.ts                      composition root: assembleDaemon() -> start/shutdown/pipelineStatus
+  server.ts                      node:http /health server (127.0.0.1:3854)
+  lock.ts                        single-instance PID/lock guard (acquire/release/isPidAlive)
+  worker.ts                      hiveantennae worker harness (runOnce/start/stop)
+  poll-loop.ts                   adaptive poll loop (injected timer seam, backoff)
+  health.ts                      PipelineStatus + purpose-built /health body
+  config.ts                      runtime config resolution (env -> defaults)
+  errors.ts                      DaemonAlreadyRunningError
+test/                            Node built-in test runner suites (*.test.ts)
+package.json                     scripts: build (tsc), typecheck, test, start
+tsconfig.json                    NodeNext ESM, strict, outDir dist/
+library/                         the design + requirements tree (schema v2)
   knowledge/
     public/                      end-user / customer-facing docs
     private/                     internal engineering docs (ADRs, standards, domain)
-      overview.md                START HERE — what Hivenectar is and the reading guide
-      architecture/              ADRs (ADR-0001 is the load-bearing identity decision)
+      overview.md                what Hivenectar is and the reading guide
+      architecture/              ADRs (ADR-0001 identity, ADR-0002/0003/0004 topology)
       ai/                        brooding, enricher, identity & re-association
       data/                      source-graph schema, portable registry, recall integration
       reference/                 prior-art crosswalk
       standards/                 documentation-framework.md — the canonical doc standard
-  requirements/                  planned product work: PRDs (backlog/in-work/completed)
-  issues/                        reactive bug/incident work: IRDs (backlog/in-work/completed)
+  requirements/                  product work: PRDs (backlog/in-work/completed) + ledger
+  issues/                        reactive bug/incident work: IRDs
   notes/                         HUMAN-ONLY scratch space — agents do not write here
-nectar.png, nectar.psd           brand asset (note: library/README says brand assets
-                                 normally live in legion-shared/brands/)
+nectar.png, nectar.psd           brand asset
 ```
 
-The single most important file is
-`library/knowledge/private/overview.md` — it defines the three design pillars
-and contains a reading guide. Read it first.
+Build and verify: `npm install` then `npm run build` (tsc to `dist/`),
+`npm run typecheck`, `npm test` (Node's built-in runner). Run the daemon with
+`npm start` or `node dist/cli.js daemon`.
+
+The design contract lives under `library/`. Start at
+`library/knowledge/private/overview.md` (the three design pillars) and
+`library/requirements/` (the PRDs the code implements). Code and docs evolve
+together: the docs are the spec the implementation conforms to.
 
 ## Editing rules (documentation conventions)
 
