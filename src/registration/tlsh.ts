@@ -161,6 +161,15 @@ export function distanceToConfidence(distance: number): number {
 export const SIZE_BUCKET_TOLERANCE = 0.2;
 
 /**
+ * Minimum content length (bytes) for a meaningful fuzzy comparison. Content
+ * shorter than one byte-trigram records no trigram, so distinct tiny contents
+ * would collapse to the same fingerprint (distance 0, perfect confidence) and
+ * could be auto-carried without evidence. Below this floor the fuzzy step
+ * abstains (no match, no carry).
+ */
+export const MIN_FUZZY_BYTES = 3;
+
+/**
  * The step-4 confidence bands. Supplied by the caller (the daemon config), NOT
  * pinned by the corpus or PRD-006d. `highConfidence` is the auto-carry floor;
  * `reviewFloor` is the floor for surfacing to `review-matches`; below it the
@@ -195,24 +204,37 @@ export function createTlshFuzzyStep(config: FuzzyConfig): FuzzyStep {
   return {
     match(content: string | Uint8Array, candidates: readonly FuzzyCandidate[]): FuzzyOutcome {
       const newSize = byteLengthOf(content);
+      // Too small to fingerprint meaningfully: abstain rather than risk a
+      // distance-0 collapse of distinct tiny contents into a false carry.
+      if (newSize < MIN_FUZZY_BYTES) return { kind: "none" };
       const lo = newSize * (1 - SIZE_BUCKET_TOLERANCE);
       const hi = newSize * (1 + SIZE_BUCKET_TOLERANCE);
       const newFingerprint = computeFingerprint(content);
 
       let best: { nectar: string; confidence: number; distance: number } | null = null;
+      // Whether the current best confidence is held by more than one candidate.
+      // A shared top score is evidence-free (which one to carry would depend on
+      // store iteration order), so a tie is never auto-carried.
+      let bestIsTied = false;
       for (const candidate of candidates) {
         if (candidate.fingerprint === null) continue;
         const size = candidate.version.sizeBytes;
+        if (size < MIN_FUZZY_BYTES) continue; // a too-small candidate is not comparable
         if (size < lo || size > hi) continue; // outside the +/-20% size bucket
         const distance = fingerprintDistance(newFingerprint, candidate.fingerprint);
         const confidence = distanceToConfidence(distance);
         if (best === null || confidence > best.confidence) {
           best = { nectar: candidate.identity.nectar, confidence, distance };
+          bestIsTied = false;
+        } else if (confidence === best.confidence) {
+          bestIsTied = true;
         }
       }
 
       if (best === null) return { kind: "none" };
-      if (best.confidence >= config.highConfidence) {
+      // A uniquely-best candidate above the high band auto-carries; a tie for the
+      // top score downgrades to review (>= reviewFloor) or none, never a match.
+      if (best.confidence >= config.highConfidence && !bestIsTied) {
         return { kind: "match", nectar: best.nectar, confidence: best.confidence, distance: best.distance };
       }
       if (best.confidence >= config.reviewFloor) {

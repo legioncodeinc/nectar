@@ -430,8 +430,13 @@ export class DeepLakeSourceGraphStore implements AsyncSourceGraphStore {
    * path (`prune --confirm`, PRD-006d). Both DELETE statements carry the full
    * tenancy predicate (`org_id`/`workspace_id`/`project_id`, never omitting
    * `project_id`) alongside the nectar key, so a nectar minted under another
-   * project is never removed by a delete issued in this tenancy (AC-20). Both
-   * are heal-aware: a missing table is a no-op (nothing to delete), not a create.
+   * project is never removed by a delete issued in this tenancy (AC-20).
+   *
+   * The delete path deliberately does NOT go through `withHeal`: a missing table
+   * means there is nothing to delete, so it is a harmless no-op, NOT a reason to
+   * CREATE a fresh (empty) table. `deleteTolerant` therefore swallows only the
+   * missing-table transport error (via `isMissingTableError`, the same
+   * classification the read path uses) and lets every other failure propagate.
    */
   async deleteNectar(tenancy: Tenancy, nectar: string): Promise<void> {
     const predicate = tenancyPredicate(tenancy);
@@ -440,7 +445,20 @@ export class DeepLakeSourceGraphStore implements AsyncSourceGraphStore {
       `DELETE FROM "${SOURCE_GRAPH_VERSIONS_TABLE_NAME}" WHERE nectar = ${nectarKey} AND ${predicate}`;
     const deleteIdentitySql =
       `DELETE FROM "${SOURCE_GRAPH_TABLE_NAME}" WHERE nectar = ${nectarKey} AND ${predicate}`;
-    await withHeal(this.transport, SOURCE_GRAPH_VERSIONS_TABLE, () => this.transport.query(deleteVersionsSql));
-    await withHeal(this.transport, SOURCE_GRAPH_TABLE, () => this.transport.query(deleteIdentitySql));
+    await this.deleteTolerant(deleteVersionsSql);
+    await this.deleteTolerant(deleteIdentitySql);
+  }
+
+  /**
+   * Run a DELETE, tolerating a missing-table failure as "nothing to delete" (a
+   * no-op). Never creates a table. Any other transport failure propagates.
+   */
+  private async deleteTolerant(sql: string): Promise<void> {
+    try {
+      await this.transport.query(sql);
+    } catch (err: unknown) {
+      if (err instanceof TransportError && isMissingTableError(err)) return;
+      throw err;
+    }
   }
 }

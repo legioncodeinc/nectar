@@ -16,8 +16,9 @@
  *     the Deep-Lake-is-the-only-durable-store rule (FR-8): the durable nectar
  *     rows live in Deep Lake; this file only tracks unreviewed candidates.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { randomBytes } from "node:crypto";
 
 /** One unreviewed step-4 candidate. Carries everything an accept needs so no disk re-read is required. */
 export interface PendingReviewCandidate {
@@ -98,9 +99,30 @@ export class FilePendingReviewStore implements PendingReviewStore {
     return parsed.filter(isCandidate);
   }
 
+  /**
+   * Atomic write: serialize to a unique temp file in the same directory, then
+   * `renameSync` it over the target (atomic on the same filesystem). A reader
+   * therefore never sees a torn/partial file, and two concurrent writers cannot
+   * interleave bytes (last rename wins). This queue is ephemeral, last-write-wins
+   * operational state (not durable domain state, which lives in Deep Lake, FR-8);
+   * the guarantee provided here is atomicity (no torn file), not serialization of
+   * concurrent read-modify-write cycles. The temp file is cleaned up on failure.
+   */
   private write(items: readonly PendingReviewCandidate[]): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, `${JSON.stringify(items, null, 2)}\n`, "utf8");
+    const dir = dirname(this.filePath);
+    mkdirSync(dir, { recursive: true });
+    const tmp = join(dir, `${basename(this.filePath)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+    try {
+      writeFileSync(tmp, `${JSON.stringify(items, null, 2)}\n`, "utf8");
+      renameSync(tmp, this.filePath);
+    } catch (err) {
+      try {
+        rmSync(tmp, { force: true });
+      } catch {
+        // best-effort cleanup; surface the original write error below
+      }
+      throw err;
+    }
   }
 
   add(candidate: PendingReviewCandidate): void {

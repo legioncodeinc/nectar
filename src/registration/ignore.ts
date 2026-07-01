@@ -31,7 +31,13 @@ export const ALWAYS_IGNORED_SEGMENTS: readonly string[] = [".git", "node_modules
 export const GRAPH_IGNORE_FILE = ".honeycomb/graph-ignore.json";
 
 function normalize(relPath: string): string {
-  return relPath.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+  // Trim a trailing slash too, so a declared prefix like "dist/" matches "dist"
+  // and "dist/x" whether or not the ignore file wrote the trailing slash.
+  return relPath
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
 }
 
 /** True if any path segment equals one of the always-ignored dir names. */

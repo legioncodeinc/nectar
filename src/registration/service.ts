@@ -187,9 +187,13 @@ export class RegistrationService {
       if (this.pending.size === 0) continue;
       const batch = [...this.pending];
       this.pending.clear();
+      // Snapshot the known-paths set ONCE per batch (each batch path is distinct
+      // and never re-processed within the same batch), avoiding an O(N^2)
+      // listLatestVersions walk per path.
+      const known = this.knownPaths();
       for (const relPath of batch) {
         try {
-          this.processOne(relPath);
+          this.processOne(relPath, known);
         } catch (err) {
           this.log({ level: "error", scope: "registration.cycle", relPath, err: String(err) });
         }
@@ -205,7 +209,7 @@ export class RegistrationService {
   }
 
   /** Classify one settled path and, for NEW/CHANGED, resolve it through the ladder. */
-  private processOne(relPath: string): void {
+  private processOne(relPath: string, knownPaths: ReadonlySet<string>): void {
     // Containment gate (CWE-22): never stat, read, classify, or persist a path
     // that escapes the workspace (absolute or `..` traversal). This backstops the
     // intake filter for the resync/direct-enqueue paths too.
@@ -214,7 +218,7 @@ export class RegistrationService {
       return;
     }
     const stat = this.fs.statPath(relPath);
-    const input = classifyPath({ relPath, existsOnDisk: stat !== null }, this.knownPaths());
+    const input = classifyPath({ relPath, existsOnDisk: stat !== null }, knownPaths);
     if (input === null) return;
     switch (input.kind) {
       case "new-path":

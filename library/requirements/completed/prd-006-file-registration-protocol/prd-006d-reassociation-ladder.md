@@ -44,11 +44,11 @@ flowchart TD
     s4 -->|no or below| s5["mint new nectar"]
 ```
 
-Steps 1 and 2 consume the **changed-path** class; steps 3, 4, and 5 (plus the copy detector, 006c) consume the **new-path** class; the **missing-path** class feeds the missing-files set that steps 3 and 4 consult. (Step 1's fast path is resolved as the ladder's own first rung: an `UNCHANGED` file matches on path+mtime+size and returns a no-op before any content read, so it never proceeds past step 1. The classifier, 006b, hands the ladder genuine `CHANGED` and `NEW` paths plus the `MISSING` set.)
+Steps 1 and 2 consume the **changed-path** class; steps 3, 4, and 5 (plus the copy detector, 006c) consume the **new-path** class; the **missing-path** class feeds the missing-files set that steps 3 and 4 consult. (Step 1's fast path is resolved as the ladder's own first rung: an `UNCHANGED` file matches on path+mtime+size and returns a no-op before any content read (`src/registration/ladder.ts:115-121`), so it never proceeds past step 1. The classifier, 006b, hands the ladder genuine `CHANGED` and `NEW` paths plus the `MISSING` set.)
 
 ### Step 1 — `(path, mtime, size)` exact match
 
-The fast path. If a file at a known path has the same mtime and size as the last observed version, the daemon treats it as unchanged without reading or hashing the content. This is "the same optimization rsync uses," covers the vast majority of files on a typical boot, and is resolved as the ladder's first rung: a match returns a no-op before any `readContent`, so an `UNCHANGED` file never proceeds to hashing. The mtime/size pair is read from `source_graph_versions.mtime_observed` and `source_graph_versions.size_bytes` for the latest version of each nectar (PRD-005b). The check is a single SELECT against the latest-version index, scoped by tenancy and path.
+The fast path. If a file at a known path has the same mtime and size as the last observed version, the daemon treats it as unchanged without reading or hashing the content (corpus § "Step 1", `library/knowledge/private/ai/identity-and-reassociation.md:88-92`). This is "the same optimization rsync uses," covers the vast majority of files on a typical boot, and is resolved as the ladder's first rung: a match returns a no-op before any `readContent` (`src/registration/ladder.ts:115-121`), so an `UNCHANGED` file never proceeds to hashing. The mtime/size pair is read from `source_graph_versions.mtime_observed` and `source_graph_versions.size_bytes` for the latest version of each nectar (PRD-005b). The check is a single SELECT against the latest-version index, scoped by tenancy and path.
 
 > mtime is mutable (`touch`, `rsync`, `git checkout` can change it without changing content). Step 1 is a fast-path cache key only — any path that is a candidate for steps 2–5 is content-hashed before a decision is made (`identity-and-reassociation.md` § "What re-association explicitly does not do").
 
@@ -202,7 +202,7 @@ Carried from `identity-and-reassociation.md` § "What re-association explicitly 
 ## Acceptance Criteria
 
 - [ ] The ladder carries all 5 steps verbatim from `identity-and-reassociation.md` § "The re-association ladder": (1) path+mtime+size exact, (2) path match + content changed, (3) exact content-hash match to a missing file, (4) TLSH fuzzy match to a missing file, (5) mint new — first match wins.
-- [ ] Step 1's fast path is resolved as the ladder's first rung (no content read), so an `UNCHANGED` path short-circuits before any hashing; the classifier (006b) hands the ladder only `NEW` / `CHANGED` paths plus the `MISSING` set.
+- [ ] Step 1's fast path is resolved as the ladder's first rung (no content read), so an `UNCHANGED` path short-circuits before any hashing; the classifier (006b) hands the ladder only `NEW` / `CHANGED` paths plus the `MISSING` set (`src/registration/ladder.ts:115-121`; corpus § "Step 1", `library/knowledge/private/ai/identity-and-reassociation.md:88-92`).
 - [ ] Step 2 appends a `source_graph_versions` row with `seq = prev_seq + 1`, `title`/`description`/`embedding = NULL`, `describe_status = 'pending'`, and enqueues an enrich job (PRD-016).
 - [ ] Step 3 consults the missing-files set (006b), carries the nectar on exact `sha256` match to a missing nectar's latest hash, appends a new version row with the new path, enqueues no enrich job, and removes the missing entry from the set.
 - [ ] Step 4 computes a TLSH fingerprint, compares against missing files (size-bucketed, ±20%), and produces a scored `confidence` match.

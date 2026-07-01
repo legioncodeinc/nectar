@@ -86,9 +86,13 @@ export function runPrune(deps: PruneDeps): PruneResult {
 
   let deleted = 0;
   for (const c of candidates) {
-    // Defense in depth: re-verify the identity is in scope immediately before the
-    // destructive delete, even though candidates already come from a scoped
-    // listLatestVersions. The delete itself is tenancy-scoped too (AC-20).
+    // Re-check ELIGIBILITY immediately before each destructive delete: the file
+    // may have reappeared (path returned to disk) between candidate computation
+    // and now, in which case it is no longer a prune candidate and must be kept.
+    if (deps.existsOnDisk(c.path)) continue;
+    // Defense in depth: re-verify the identity is in scope, even though candidates
+    // already come from a scoped listLatestVersions. The delete itself is
+    // tenancy-scoped too (AC-20).
     const identity = deps.store.getIdentity(c.nectar);
     if (identity === undefined || !inTenancy(identity, deps.tenancy)) continue;
     deps.store.deleteNectar(deps.tenancy, c.nectar);

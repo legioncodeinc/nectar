@@ -33,7 +33,13 @@ export function createDiskRegistrationFs(root: string): RegistrationFs {
       };
     },
     existsOnDisk(rel: string): boolean {
-      return realpathContained(root, rel) !== null;
+      const abs = realpathContained(root, rel);
+      if (abs === null) return false;
+      try {
+        return statSync(abs).isFile(); // a directory (or anything non-file) is NOT a tracked path
+      } catch {
+        return false;
+      }
     },
     listPaths(): Iterable<string> {
       return walk(root, root);

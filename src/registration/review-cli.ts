@@ -100,8 +100,22 @@ export async function runReviewMatches(deps: ReviewMatchesDeps): Promise<ReviewM
         );
         deps.pendingReviews.remove(candidate.id);
         if (carried) {
+          // Retire the placeholder nectar the ladder minted for newPath at review
+          // time, so exactly one identity (the carried one) points at newPath and
+          // there is no duplicate. Only when the carry succeeded, and only for a
+          // real, in-scope mint that is not the carried nectar itself. The
+          // tenancy-scoped delete is the sole deletion path.
+          let retiredNote = "";
+          const minted = candidate.mintedNectar;
+          if (minted !== "" && minted !== candidate.candidateNectar) {
+            const mintIdentity = deps.store.getIdentity(minted);
+            if (mintIdentity !== undefined && inTenancy(mintIdentity, deps.tenancy)) {
+              deps.store.deleteNectar(deps.tenancy, minted);
+              retiredNote = `; retired placeholder mint ${minted}`;
+            }
+          }
           deps.onEnrichQueued?.(candidate.candidateNectar);
-          deps.out(`accepted: carried ${candidate.candidateNectar} to ${candidate.newPath}`);
+          deps.out(`accepted: carried ${candidate.candidateNectar} to ${candidate.newPath}${retiredNote}`);
           accepted += 1;
         } else {
           deps.out(`candidate ${candidate.candidateNectar} no longer exists; dropped stale review`);
