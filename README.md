@@ -1,7 +1,7 @@
 # Hivenectar
 
 ![Status: Design](https://img.shields.io/badge/status-design-draft-orange)
-![License: Private](https://img.shields.io/badge/license-private-all_rights_reserved-red)
+![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
 
 > *A nectar is the minted identity record for a single file: small, stable, and the raw material from which richer understanding is produced.*
 
@@ -156,4 +156,6 @@ This is the specification surface. Edits to the design docs should preserve the 
 
 ## License
 
-Private. All rights reserved. Copyright © 2026 Mario Aldayuz. See [LICENSE.md](LICENSE.md). No part of this repository may be copied, distributed, or used without explicit written permission.
+Hivenectar is licensed under the **GNU Affero General Public License v3.0 or later** ([AGPL-3.0-or-later](LICENSE.md)). Use it commercially or privately, free of charge; keep the copyright and license notices intact, and if you modify it, your changes ship under the same AGPL license with source available. The "Affero" clause is the point: run a modified version as a network service and you owe its source to the users who interact with it.
+
+Copyright © 2026 Mario Aldayuz.
