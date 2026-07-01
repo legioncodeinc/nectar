@@ -11,7 +11,7 @@ The architecture decision that expands Hivenectar's process topology into hivedo
 - [`../overview.md`](../overview.md)
 - [`../data/recall-integration.md`](../data/recall-integration.md)
 - [`../../../requirements/MASTER-PRD-INDEX.md`](../../../requirements/MASTER-PRD-INDEX.md)
-- **Refined by:** [the-hive ADR-0001, retire honeycomb dashboard and copy-and-own into thehive](../../../../../library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md), which records the honeycomb dashboard retirement and the copy-and-own migration that realize this ADR's thehive-owns-the-portal consequence without changing the topology.
+- **Refined by:** [the-hive ADR-0001, retire honeycomb dashboard and copy-and-own into thehive](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md), which records the honeycomb dashboard retirement and the copy-and-own migration that realize this ADR's thehive-owns-the-portal consequence without changing the topology.
 
 ---
 
