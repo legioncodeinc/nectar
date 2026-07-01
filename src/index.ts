@@ -45,7 +45,7 @@ export type {
   SourceGraphVersionRow,
 } from "./source-graph/model.js";
 export { DESCRIBE_STATUSES, EMBED_DIMS, isValidEmbedding } from "./source-graph/model.js";
-export type { SourceGraphStore, LatestVersion } from "./source-graph/store.js";
+export type { SourceGraphStore, AsyncSourceGraphStore, LatestVersion } from "./source-graph/store.js";
 export { InMemorySourceGraphStore } from "./source-graph/memory-store.js";
 export { mintNectar, nectarCreatedAt, nectarTimestampMs, isValidNectar } from "./source-graph/ulid.js";
 export { sha256Hex } from "./source-graph/hash.js";
@@ -58,7 +58,32 @@ export {
   SOURCE_GRAPH_COLUMNS,
   SOURCE_GRAPH_VERSIONS_COLUMNS,
   assertValidCatalogTable,
+  buildCreateTableSql,
 } from "./source-graph/schema.js";
+
+// PRD-005: Deep Lake adapter for the Source Graph data layer.
+export type { TransportErrorKind, DeepLakeRow, DeepLakeTransportConfig } from "./source-graph/deeplake-transport.js";
+export {
+  TransportError,
+  HttpDeepLakeTransport,
+  DEFAULT_TRANSPORT_TIMEOUT_MS,
+  DEEPLAKE_CLIENT_HEADER,
+  DEEPLAKE_ORG_HEADER,
+} from "./source-graph/deeplake-transport.js";
+export type { DeepLakeCredentials, LoadCredentialsOptions } from "./source-graph/deeplake-credentials.js";
+export {
+  loadDeepLakeCredentials,
+  DeepLakeCredentialsError,
+  redactToken,
+  credentialsDir,
+  credentialsPath,
+  DEFAULT_DEEPLAKE_API_URL,
+} from "./source-graph/deeplake-credentials.js";
+export { withHeal, isMissingTableError } from "./source-graph/deeplake-heal.js";
+export type { QueryRunner } from "./source-graph/deeplake-heal.js";
+export { sqlStr, sqlLike, sqlIdent, sLiteral, eLiteral, sqlFloat4Array, sqlNum } from "./source-graph/sql-guards.js";
+export { DeepLakeSourceGraphStore } from "./source-graph/deeplake-store.js";
+export type { DeepLakeSourceGraphStoreOptions } from "./source-graph/deeplake-store.js";
 
 // PRD-006: file registration protocol.
 export { WatchIntake, DEFAULT_DEBOUNCE_MS } from "./registration/fs-watch.js";

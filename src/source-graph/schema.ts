@@ -2,12 +2,14 @@
  * Source Graph table definitions (PRD-005), transcribed from the DDL in
  * `library/knowledge/private/data/source-graph-schema.md`.
  *
- * These `ColumnDef[]` arrays are the catalog contract the future Deep Lake
- * adapter registers (mirroring honeycomb's `CatalogTable` / `ColumnDef` and its
- * load-time guard: valid identifiers, no duplicates, and every NOT NULL column
- * carries a DEFAULT, except the nullable `embedding`/`confidence`). Both tables
- * self-create on first write via `withHeal`; there is no DDL pre-step.
+ * These `ColumnDef[]` arrays are the catalog contract the Deep Lake adapter
+ * (`deeplake-store.ts`) registers (mirroring honeycomb's `CatalogTable` /
+ * `ColumnDef` and its load-time guard: valid identifiers, no duplicates, and
+ * every NOT NULL column carries a DEFAULT, except the nullable
+ * `embedding`/`confidence`). Both tables self-create on first write via
+ * `deeplake-heal.ts`'s `withHeal`; there is no DDL pre-step.
  */
+import { sqlIdent, sqlStr } from "./sql-guards.js";
 
 export type SqlType = "TEXT" | "BIGINT" | "REAL" | "FLOAT4[]";
 
@@ -111,4 +113,37 @@ export function assertValidCatalogTable(table: CatalogTable): CatalogTable {
     }
   }
   return table;
+}
+
+/**
+ * Render one column's SQL clause (`<name> <type>[ NOT NULL][ DEFAULT <lit>]`)
+ * from a `ColumnDef`. The identifier is validated through `sqlIdent`; a
+ * string `default` is rendered as a quoted literal via `sqlStr` (the TEXT
+ * columns' defaults, e.g. `''`, `'file'`, `'[]'`, `'pending'`), a numeric
+ * `default` is inlined bare (the BIGINT columns' `0`). `FLOAT4[]`/`REAL`
+ * columns in this catalog are always nullable and carry no default.
+ */
+function columnClause(col: ColumnDef): string {
+  const name = sqlIdent(col.name);
+  const notNull = col.notNull ? " NOT NULL" : "";
+  let defaultClause = "";
+  if (col.default !== undefined) {
+    defaultClause = typeof col.default === "number" ? ` DEFAULT ${col.default}` : ` DEFAULT '${sqlStr(col.default)}'`;
+  }
+  return `${name} ${col.type}${notNull}${defaultClause}`;
+}
+
+/**
+ * Render `CREATE TABLE IF NOT EXISTS "<name>" (...) USING deeplake` from a
+ * `CatalogTable`, mirroring honeycomb's `buildCreateTableSql`
+ * (`src/daemon/storage/schema.ts:110-114`). `IF NOT EXISTS` is what makes two
+ * concurrent healers converge: the second create is a harmless no-op, not a
+ * duplicate-table error. The table name is validated through `sqlIdent`;
+ * column names are validated at load by `assertValidCatalogTable`, so they are
+ * safe to interpolate via {@link columnClause}.
+ */
+export function buildCreateTableSql(table: CatalogTable): string {
+  const safeName = sqlIdent(table.name);
+  const colSql = table.columns.map(columnClause).join(", ");
+  return `CREATE TABLE IF NOT EXISTS "${safeName}" (${colSql}) USING deeplake`;
 }
