@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { platform } from "node:process";
 import { join } from "node:path";
 import {
   TELEMETRY_DB_FILE_NAME,
@@ -40,6 +41,22 @@ test("openTelemetryDb creates the directory and the file, and is idempotent to r
     const row = db2.prepare("SELECT COUNT(*) as c FROM service_logs").get();
     assert.equal(Number(row?.c), 1);
     db2.close();
+  } finally {
+    rmDirWithRetry(dir);
+  }
+});
+
+test("security: openTelemetryDb creates its directory owner-only (0o700), not world-readable", { skip: platform === "win32" }, () => {
+  // Windows has no POSIX mode bits; this guard is meaningful on multi-user POSIX hosts,
+  // the exact threat model the security-review finding (medium) targeted.
+  const dir = tmpDir();
+  try {
+    const dbPath = join(dir, "nested", "hivenectar.sqlite");
+    const db = openTelemetryDb(dbPath);
+    db.close();
+
+    const mode = statSync(join(dir, "nested")).mode & 0o777;
+    assert.equal(mode, 0o700, `expected the telemetry directory to be owner-only (0o700), got ${mode.toString(8)}`);
   } finally {
     rmDirWithRetry(dir);
   }

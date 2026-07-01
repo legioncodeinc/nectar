@@ -82,7 +82,11 @@ function loadSqlite(): SqliteModule {
  * ever propagating into daemon boot or the nectar pipeline.
  */
 export function openTelemetryDb(dbPath: string): SqliteDatabaseLike {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  // SECURITY (security-review finding, medium): owner-only mode, matching honeycomb's
+  // fleet-store.ts precedent. Without it, the default umask on a multi-user host often
+  // yields a world-readable/traversable directory, letting another local user read
+  // service_logs (paths, errors, partially-redacted text) and operational metrics.
+  mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
   const sqlite = loadSqlite();
   const db = new sqlite.DatabaseSync(dbPath);
   db.exec("PRAGMA journal_mode = WAL");
