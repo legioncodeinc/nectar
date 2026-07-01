@@ -108,7 +108,7 @@ The `source_graph_versions` row appended for a fuzzy match carries a `confidence
 
 > **The TLSH confidence threshold is configurable, default tuned during brooding — NO numeric value is pinned here.**
 
-This is a deliberate spec gap preserved per [`hivenectar-stinger` guide 00 § Principle 3](../../../../../.agents/skills/hivenectar-stinger/guides/00-principles.md): `identity-and-reassociation.md` states the default is "configurable, default tuned during brooding" with **no number**. This sub-PRD does NOT commit a threshold (no `0.75`, no `0.4`, no distance band). The threshold is:
+This is a deliberate spec gap preserved per the `hivenectar-stinger` guide 00 § Principle 3: `identity-and-reassociation.md` states the default is "configurable, default tuned during brooding" with **no number**. This sub-PRD does NOT commit a threshold (no `0.75`, no `0.4`, no distance band). The threshold is:
 
 - **Configurable** — exposed as a daemon config value, adjustable per workspace/project.
 - **Empirically tuned during brooding** — the brooding pass (PRD-007) calibrates the band against the actual codebase's near-duplicate distribution; the tuned value persists as the workspace default.
@@ -155,7 +155,7 @@ The command lists pending candidate matches (new path ↔ candidate missing nect
 
 > **`review-matches` sub-flag syntax — DELIBERATE SPEC GAP.**
 
-Per [`hivenectar-stinger` guide 00 § Principle 3](../../../../../.agents/skills/hivenectar-stinger/guides/00-principles.md), the corpus names only the bare command `honeycomb hivenectar review-matches`; the accept/reject flag syntax is unspecified. This PRD specifies the command and its surface (list candidates, accept/reject each, with confidence + diff preview) but does **not** invent the flag syntax — no `--accept`/`--reject`/`--all` flags are committed. The accept/reject flag surface is a flagged implementation decision:
+Per the `hivenectar-stinger` guide 00 § Principle 3, the corpus names only the bare command `honeycomb hivenectar review-matches`; the accept/reject flag syntax is unspecified. This PRD specifies the command and its surface (list candidates, accept/reject each, with confidence + diff preview) but does **not** invent the flag syntax — no `--accept`/`--reject`/`--all` flags are committed. The accept/reject flag surface is a flagged implementation decision:
 
 - **DEFAULT — confirm before implementation**: the accept/reject interaction is an interactive prompt (list → choose → confirm) by default, with optional flag-based batch forms deferred to the implementation. The bare command's behavior (list pending candidates) is specified; the flag grammar is not.
 
@@ -173,7 +173,7 @@ honeycomb hivenectar prune --confirm
 
 > **Prune grace period: 30 days — DEFAULT — confirm before implementation.**
 
-The 30-day default is carried from `identity-and-reassociation.md` ("default 30 days") and from the spec'd CLI surface in [`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md) ("conservative orphan pruning, 30-day grace"). The value is configurable and flagged, not load-bearing on the algorithm — the ladder never prunes; `prune --confirm` is the sole deletion path and it requires the explicit `--confirm` flag (no dry-run-as-default ambiguity: the bare `prune` without `--confirm` is a preview/list, the `--confirm` is the destructive act).
+The 30-day default is carried from `identity-and-reassociation.md` ("default 30 days") and from the spec'd CLI surface in [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md) ("conservative orphan pruning, 30-day grace"). The value is configurable and flagged, not load-bearing on the algorithm — the ladder never prunes; `prune --confirm` is the sole deletion path and it requires the explicit `--confirm` flag (no dry-run-as-default ambiguity: the bare `prune` without `--confirm` is a preview/list, the `--confirm` is the destructive act).
 
 ## Live watch vs cold catch-up
 
@@ -223,4 +223,4 @@ Carried from `identity-and-reassociation.md` § "What re-association explicitly 
 - [`knowledge/private/ai/identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) — the authoritative ladder (§ "The re-association ladder"), the no-guess/no-delete contract (§ "What re-association explicitly does not do"), the live-vs-cold distribution (§ "Live watch vs cold catch-up"), and the prune contract (§ "Re-association does not delete nectars").
 - [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "What does not scale" — the TLSH O(N×M) cost + the v1 size-bucket (±20%) optimization.
 - [`knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../../../knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md) — the identity decision forcing the ladder + the no-guess/no-delete invariants.
-- [`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md) — the spec'd CLI surface (`prune --confirm`, `review-matches`) + the deliberate spec gaps register.
+- [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md) — the spec'd CLI surface (`prune --confirm`, `review-matches`) + the deliberate spec gaps register.

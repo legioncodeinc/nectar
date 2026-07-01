@@ -120,3 +120,127 @@ Cross-repo review (whole `the-hive` superproject in view) surfaced that `hivedoc
 ## Final status (PRD-002)
 
 All 8 tracked ACs (AC-M1..M7 + AC-Q1) satisfied and independently VERIFIED. Close-out clean: security PASS + a two-model double quality pass both PASS at medium+ (one sub-medium Suggestion S-3, non-blocking). Shipped (updates PR #1). W-1 now resolved across PRD-001 + PRD-002; remains open in PRD-003 only.
+
+---
+
+# Execution Ledger: Wave A (the-smoker run, 2026-07-01)
+
+`/the-smoker` driving **Wave A** of the PRD-003-016 wave plan. Branch: `feature/smoker-wave-a-prd-005` (hivenectar submodule, off `main`). Track: PRD-vs-corpus conformance QA + lifecycle hygiene (per the consolidated QA report: "there is no implementation code yet ... verifies each acceptance criterion against its cited corpus/code source"). Status legend: OPEN / IN PROGRESS / DONE / VERIFIED / BLOCKED.
+
+## Wave A scope (from PRD-003-016-WAVE-PLAN.md § Wave A)
+
+Wave A = PRD-002 (daemon), PRD-004a (hivedoctor registry, OOB), PRD-005 (source-graph catalog tables). Entry gate: PRD-001 VERIFIED (done), Wave 0 passed for these.
+
+## AC Ledger (Wave A)
+
+| ID | PRD | Criterion (abbrev) | Owner | Status |
+|---|---|---|---|---|
+| A-002 | 002 | Daemon module ACs (AC-M1..M7 + AC-Q1) | hivenectar-worker-bee | VERIFIED (prior the-smoker run; double QA PASS; W-1 resolved). Lifecycle: strand in backlog -> move to completed. |
+| A-004a | 004a | hivedoctor registry a-AC-1..a-AC-8 (config schema, per-daemon supervisor, isolated state, per-entry guards) | quality-worker-bee | VERIFIED at module level (PRD-004 consolidated QA-PASS). Locus OOB-hivedoctor; folder stays in backlog (004 spans Waves A/B/E). BLOCKED for in-repo merge (another repo + active parallel agent). |
+| A-005 | 005 | Source-graph catalog tables: verbatim DDL, ColumnDef guard, scope=tenant, CATALOG append, withHeal lazy-create, project_id soft-filter (005a/b/c ACs) | quality-worker-bee | IN PROGRESS (QA-pending -> Wave A quality pass). |
+
+**Open on entry: 1 (A-005 needs its QA pass).** A-002 and A-004a are already VERIFIED to the corpus-conformance bar.
+
+## Wave plan (Wave A)
+
+```mermaid
+flowchart TD
+    q005["quality-worker-bee: PRD-005 corpus-conformance QA (armed: quality-stinger + hivenectar-stinger)"] --> rem["Remediate medium+ findings to clean"]
+    rem --> sec["Docs-scoped security check of the delta"]
+    sec --> mv["Lifecycle: 005 -> completed; 002 -> completed (hygiene)"]
+    mv --> gate["Wave A exit gate: 002/004a/005 VERIFIED"]
+    rem -->|reopen on regression| q005
+```
+
+Model routing: PRD-005 QA on `claude-4.6-sonnet-medium-thinking` (balanced daily-driver, independent of the authoring bee), per the wave plan's Wave 0 routing and B-1/R-1. PRD-005 is one of the high-risk PRDs (verbatim DDL fidelity), so a second-model cross-check is warranted if the first pass surfaces borderline findings.
+
+## Scope boundaries
+
+- Edit ONLY Wave A artifacts inside the `hivenectar` repo: the PRD-005 folder (+ its qa/), the lifecycle moves for 005 and 002, this ledger. Do NOT touch the corpus (`knowledge/private/`), PRD-003/006-016, the plan/dep-map/index files, `the-hive/`, `hivedoctor/`, or `honeycomb/` (all out of band and/or another agent's active work).
+- Preserve deliberate spec gaps and all "DEFAULT - confirm before implementation" flags (005 carries: catalog group name `source-graph`, write patterns, scope=tenant).
+- Note the open corpus item C-2 (the `confidence` column + `skipped-deleted` enum reconciliation) lives in PRD-005 territory; it is a corpus-owner (knowledge-worker-bee) edit, out of scope here, surfaced not fixed.
+
+## Run log
+
+- Recon complete: read master index, dependency map, wave plan, consolidated QA report, both prior ledger runs, and PRD-005 index + 005a/b/c. Confirmed track = corpus-conformance QA. Wave A's only QA-pending item is PRD-005. Branch `feature/smoker-wave-a-prd-005` created off main.
+- Lifecycle: PRD-005 moved backlog -> in-work (git mv).
+- Quality pass (quality-worker-bee, armed quality-stinger + hivenectar-stinger): PRD-005 corpus-conformance QA -> **PASS-with-warnings** at medium+. Zero Critical. Spec substance clean (both DDL blocks match the corpus verbatim; all six cited honeycomb symbols exist at cited lines with zero drift; tenancy/withHeal/project_id model grounded). Three medium Warnings, all doc/metadata defects: W-1 (005b column-count prose + 2 ACs said "twenty/sole nullable" vs the correct 21-column, 2-nullable artifact), W-2 (4 `MASTER-PRD-INDEX.md` links wrong depth `../../../` -> `../../`), W-3 (19 honeycomb code refs as non-resolving markdown links in Related sections). Report written to the PRD-005 qa/ folder.
+- Remediation (orchestrator, in-place, DDL/arrays untouched): W-1 fixed (05b:62/:181/:182 + the "sole nullable" phrasing in the embedding section); W-2 fixed (all 4 links, both files); W-3 fixed (all 19 refs unwrapped to backtick spans: index 6, 005a 4, 005b 4, 005c 5); N-1 fixed (stale "corpus should be updated" wording -> corpus already agrees); N-3 fixed (non-resolving stinger-guide link -> plain-text citation). N-2 left as-is (descriptive, no impact). QA report updated with a §10 remediation addendum flipping the post-remediation verdict to clean PASS.
+- Self-verification (grep): 0 link-form honeycomb/hivedoctor code tokens in the PRD-005 files (the only remaining matches are inside the QA report's own descriptive text and the legitimate ADR-0002 knowledge-doc link whose filename contains "hivedoctor"); 0 wrong-depth `../../../MASTER-PRD-INDEX` links in the PRD files; column-count prose + ACs internally consistent with the 21-column artifact. Pre-existing prose em dashes preserved (no new em/en dashes introduced) per the repo rule exception.
+- Security close-out (docs-scoped): the Wave A delta is markdown only (PRD-005 doc edits + this ledger + the new QA report). Secret-pattern scan over the delta (api key / secret / password / token / bearer / private key / sk- / ghp_) returned zero matches. No source code changed, so the aikido code-scan is N/A (rule: skip for non-code changes). Clean.
+- Lifecycle: PRD-005 moved in-work -> completed (git mv). Wave A QA-pending item is closed.
+
+## Boundary observations (surfaced, NOT acted on)
+
+- **B-A1 (another agent's active work in hivenectar):** `library/knowledge/private/architecture/ADR-0003-...md` and `ADR-0004-...md` are modified in the working tree (1 line each) by another agent (consistent with the corpus C-1 ADR-0004-header fix and/or C-2 corpus edits). I did NOT author these and per the respect-agent-work-boundaries rule I left them untouched and excluded them from the Wave A commit scope. Flag for the corpus owner.
+- **B-A2 (PRD-001/002 lifecycle, USER-APPROVED, executed):** PRD-001 and PRD-002 were VERIFIED/shipped in prior runs but still sat in `backlog/` (dependency-map D-5 / wave-plan R-12). On user confirmation (2026-07-01), both folders were moved `backlog/` -> `completed/` via `git mv`. PRD-003/004 remain in `backlog/` (later waves).
+
+## Final status (Wave A)
+
+- **A-005 (PRD-005): VERIFIED.** QA PASS after remediation of all three medium Warnings; grep-verified clean; security docs-scan clean; folder moved to `completed/`.
+- **A-002 (PRD-002): VERIFIED (prior run).** Lifecycle move to `completed/` RECOMMENDED, pending user confirmation (boundary B-A2).
+- **A-004a (PRD-004a): VERIFIED at module level (PRD-004 QA-PASS).** Locus OOB-hivedoctor; the code implementation of the registry lands in the `hivedoctor` repo and is BLOCKED here (separate repo + active parallel agent). PRD-004 folder stays in `backlog/` because 004b/c/d belong to later waves.
+
+**Wave A exit gate: MET** for the in-band QA track (002 VERIFIED prior, 004a VERIFIED at module level, 005 VERIFIED this run). Out-of-band code merges (004a in hivedoctor; 005 catalog tables in honeycomb) are tracked and BLOCKED for owning-repo coordination per dependency-map R-3. Held before Wave B pending user direction on: (1) commit/push/PR of the Wave A delta, (2) the PRD-002/001 lifecycle moves, (3) whether Wave B should proceed on the same docs-QA track.
+
+**Wave A close (post-hold):** User approved commit-to-feature-branch-only (no push), and approved moving PRD-001 + PRD-002 backlog -> completed. Committed as `f73367d` on `feature/smoker-wave-a-prd-005` (ADR-0003/0004 excluded, another agent's edits). Wave B authorized.
+
+---
+
+# Execution Ledger: Wave B (the-smoker run, 2026-07-01)
+
+`/the-smoker` driving **Wave B** of the PRD-003-016 wave plan. Branch: `feature/smoker-wave-b` (off the Wave A branch, hivenectar submodule). Same track: PRD-vs-corpus conformance QA + lifecycle, plus plan-vs-code where in-band code exists and OOB verification for the-hive/hivedoctor items.
+
+## Wave B scope (from PRD-003-016-WAVE-PLAN.md § Wave B)
+
+003 (supervision), 004b (hivedoctor status/CLI, OOB), 004c (thehive portal, OOB), 006 (file registration), 010 (Portkey, straddle), 011 (projection), 014 (embeddings switch, straddle).
+
+## AC Ledger (Wave B)
+
+| ID | PRD | Locus | Owner | Status |
+|---|---|---|---|---|
+| B-003 | 003 | IN-BAND (+ registry touch) | library-worker-bee (W-1) + orchestrator | IN PROGRESS. Spec QA-PASS (prior); open W-1 (99 link-form refs) dispatched to library-worker-bee for remediation. |
+| B-004b | 004b | OOB-hivedoctor | quality (spec) / hivedoctor repo (impl) | Spec VERIFIED at PRD-004 module level. **Implementation BLOCKED**: hivedoctor is still single-daemon (config.ts has no registry; `compose/index.ts:320` builds one `createSupervisor`; status-page + CLI single-daemon). Needs hivedoctor-repo work. |
+| B-004c | 004c | OOB-thehive | the-hive repo | **VERIFIED.** Implemented in the-hive (`feature/prd-001-thehive-portal-daemon`) and independently QA'd there (the-hive quality-worker-bee: 26/27 ACs PASS, security ran first + fixed 1 High SSRF, typecheck+test+build green). hivenectar c-AC-1..c-AC-7 map onto the-hive a/b/c/d-ACs. Two non-blocking fast-follows owned by the-hive: UI `daemonUp` gate is honeycomb-scoped (not yet user-visible); m-AC-5 CI release automation OPEN. |
+| B-006 | 006 | IN-BAND | quality-worker-bee | IN PROGRESS (QA dispatched; in-band code exists at `hivenectar/src/registration/`). |
+| B-010 | 010 | STRADDLE | quality-worker-bee | IN PROGRESS (QA dispatched). |
+| B-011 | 011 | IN-BAND | quality-worker-bee | IN PROGRESS (QA dispatched; check `hivenectar/src/source-graph/` for projection code). |
+| B-014 | 014 | STRADDLE | quality-worker-bee | IN PROGRESS (QA dispatched). |
+
+## Wave plan (Wave B)
+
+- Parallel wave: 4 quality-worker-bee QA passes (006, 010, 011, 014) + 1 library-worker-bee W-1 remediation (003), all dispatched concurrently. Orchestrator does OOB verification (004b/004c) read-only in parallel.
+- Then: remediate medium+ findings to clean, docs-scoped security check, lifecycle moves (003/006/010/011/014 -> completed on PASS), commit (no push per Wave A precedent), hold.
+
+## OOB verification results (orchestrator, read-only)
+
+- **004c (the-hive): VERIFIED** (see B-004c). the-hive git shows active parallel work (untracked `library/knowledge/private/frontend/`), left untouched.
+- **004b + 004a (hivedoctor): implementation BLOCKED.** hivedoctor repo (on `main`) is still a single-daemon supervisor: `src/config.ts` has no `daemons` registry; `src/compose/index.ts:320` constructs exactly one `createSupervisor`; `src/status-page/server.ts` `buildStatus` reads a single `state.health()` (no per-daemon array); the CLI does not iterate a registry. The `createRegistryLatestReader` refs are the npm-version update reader, NOT the daemon supervision registry. **ASK to unblock:** implement PRD-004a (registry config schema + N supervisor instances + isolated `state-<name>.json` / `incidents-<name>.ndjson` shards + per-entry watchdog guards) and PRD-004b (per-daemon `/status.json` + HTML + CLI `status`/`logs --daemon`) in the hivedoctor repo. This is OOB and likely the-hive/hivedoctor agent's territory; not implemented here.
+
+## Run log (Wave B)
+
+- Recon: created `feature/smoker-wave-b` off the Wave A branch. Confirmed the-hive is implemented + self-QA'd (004c). Confirmed hivedoctor still single-daemon (004a/004b impl blocked). Sized PRD-003 W-1 at 99 link-form refs (index 2, 003a 31, 003b 38, 003c 28).
+- Lifecycle: moved 003, 006, 010, 011, 014 backlog -> in-work.
+- Dispatched 4 quality-worker-bee QA passes (006, 010, 011, 014) + 1 library-worker-bee (003 W-1 remediation), all in parallel.
+- PRD-003 W-1 remediation complete (library-worker-bee): 105 cross-repo code refs converted to backtick spans (003a 39, 003b 38, 003c 28; index 0), 60 short-form promotions + 45 full-form unwraps; grep-verified 0 remaining; prose-neutral. W-1 now closed across PRD-001/002/003.
+- QA verdicts (all PASS-with-warnings, zero Critical):
+  - 006: W-1 (7 wrong-depth MASTER links), W-2 (6 honeycomb link-refs), N-1 (3 .agents links) -> all remediated in PRD-006. Sub-medium N-2/N-3/N-4/N-5 carried forward (N-3/N-4 are plan-vs-code doc drift for the implementer).
+  - 010: W-1 (citation line-drift 010a:59) -> remediated. Doc-framework clean.
+  - 011: W-1 (sha256 `sha256-` prefix rule vs bare-hex hasher) -> remediated in PRD-011b (aligned to `hash.ts`, corpus placeholder noted illustrative; no corpus/code edit). N-4/N-5 broken-by-this-run links -> fixed.
+  - 014: W-1 ("Unix-socket NDJSON IPC") is CORPUS-origin; PRD-014 faithfully mirrors the corpus -> DEFERRED to knowledge-worker-bee (exact ask recorded in 014 qa addendum). PRD-014 document VERIFIED faithful.
+- Remediation self-verified (grep): 0 link-form honeycomb/MASTER/.agents tokens remain in 006; 0 broken cross-PRD backlog links in the Wave B set (the 2 that this run's own lifecycle moves broke were fixed).
+- Security close-out (docs-scoped): secret-pattern scan over the Wave B delta returned only PRD-003a prose about NOT leaking secrets (from the link-unwrap diff), no actual credentials. Markdown-only delta; aikido code-scan N/A. Clean.
+- Lifecycle: moved 003, 006, 010, 011, 014 in-work -> completed. `in-work/` is now empty.
+- QA reports: remediation addenda appended to all five (003, 006, 010, 011, 014) recording post-remediation clean PASS (014 = PRD faithful + corpus deferral).
+
+## Final status (Wave B)
+
+- **B-003: VERIFIED.** Spec QA-PASS; W-1 remediated (105 refs) + grep-verified; moved to completed.
+- **B-006: VERIFIED.** PASS after W-1/W-2/N-1 remediation; sub-medium plan-vs-code notes (N-3/N-4) carried forward for the PRD-006 implementer; moved to completed.
+- **B-010: VERIFIED.** PASS after W-1 remediation; moved to completed.
+- **B-011: VERIFIED.** PASS after W-1 (code-aligned) + N-4/N-5 link fixes; moved to completed.
+- **B-014: VERIFIED (document faithful).** One medium Warning DEFERRED as a corpus-owner fix (knowledge-worker-bee), PRD itself conformant; moved to completed.
+- **B-004c: VERIFIED** (implemented + self-QA'd in the-hive).
+- **B-004a / B-004b: implementation BLOCKED** in the hivedoctor repo (still single-daemon). Spec QA-PASS; PRD-004 folder stays in backlog (004d + 015 are Wave E). Exact unblock ask recorded above.
+
+**Wave B exit gate: MET** for the in-band/straddle QA track (003/006/010/011/014 VERIFIED + moved to completed; 004c VERIFIED in the-hive). Two out-of-band items parked BLOCKED with exact asks: hivedoctor multi-daemon registry+status (004a/004b), and the corpus transport-phrase fix (014 W-1, knowledge-worker-bee). Held before Wave C pending user direction.

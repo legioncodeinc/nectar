@@ -115,7 +115,7 @@ The inheritance write goes to the clone's local Deep Lake, and only for nectars 
 
 - **Validation is a single gate, not a per-entry filter.** The four checks all-or-nothing; a projection that fails any one is ignored wholesale and the daemon broods (`data/portable-registry.md` § Validation on load — "never partially loaded").
 - **ULID validation is syntactic.** A 26-char Crockford-base32 ULID check is enough; the daemon does not need to verify the embedded timestamp. The corpus's validation lists "syntactically valid ULID" (`data/portable-registry.md` § Validation on load).
-- **sha256 validation is syntactic.** A `sha256-` prefix + 64 hex chars check; the daemon does not re-hash file contents during validation (that happens in the disk-scan step). Corpus: "syntactically valid sha256."
+- **sha256 validation is syntactic.** A 64-lowercase-hex-char check with no prefix, matching the bare-hex producer `sha256Hex` at `hivenectar/src/source-graph/hash.ts:10-11` (which populates `source_graph_versions.content_hash`, the column the projection denormalizes); the daemon does not re-hash file contents during validation (that happens in the disk-scan step). The `sha256-abc123...` form in the corpus projection format block is an illustrative placeholder for a bare-hex value, not a normative prefix. Corpus: "syntactically valid sha256."
 - **The index is `content_hash → nectar`.** Built once from `files` after validation passes; the disk scan hashes each file and looks up the hash. A hit inherits; a miss enters the re-association ladder (PRD-006).
 - **Inheritance is additive to local Deep Lake.** It writes only nectars the local Deep Lake lacks (`data/portable-registry.md` § What the portable registry explicitly does not do); it never overwrites or deletes.
 
@@ -135,4 +135,4 @@ The inheritance write goes to the clone's local Deep Lake, and only for nectars 
 - [`./prd-011c-rebuild-projection-cli-and-invariant.md`](./prd-011c-rebuild-projection-cli-and-invariant.md) — `rebuild-projection` to regenerate a projection validation can reject as stale.
 - [`../../../knowledge/private/data/portable-registry.md`](../../../knowledge/private/data/portable-registry.md) — AUTHORITATIVE: the validation-on-load contract + the fresh-clone inheritance flowchart.
 - [`../../../knowledge/private/ai/identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) — the re-association ladder that stale files enter; the projection's content-hash index is step-3's "known nectars" map.
-- [`../../backlog/prd-006-file-registration-protocol/`](../../backlog/prd-006-file-registration-protocol/) — the re-association ladder owner.
+- [`../prd-006-file-registration-protocol/`](../prd-006-file-registration-protocol/) — the re-association ladder owner.

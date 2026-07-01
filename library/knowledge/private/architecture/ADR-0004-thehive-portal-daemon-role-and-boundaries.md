@@ -4,7 +4,7 @@
 > **Supersedes:** none · **Superseded by:** none
 > **Owners:** platform, thehive, daemon
 > **Related:** `ADR-0003-three-daemon-topology-and-thehive-portal.md`, `ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`, `../../../requirements/MASTER-PRD-INDEX.md`, `../../../requirements/backlog/prd-004-hivedoctor-registry-and-thehive/`, `../../../requirements/backlog/prd-015-dashboard-source-graph-page/`
-> **Refined by:** [the-hive ADR-0001, retire honeycomb dashboard and copy-and-own into thehive](../../../../../library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md), which supersedes decision #3's reuse-by-runtime-import mechanism with copy-and-own plus honeycomb dashboard retirement (thehive is now a first-class product of the-hive repository, separate from honeycomb).
+> **Refined by:** [the-hive ADR-0001, retire honeycomb dashboard and copy-and-own into thehive](../../../../../the-hive/library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md), which supersedes decision #3's reuse-by-runtime-import mechanism with copy-and-own plus honeycomb dashboard retirement (thehive is now a first-class product of the-hive repository, separate from honeycomb).
 
 ## Context
 

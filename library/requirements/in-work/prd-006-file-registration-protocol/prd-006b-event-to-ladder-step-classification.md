@@ -115,4 +115,4 @@ The same classifier and the same missing-files set serve cold catch-up (daemon b
 - [PRD-006c](./prd-006c-copy-event-detection.md) — the `NEW`-path copy detector.
 - [PRD-006d](./prd-006d-reassociation-ladder.md) — the ladder that consumes the three classes + the missing-files set.
 - [`knowledge/private/ai/identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) — § "Step 1" (fast path), § "Step 3" (missing-files set), § "Live watch vs cold catch-up" (move reconstruction), § "What re-association explicitly does not do" (mtime cache key, project scope).
-- [`honeycomb/src/daemon/runtime/services/file-watcher.ts:320-331, 342-345`](../../../../honeycomb/src/daemon/runtime/services/file-watcher.ts) — directory-level watch rationale + null-filename handling (the editor delete-then-recreate contract).
+- `honeycomb/src/daemon/runtime/services/file-watcher.ts:320-331, 342-345` — directory-level watch rationale + null-filename handling (the editor delete-then-recreate contract).
