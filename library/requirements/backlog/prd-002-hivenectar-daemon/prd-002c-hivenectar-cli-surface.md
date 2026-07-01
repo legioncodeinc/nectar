@@ -4,7 +4,7 @@
 
 ## Overview
 
-This sub-PRD documents the **CLI surface** an operator uses to drive the hivenectar daemon. It is a documentation PRD for the command *invocations*; the *mechanics* each command invokes are owned by sibling PRDs (brooding → PRD-007, projection regen → PRD-011, pruning/review → PRD-006, model swap → PRD-010). The surface has two entry binaries: the bare **`hivenectar`** binary (owns `daemon`, the lifecycle verb) and the **`honeycomb hivenectar <verb>`** sub-command namespace (owns the operational verbs that mint/prune/review/rebuild). The split mirrors how honeycomb separates the daemon lifecycle verb (`daemon start|stop|status`, [`honeycomb/src/cli/index.ts`](../../../../honeycomb/src/cli/index.ts)) from the storage/operational verbs that reach the daemon over loopback.
+This sub-PRD documents the **CLI surface** an operator uses to drive the hivenectar daemon. It is a documentation PRD for the command *invocations*; the *mechanics* each command invokes are owned by sibling PRDs (brooding → PRD-007, projection regen → PRD-011, pruning/review → PRD-006, model swap → PRD-010). The surface has two entry binaries: the bare **`hivenectar`** binary (owns `daemon`, the lifecycle verb) and the **`honeycomb hivenectar <verb>`** sub-command namespace (owns the operational verbs that mint/prune/review/rebuild). The split mirrors how honeycomb separates the daemon lifecycle verb (`daemon start|stop|status`, `honeycomb/src/cli/index.ts`) from the storage/operational verbs that reach the daemon over loopback.
 
 Every command below is named in the corpus. This PRD enumerates each with its invocation, its flags, the mechanic it invokes, the owner PRD for that mechanic, and the corpus doc that names it. It does not design the brooding/enricher internals — it documents the surface that invokes them.
 
@@ -13,7 +13,7 @@ Every command below is named in the corpus. This PRD enumerates each with its in
 - Enumerate **every CLI command the corpus names** with invocation, flags, and a citation to the corpus doc that names it.
 - Map each command to the **owner PRD** for the mechanic it invokes, so implementation PRDs (006/007/010/011/016) own the behavior and this PRD owns only the invocation surface.
 - Specify the **two entry binaries** (`hivenectar` lifecycle vs `honeycomb hivenectar <verb>` operational) and confirm they mirror honeycomb's lifecycle/operational split.
-- Confirm the CLI is a **thin client** that reaches the daemon over loopback for operational verbs (mirroring honeycomb's `DaemonClient` loopback posture, [`honeycomb/src/cli/index.ts`](../../../../honeycomb/src/cli/index.ts)) and invokes the composition root directly only for `daemon`.
+- Confirm the CLI is a **thin client** that reaches the daemon over loopback for operational verbs (mirroring honeycomb's `DaemonClient` loopback posture, `honeycomb/src/cli/index.ts`) and invokes the composition root directly only for `daemon`.
 
 ## Non-Goals
 
@@ -47,10 +47,10 @@ flowchart LR
 
 | Entry | Owns | Mirrors |
 |---|---|---|
-| `hivenectar` (bare binary) | The `daemon` lifecycle verb — invokes the composition root (002a) directly | honeycomb's daemon lifecycle verb ([`honeycomb/src/cli/index.ts`](../../../../honeycomb/src/cli/index.ts) "daemon start|stop|status drives the daemon lifecycle") |
-| `honeycomb hivenectar <verb>` (sub-command namespace) | The operational verbs (brood/prune/review/rebuild) — reach the running daemon over loopback `:3854` | honeycomb's storage verbs reaching the daemon over the loopback `DaemonClient` ([`honeycomb/src/cli/index.ts`](../../../../honeycomb/src/cli/index.ts) "storage verbs reach the daemon through the real loopback DaemonClient") |
+| `hivenectar` (bare binary) | The `daemon` lifecycle verb — invokes the composition root (002a) directly | honeycomb's daemon lifecycle verb (`honeycomb/src/cli/index.ts` "daemon start|stop|status drives the daemon lifecycle") |
+| `honeycomb hivenectar <verb>` (sub-command namespace) | The operational verbs (brood/prune/review/rebuild) — reach the running daemon over loopback `:3854` | honeycomb's storage verbs reaching the daemon over the loopback `DaemonClient` (`honeycomb/src/cli/index.ts` "storage verbs reach the daemon through the real loopback DaemonClient") |
 
-The CLI is a **thin client** (mirroring honeycomb's "Thin client only: imports the unified dispatcher + the CLI-side composition root, never the daemon core or any DeepLake path" at [`honeycomb/src/cli/index.ts`](../../../../honeycomb/src/cli/index.ts)). The operational verbs do not import the daemon core; they reach the already-running daemon over loopback.
+The CLI is a **thin client** (mirroring honeycomb's "Thin client only: imports the unified dispatcher + the CLI-side composition root, never the daemon core or any DeepLake path" at `honeycomb/src/cli/index.ts`). The operational verbs do not import the daemon core; they reach the already-running daemon over loopback.
 
 ---
 
@@ -222,8 +222,8 @@ The CLI is a **thin client** (mirroring honeycomb's "Thin client only: imports t
 
 ## Implementation notes
 
-- CLI entry/dispatcher pattern to mirror: [`honeycomb/src/cli/index.ts`](../../../../honeycomb/src/cli/index.ts) (the thin-client `main` that parses global flags → routes through a dispatcher with fully-bound `RuntimeDeps`; the lifecycle/operational split).
-- Loopback daemon-client posture (operational verbs reach the daemon over loopback): [`honeycomb/src/cli/index.ts`](../../../../honeycomb/src/cli/index.ts) "storage verbs reach the daemon through the real loopback DaemonClient."
+- CLI entry/dispatcher pattern to mirror: `honeycomb/src/cli/index.ts` (the thin-client `main` that parses global flags → routes through a dispatcher with fully-bound `RuntimeDeps`; the lifecycle/operational split).
+- Loopback daemon-client posture (operational verbs reach the daemon over loopback): `honeycomb/src/cli/index.ts` "storage verbs reach the daemon through the real loopback DaemonClient."
 - Brood + flags (`--force`, `--limit`, `--dry-run`): [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) "Triggering brooding."
 - Model-swap brood (`--force --model <new>`): [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) "It does not re-describe on model swap automatically."
 - `prune --confirm` + 30-day grace: [`knowledge/private/ai/identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) "Re-association does not delete nectars."
