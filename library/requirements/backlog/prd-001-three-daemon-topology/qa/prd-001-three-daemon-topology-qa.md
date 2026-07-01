@@ -1,8 +1,8 @@
 # QA Report: PRD-001 Three-Daemon Topology (PRD-vs-Corpus Conformance)
 
-> Category: QA Report | Version: 1.0 | Date: July 2026 | Status: Active
+> Category: QA Report | Version: 1.1 | Date: July 2026 | Status: Active
 
-Conformance audit of PRD-001 (index + 001a/b/c) against the Hivenectar knowledge corpus. This is a PRD-vs-corpus audit (there is no implementation code yet), armed with quality-stinger + hivenectar-stinger. Auditor verified every module acceptance criterion and load-bearing description against its cited corpus source.
+Conformance audit of PRD-001 (index + 001a/b/c) against the Hivenectar knowledge corpus. This is a PRD-vs-corpus audit (there is no implementation code yet), armed with quality-stinger + hivenectar-stinger. Auditor verified every module acceptance criterion and load-bearing description against its cited corpus source. This revision re-verifies the module after the `/the-smoker` Wave 1 remediation of W-1 (below).
 
 **Related:**
 - [`prd-001-three-daemon-topology-index.md`](../prd-001-three-daemon-topology-index.md)
@@ -13,7 +13,7 @@ Conformance audit of PRD-001 (index + 001a/b/c) against the Hivenectar knowledge
 
 ## 1. Summary
 
-PRD-001 is a strong, deeply corpus- and code-grounded module. After the refine pass it **PASSES** to the medium-and-above standard. Every module AC traces to `overview.md`, ADR-0002, ADR-0003, and ADR-0004; the port/path contract, `/health` shape, and tenancy model are consistent with the corpus and the locked decisions. The one open medium finding (honeycomb code references written as non-resolving markdown links) is systemic across PRD-001/002/003 and is documented here for a scoped follow-up rather than swept in a refine-not-rewrite pass.
+PRD-001 is a strong, deeply corpus- and code-grounded module. It **PASSES** to the medium-and-above standard with zero open Warnings. Every module AC (AC-M1..M6) traces to `overview.md`, ADR-0002, ADR-0003, and ADR-0004; the port/path contract, `/health` shape, and tenancy model are consistent with the corpus and the locked decisions. The prior open medium finding, W-1 (honeycomb/hivedoctor code references written as non-resolving markdown links), was remediated in the `/the-smoker` Wave 1 run: all 75 link tokens across PRD-001's four files were converted to canonical backtick spans, independently re-verified here, with no regression to any factual claim, DEFAULT flag, deliberate spec gap, or AC.
 
 ## 2. Scorecard
 
@@ -22,8 +22,8 @@ PRD-001 is a strong, deeply corpus- and code-grounded module. After the refine p
 | Completeness | PASS | Index + 001a (roles/ADR) + 001b (process/health) + 001c (shared infra) cover the module scope; every module AC is addressed by a sub-PRD. |
 | Correctness | PASS | Topology roles, ports (3850-3854), `/health` decision-#20 body, 768-dim, tenancy scope all match corpus + code. `hivenoctor` typos fixed in refine. |
 | Alignment | PASS | Conforms to ADR-0002 (independence), ADR-0003 (three-daemon topology), ADR-0004 (thehive role); consistent with MASTER-PRD-INDEX decision #1. |
-| Gaps | PASS | Deliberate spec gaps preserved (TLSH threshold not pinned in 001a); defaults flagged "DEFAULT - confirm before implementation." |
-| Detrimental Patterns | WARNING | Cross-repo honeycomb code refs are markdown links, not backtick spans (documentation-framework 6). Systemic; see W-1. |
+| Gaps | PASS | Deliberate spec gaps preserved; defaults flagged "DEFAULT - confirm before implementation" (thehive/hivenectar PID/lock paths; port assignments carry a CONFIRMED note, not DEFAULT). |
+| Detrimental Patterns | PASS | Cross-repo honeycomb/hivedoctor code refs are now canonical backtick spans (documentation-framework 6), not markdown links. W-1 resolved; see Resolved section below. |
 
 ## 3. Critical Issues (must fix)
 
@@ -31,11 +31,16 @@ None.
 
 ## 4. Warnings (should fix)
 
-**W-1 (systemic, deferred): honeycomb code references are non-resolving markdown links, not backtick spans.**
-- Evidence: e.g. `prd-001a-three-daemon-topology-adr-and-roles.md:65` cites a markdown link whose visible text is the backtick span `honeycomb/hivedoctor/src/supervisor.ts:144-343` and whose parenthesized target is the relative path `../../../../honeycomb/hivedoctor/src/supervisor.ts`. From the standalone `hivenectar` repo that target resolves to `hivenectar/honeycomb/...`, which does not exist (honeycomb is a sibling repo).
-- Standard: Documentation Framework 6 ("Link to code with file paths ... `` `src/routes/users.ts:42-80` ``") and `AGENTS.md` ("Link to code in other repos as a file-path backtick span") both require backtick spans for code, not markdown links. The corpus (`knowledge/private`, 0 link-form) and PRD-005 already use the backtick-span form.
-- Scope: PRD-001 index + 001a + 001b + 001c all use the link form.
-- Disposition: **Documented, not swept in this pass.** The correct remediation is nuanced (roughly half the link texts are short-form, e.g. `` `recall.ts:24-35` ``, whose full path lives only in the link target and must be promoted into the span), which is rewrite-scale across ~649 instances in PRD-001/002/003. The user selected "refine in place, not rewrite." Recommended follow-up: a scoped library-worker-bee sweep that unwraps each honeycomb markdown link, keeping only the backtick-span text and dropping the parenthesized honeycomb target, and promoting the full target path into the span for short-form texts. Full recipe in the consolidated report.
+None open.
+
+### Resolved
+
+**W-1 (resolved): honeycomb/hivedoctor code references were non-resolving markdown links, not backtick spans.**
+- Prior finding: e.g. `prd-001a-three-daemon-topology-adr-and-roles.md:65` (pre-fix) cited a markdown link whose visible text was the backtick span `honeycomb/hivedoctor/src/supervisor.ts:144-343` and whose parenthesized target was the relative path `../../../../honeycomb/hivedoctor/src/supervisor.ts`. From the standalone `hivenectar` repo that target resolved to `hivenectar/honeycomb/...`, which does not exist (honeycomb is a sibling repo).
+- Standard: Documentation Framework 6 ("Link to code with file paths ... `` `src/routes/users.ts:42-80` ``") and `AGENTS.md` ("Link to code in other repos as a file-path backtick span") both require backtick spans for code, not markdown links.
+- Fix: `/the-smoker` Wave 1 (`hivenectar-worker-bee`) converted all 75 honeycomb/hivedoctor markdown-link tokens across the four PRD-001 files (index 7, 001a 12, 001b 36, 001c 20) to canonical backtick spans. Full-form link text (already the full path) was kept verbatim as the span; short-form text (e.g. a bare `:77` or `:52-54` line suffix) had the full target path promoted into the span so the citation reads correctly standalone.
+- Independent verification (this audit): `grep -rhoE '\]\(\.\./\.\./\.\./\.\./(honeycomb|hivedoctor)[^)]*\)' *.md | wc -l` in the PRD-001 folder returns `0`. Spot-checked conversions in the index (port/PID tables), 001a (hivedoctor supervisor + thehive dashboard-reuse prose), and 001c (Portkey/embeddings/CodeGraph/recall seams, including every short-form promotion) all read correctly with the full path present in the span. `git diff --stat` shows exactly 56 lines changed per side across the four files (no line added or removed), and `git diff --check` is clean. No internal doc link (`./prd-001*`, `../prd-005*`, `../../MASTER-PRD-INDEX.md`, `../../../knowledge/...`) was altered or broken; every internal link target was independently confirmed to resolve on disk. No factual claim, port number, DEFAULT flag, or AC wording changed, only the link-vs-span citation form.
+- Scope: PRD-001 index + 001a + 001b + 001c, all now conformant. The same W-1 pattern remains open in PRD-002 and PRD-003 per the consolidated report; that remediation is out of scope for this PRD-001-only re-verification.
 
 ## 5. Suggestions (consider improving)
 
@@ -54,14 +59,15 @@ None.
 | hivenectar process surface (port/PID/lock/health/client/tenancy) with code citation, ports+paths flagged DEFAULT | 001b; `honeycomb/embeddings/src/index.ts`, `.../storage/client.ts`, ADR-0004 (3853) | PASS |
 | Shared-infra consumption contract names each seam + deploy-time tenancy invariant | 001c; `transport-portkey.ts`, `embed-client.ts`, ADR-0002 neg. consequence #2 | PASS |
 | Port map consistent with real Honeycomb code (3850/3851/3852 occupied; 3853/3854 free) | `constants.ts:14`, `embeddings/src/index.ts:68`, `status-page/server.ts:93`; ADR-0004 confirms 3853 | PASS |
+| AC-Q1: code references use backtick file-path spans, not markdown links (Documentation Framework 6) | 75 honeycomb/hivedoctor markdown-link tokens across the 4 PRD-001 files, converted to backtick spans in `/the-smoker` Wave 1 | PASS (resolved; independently verified, grep = 0 remaining) |
 
-Deliberate gaps preserved: TLSH confidence threshold (001a config note leaves it unpinned). Defaults flagged: ADR-0003 slug (now resolved), config-file path, bind host, PID/lock paths.
+Deliberate gaps preserved: no invented TLSH confidence threshold, no invented `review-matches` sub-flag grammar, no symbol/directory nectars claimed as shipped. Defaults flagged: ADR-0003 slug (resolved), config-file path, bind host, PID/lock paths (thehive.pid/lock, hivenectar.pid/lock).
 
 ## 7. Files Audited / Changed
 
-- `prd-001-three-daemon-topology-index.md` - AC-1 slug corrected; ADR-0003 + ADR-0004 added to Related. (changed)
-- `prd-001a-three-daemon-topology-adr-and-roles.md` - 3 `hivenoctor` typos fixed; ADR-0003 references updated to the created file; ADR-0004 linked; status aligned to `Active`. (changed)
-- `prd-001b-hivenectar-process-and-health.md` - audited, no change (corpus-consistent; carries the honeycomb-link W-1). (audited)
-- `prd-001c-shared-infra-consumption.md` - audited, no change (corpus-consistent; carries W-1). (audited)
+- `prd-001-three-daemon-topology-index.md` - AC-1 slug corrected; ADR-0003 + ADR-0004 added to Related; 7 honeycomb/hivedoctor markdown links converted to backtick spans (`/the-smoker` Wave 1). (changed)
+- `prd-001a-three-daemon-topology-adr-and-roles.md` - 3 `hivenoctor` typos fixed; ADR-0003 references updated to the created file; ADR-0004 linked; status aligned to `Active`; 12 honeycomb/hivedoctor markdown links converted to backtick spans (`/the-smoker` Wave 1). (changed)
+- `prd-001b-hivenectar-process-and-health.md` - corpus-consistent; 36 honeycomb/hivedoctor markdown links converted to backtick spans (`/the-smoker` Wave 1); no factual change. (changed)
+- `prd-001c-shared-infra-consumption.md` - corpus-consistent; 20 honeycomb/hivedoctor markdown links converted to backtick spans (`/the-smoker` Wave 1); no factual change. (changed)
 
-**Verdict: PASS** (medium-and-above), with one systemic Warning (W-1) documented and deferred by the refine-not-rewrite scope.
+**Verdict: PASS** (medium-and-above), zero open Warnings. W-1 is resolved for PRD-001 (75/75 honeycomb/hivedoctor markdown links converted to backtick spans, independently re-verified against the corpus with no regression); the docs-scoped `security-worker-bee` pass for this run reported clean.

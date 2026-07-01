@@ -14,13 +14,13 @@ A single consolidated audit of the first four Hivenectar PRD modules (PRD-001 th
 
 ## 1. Summary
 
-All four modules **PASS** to the medium-and-above standard. The PRDs are exceptionally well-grounded: every module acceptance criterion traces to a corpus doc or a Honeycomb code citation, the six locked MASTER-PRD-INDEX decisions and the ~26 PRD-DECISIONS decisions are honored, high-risk numeric surfaces (ports, `/health` shape, 768-dim, poll interval, cost example) are verbatim-accurate against the corpus, and every deliberate spec gap is preserved (no invented TLSH threshold, no `review-matches` sub-flag grammar, no symbol/directory nectars). One systemic Warning (honeycomb code references written as non-resolving markdown links) is documented and deferred by the refine-not-rewrite scope; a precise remediation recipe is below.
+All four modules **PASS** to the medium-and-above standard. The PRDs are exceptionally well-grounded: every module acceptance criterion traces to a corpus doc or a Honeycomb code citation, the six locked MASTER-PRD-INDEX decisions and the ~26 PRD-DECISIONS decisions are honored, high-risk numeric surfaces (ports, `/health` shape, 768-dim, poll interval, cost example) are verbatim-accurate against the corpus, and every deliberate spec gap is preserved (no invented TLSH threshold, no `review-matches` sub-flag grammar, no symbol/directory nectars). One systemic Warning (honeycomb code references written as non-resolving markdown links) was documented; **PRD-001's 75 instances have since been remediated by a follow-up `/the-smoker` run (2026-07-01)**, so the Warning now applies only to PRD-002 and PRD-003. A precise remediation recipe is below.
 
 ## 2. Verdict Scorecard (per module)
 
 | Module | Completeness | Correctness | Alignment | Gaps | Detrimental Patterns | Verdict |
 |---|---|---|---|---|---|---|
-| PRD-001 | PASS | PASS | PASS | PASS | WARNING (W-1) | PASS |
+| PRD-001 | PASS | PASS | PASS | PASS | PASS | PASS |
 | PRD-002 | PASS | PASS | PASS | PASS | WARNING (W-1) | PASS |
 | PRD-003 | PASS | PASS | PASS | PASS | WARNING (W-1) | PASS |
 | PRD-004 | PASS | PASS | PASS | PASS | PASS | PASS |
@@ -38,9 +38,9 @@ All four modules **PASS** to the medium-and-above standard. The PRDs are excepti
 
 ## 4. Open Warning (W-1): honeycomb code refs as non-resolving markdown links
 
-**Severity:** Warning (should fix). **Status:** documented, deferred by the refine-not-rewrite scope.
+**Severity:** Warning (should fix). **Status:** PRD-001 remediated 2026-07-01 (a `/the-smoker` run converted all 75 of PRD-001's tokens to backtick spans; security + quality close-out clean). Remains open in PRD-002 and PRD-003 (documented, deferred by the refine-not-rewrite scope for those modules).
 
-**What:** PRD-001, PRD-002, and PRD-003 cite cross-repo Honeycomb code using markdown links whose visible text is a backtick span (e.g. `honeycomb/src/daemon/index.ts:166-187`) wrapped around a parenthesized relative target (e.g. `../../../../honeycomb/src/daemon/index.ts`). From the standalone `hivenectar` repo, a `../../../../honeycomb/...` target resolves to `hivenectar/honeycomb/...`, which does not exist (honeycomb is a sibling submodule under `the-hive/`, not a child of `hivenectar/`). Approximately 649 such link tokens exist across PRD-001/002/003.
+**What:** PRD-001, PRD-002, and PRD-003 cite cross-repo Honeycomb code using markdown links whose visible text is a backtick span (e.g. `honeycomb/src/daemon/index.ts:166-187`) wrapped around a parenthesized relative target (e.g. `../../../../honeycomb/src/daemon/index.ts`). From the standalone `hivenectar` repo, a `../../../../honeycomb/...` target resolves to `hivenectar/honeycomb/...`, which does not exist (honeycomb is a sibling submodule under `the-hive/`, not a child of `hivenectar/`). Approximately 649 such link tokens originally spanned PRD-001/002/003; PRD-001's 75 have since been converted to backtick spans (the-smoker run, 2026-07-01), leaving the remainder in PRD-002 and PRD-003.
 
 **Why it is a finding:**
 - The Documentation Framework (Canonical, section 6) states code is cited as a backtick file-path span (`` `src/path/file.ts:42` ``), not a markdown link.
