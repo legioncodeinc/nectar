@@ -6,6 +6,8 @@ The architecture decision that expands Hivenectar's process topology into hivedo
 
 **Related:**
 - [`ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`](ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md)
+- [`ADR-0004-thehive-portal-daemon-role-and-boundaries.md`](ADR-0004-thehive-portal-daemon-role-and-boundaries.md) *(expands the thehive role + boundaries; this ADR records the topology, ADR-0004 records what thehive IS)*
+- [`thehive-portal-daemon.md`](thehive-portal-daemon.md) *(full design reference for thehive)*
 - [`../overview.md`](../overview.md)
 - [`../data/recall-integration.md`](../data/recall-integration.md)
 - [`../../../requirements/MASTER-PRD-INDEX.md`](../../../requirements/MASTER-PRD-INDEX.md)

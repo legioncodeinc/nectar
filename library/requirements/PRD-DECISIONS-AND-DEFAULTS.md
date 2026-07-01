@@ -37,6 +37,7 @@ These are settled — recorded here for traceability, no action needed.
 | 23 | OS service names: mirror honeycomb's convention — launchd `com.hivenectar.daemon`, systemd `hivenectar`, schtasks `HivenectarDaemon` | PRD-003b |
 | 24 | TLSH impl: native addon (NAPI) — fastest fuzzy-match computation; same install-time native-build risk honeycomb's tree-sitter already manages | PRD-006d |
 | 25 | review-matches: interactive prompt by default (list → choose → confirm); NO flag grammar committed. Optional batch flags deferred to implementation | PRD-006d |
+| 26 | thehive is a distinct architectural component with its own ADR: ADR-0004 records the four binding decisions (always-on + boot-order, API-aggregation-not-Deep-Lake, dashboard ownership + honeycomb code reuse, independent update cadence) + a companion knowledge doc (`architecture/thehive-portal-daemon.md`) holds the full design detail | ADR-0004, knowledge doc |
 
 ---
 
