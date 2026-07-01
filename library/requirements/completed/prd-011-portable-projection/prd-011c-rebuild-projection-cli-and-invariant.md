@@ -121,4 +121,4 @@ This mirrors the principle the CodeGraph storage layer already documents (`honey
 - [`../../../knowledge/private/data/portable-registry.md`](../../../knowledge/private/data/portable-registry.md) — AUTHORITATIVE: the three enforcement rules (verbatim) + the regeneration triggers.
 - [`../../../requirements/MASTER-PRD-INDEX.md`](../../../requirements/MASTER-PRD-INDEX.md) — the spec'd CLI surface (`rebuild-projection`, `project --rebuild-projection`) and DECISION #3 (`project_id` soft filter).
 - `honeycomb/src/daemon/storage/heal.ts` — the regenerable-from-source principle the projection mirrors (MASTER-PRD-INDEX.md "Conforms to").
-- [`../../backlog/prd-002-hivenectar-daemon/`](../../backlog/prd-002-hivenectar-daemon/) — PRD-002c owns the `hivenectar` CLI surface these commands extend.
+- [`../../completed/prd-002-hivenectar-daemon/`](../../completed/prd-002-hivenectar-daemon/) — PRD-002c owns the `hivenectar` CLI surface these commands extend.

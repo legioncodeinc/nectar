@@ -6,7 +6,7 @@
 
 ## Overview
 
-This sub-PRD owns the **disk-observation signal**: how hivenectar attaches `node:fs.watch` to the workspace, how each `(eventType, filename)` observation is filtered and routed, and how a burst of observations coalesces into one settled cycle through `setTimeout`/`clearTimeout` debounce. It mirrors Honeycomb's `file-watcher.ts` pattern deliberately and exclusively — `chokidar` is not a dependency (locked decision #4 in [`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md)).
+This sub-PRD owns the **disk-observation signal**: how hivenectar attaches `node:fs.watch` to the workspace, how each `(eventType, filename)` observation is filtered and routed, and how a burst of observations coalesces into one settled cycle through `setTimeout`/`clearTimeout` debounce. It mirrors Honeycomb's `file-watcher.ts` pattern deliberately and exclusively — `chokidar` is not a dependency (locked decision #4 in [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md)).
 
 `fs.watch` delivers uncorrelated observations: an editor save that rewrites a file in place, a rename, a delete-then-recreate, and a copy all arrive as `(eventType, filename)` tuples with no inherent move/copy semantics. This sub-PRD's job is only to (a) capture those observations, (b) coalesce a burst into one settled cycle, and (c) hand the set of touched paths to the classifier (006b). It does **not** decide nectar outcomes — that is the ladder's job (006d). The corpus is explicit that "the watcher is only the signal that work is needed" ([`identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) § "Live watch vs cold catch-up").
 
@@ -37,7 +37,7 @@ Hivenectar mirrors this. The watch attaches at the project workspace root and re
 
 ### Why NOT chokidar
 
-Decision #4 ([`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md)) records the rejection: chokidar is a new dependency, it diverges from Honeycomb's deliberate choice, and the marginal benefit is nil because the re-association ladder (006d) already reconstructs moves from uncorrelated events plus a missing-files set. Honeycomb's `file-watcher.ts` is the established, in-repo `fs.watch` pattern; importing Honeycomb's file-watcher module directly is also rejected (it would couple across the process boundary ADR-0002 established). Hivenectar therefore **mirrors the pattern** — same `fs.watch` + `setTimeout` shape, separate implementation, no cross-process import.
+Decision #4 ([`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md)) records the rejection: chokidar is a new dependency, it diverges from Honeycomb's deliberate choice, and the marginal benefit is nil because the re-association ladder (006d) already reconstructs moves from uncorrelated events plus a missing-files set. Honeycomb's `file-watcher.ts` is the established, in-repo `fs.watch` pattern; importing Honeycomb's file-watcher module directly is also rejected (it would couple across the process boundary ADR-0002 established). Hivenectar therefore **mirrors the pattern** — same `fs.watch` + `setTimeout` shape, separate implementation, no cross-process import.
 
 ### The `fs.watch` contract — what it does and does not give
 
@@ -119,6 +119,6 @@ The watch root is the project workspace directory resolved by the daemon's tenan
 - [PRD-006d](./prd-006d-reassociation-ladder.md) — the ladder the settled handler invokes.
 - [`knowledge/private/ai/identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) § "Live watch vs cold catch-up" — the watcher-is-only-the-signal contract + the missing-files reconstruction rationale.
 - [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "File discovery" — the CodeGraph ignore contract reused.
-- [`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md) decision #4 — the locked `fs.watch`-not-chokidar decision.
-- [`honeycomb/src/daemon/runtime/services/file-watcher.ts:177-183, 234-316, 333-375`](../../../../honeycomb/src/daemon/runtime/services/file-watcher.ts) — the `fs.watch` + debounce pattern mirrored in full.
-- [`honeycomb/src/daemon/runtime/codebase/api.ts:234-261`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts) — `runGraphBuild`, the parallel "respond to file change" template.
+- [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md) decision #4 — the locked `fs.watch`-not-chokidar decision.
+- `honeycomb/src/daemon/runtime/services/file-watcher.ts:177-183, 234-316, 333-375` — the `fs.watch` + debounce pattern mirrored in full.
+- `honeycomb/src/daemon/runtime/codebase/api.ts:234-261` — `runGraphBuild`, the parallel "respond to file change" template.

@@ -59,4 +59,9 @@ Decisions honored: #19 (next-boot supervision, no hot reload), #20 (purpose-buil
 - `prd-003c-registry-entry-and-watchdog-guards.md` - audited (see S-3). (audited)
 - `qa/` - created (was missing). (added)
 
-**Verdict: PASS** (medium-and-above), with one systemic Warning (W-1) documented and deferred.
+**Verdict (as-audited): PASS** (medium-and-above), with one systemic Warning (W-1) documented and deferred.
+
+## Remediation addendum (2026-07-01, the-smoker Wave B) — post-remediation verdict: PASS (clean at medium+)
+
+- **W-1 resolved.** The open systemic Warning (honeycomb/hivedoctor code refs as non-resolving markdown links) was remediated by library-worker-bee: 105 cross-repo code citations across `prd-003a` (39), `prd-003b` (38), and `prd-003c` (28) were converted from markdown links to canonical backtick file-path spans (the index carried 0 cross-repo code links). Of these, 60 were short-form spans promoted to the full repo-rooted `honeycomb/...` / `hivedoctor/...` path (line ranges preserved) and 45 were full-form unwraps. Verified: grep for `](.../honeycomb` or `](.../hivedoctor` code-link tokens in the PRD-003 folder returns zero (internal `../prd-004-...` folder links and `~/.honeycomb/...` runtime-path prose correctly untouched); `git diff --check` clean; the change is prose-neutral (no line ranges, numbers, DEFAULT flags, or open-question gaps altered; no new em/en dashes). W-1 is now closed across PRD-001/002/003.
+- **Sub-medium (carried forward):** S-2 (003a illustrative `/health` `checks` example vs PRD-001b's locked body) and S-3 (stale defensive 3853/3854 note) remain low-severity suggestions, not blocking.
