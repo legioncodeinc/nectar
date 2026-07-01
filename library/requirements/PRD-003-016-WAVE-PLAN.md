@@ -93,9 +93,9 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 
 **Exit gate (tied to ACs):**
 
-- [ ] 002: `hivenectar daemon` runs, binds `127.0.0.1:3854`, serves `/health`, acquires the single-instance lock before socket bind, and removes the PID/lock on shutdown (PRD-002 AC-M1..M7).
-- [ ] 004a: hivedoctor spawns one supervisor instance per registry entry with isolated incident state (PRD-004 AC-1, AC-2, AC-5).
-- [ ] 005: both tables self-create via `withHeal`, declare `scope: tenant`, and `project_id` is a soft column filter (PRD-005 ACs).
+- [x] 002: `hivenectar daemon` runs, binds `127.0.0.1:3854`, serves `/health`, acquires the single-instance lock before socket bind, and removes the PID/lock on shutdown (PRD-002 AC-M1..M7).
+- [x] 004a: hivedoctor spawns one supervisor instance per registry entry with isolated incident state (PRD-004 AC-1, AC-2, AC-5).
+- [x] 005: both tables self-create via `withHeal`, declare `scope: tenant`, and `project_id` is a soft column filter (PRD-005 ACs).
 
 **Per-wave blockers:** none new; 002 is the XL long pole of this wave and its worker harness (002b) underpins Wave B.
 
