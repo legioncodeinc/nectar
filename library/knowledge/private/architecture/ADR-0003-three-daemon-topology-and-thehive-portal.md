@@ -1,6 +1,6 @@
 # ADR-0003: Three-Daemon Topology and thehive Portal
 
-> Category: Architecture | Version: 1.0 | Date: June 2026 | Status: Active
+> Category: Architecture | Version: 1.1 | Date: June 2026 | Status: Active
 
 The architecture decision that expands Hivenectar's process topology into hivedoctor as supervisor, thehive as always-on portal, and Honeycomb/Hivenectar as workload daemons.
 
@@ -11,6 +11,7 @@ The architecture decision that expands Hivenectar's process topology into hivedo
 - [`../overview.md`](../overview.md)
 - [`../data/recall-integration.md`](../data/recall-integration.md)
 - [`../../../requirements/MASTER-PRD-INDEX.md`](../../../requirements/MASTER-PRD-INDEX.md)
+- **Refined by:** [the-hive ADR-0001, retire honeycomb dashboard and copy-and-own into thehive](../../../../../library/knowledge/private/architecture/ADR-0001-retire-honeycomb-dashboard-and-copy-and-own-into-thehive.md), which records the honeycomb dashboard retirement and the copy-and-own migration that realize this ADR's thehive-owns-the-portal consequence without changing the topology.
 
 ---
 
