@@ -57,9 +57,17 @@ All four modules **PASS** to the medium-and-above standard. The PRDs are excepti
 3. Re-run the internal link audit (backtick spans are not links, so the count of link-form honeycomb refs should drop to zero) and a `git diff` review to confirm no non-honeycomb link was touched.
 4. Apply the identical treatment to `hivedoctor/...` links (a sibling package inside the honeycomb submodule) which share the same non-resolving shape.
 
-## 5. Corpus-side observations (out of edit scope)
+## 4b. Resolved 2026-07-01: stale `honeycomb/hivedoctor/...` code-path prefix (W-2)
 
-These live in `library/knowledge/private/` and were not edited (the corpus is the read-only source of truth for this pass; the user declined pre-applying corpus edits). Flag for the corpus owner (knowledge-worker-bee):
+A follow-up cross-repo review (with the whole `the-hive` superproject in view) surfaced a second finding, distinct from W-1: `hivedoctor` was extracted from the honeycomb repo into its own top-level repository (`legioncodeinc/hivedoctor`), so its code now lives at `hivedoctor/src/...`, but the PRDs and two corpus ADRs still cited it with the stale `honeycomb/hivedoctor/...` prefix. honeycomb's own `honeycomb/src/...` paths are correct and were not touched; `thehive` living in the honeycomb repo is a design decision and was not touched.
+
+- Fix (`hivenectar-worker-bee`, user-approved widened scope): corrected `honeycomb/hivedoctor/...` to `hivedoctor/...` across PRD-001 (17), PRD-002 (prd-002d), PRD-003 (prd-003a/b/c, 83), PRD-004 (prd-004a), and the two corpus ADRs (`ADR-0003`, `ADR-0004`), plus 4 prose reframings (prd-003 index, prd-004 index, prd-004a, prd-004b) so hivedoctor reads as its own repository. The legitimate `~/.honeycomb/hivedoctor.daemons.json` and `~/.honeycomb/hivedoctor/state-<name>.json` runtime paths were deliberately preserved.
+- Verification: 0 stale `honeycomb/hivedoctor/src` refs remain in scope; runtime paths intact; no `~/.hivedoctor` corruption; `honeycomb/src/` unchanged (390 refs); thehive-in-honeycomb wording intact; internal doc links resolve; `git diff --check` clean.
+- Note: PRD-005..016 had zero `honeycomb/hivedoctor/` references, so no work was needed there.
+
+## 5. Corpus-side observations
+
+The corpus lives in `library/knowledge/private/`. In this pass, the only corpus edits made were the user-approved W-2 prefix corrections to `ADR-0003` and `ADR-0004` (above). The remaining observations below were NOT edited (still flagged for the corpus owner, knowledge-worker-bee):
 
 - **C-1:** `ADR-0004-thehive-portal-daemon-role-and-boundaries.md` uses a non-standard header (`> **Status:** Accepted . **Date:** 2026-06-30`, middle-dot separators) and status `Accepted`, which is not in the Documentation Framework status set (Active/Draft/Archived/Canonical). ADR-0003 correctly uses the universal header with `Active`. Recommend aligning ADR-0004's header for internal consistency.
 - **C-2 (informational):** The two known corpus/PRD disagreements recorded in `PRD-DECISIONS-AND-DEFAULTS.md` section C (the `confidence` column and the `skipped-deleted` enum) live in PRD-005/PRD-006 territory, not in PRD-001-004, so they are out of scope for this audit. They remain open corpus edits per that document.

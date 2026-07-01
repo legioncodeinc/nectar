@@ -69,3 +69,12 @@ flowchart TD
 ## Final status
 
 All 9 ACs **VERIFIED** (AC-M1..M6, AC-S1..S3 verified against the corpus; AC-Q1 remediated + independently verified + quality-confirmed). Security + quality close-out clean at medium+. PRD-001 is complete to the the-smoker bar. Ready to ship (updates PR #1).
+
+## Post-completion correction (2026-07-01): W-2 stale hivedoctor code-path prefix
+
+Cross-repo review (whole `the-hive` superproject in view) surfaced that `hivedoctor` is now its own repository (`legioncodeinc/hivedoctor`, code at `hivedoctor/src/...`), yet PRD-001..004 and two corpus ADRs still used the stale `honeycomb/hivedoctor/...` prefix (105 refs in PRD-001..004, 4 in the corpus). User approved a widened-scope fix (PRD-001..004 + ADR-0003/0004).
+
+- Fix (hivenectar-worker-bee): `honeycomb/hivedoctor/...` -> `hivedoctor/...` (104 replacements) + 4 prose reframings (hivedoctor as its own repo). Preserved `honeycomb/src/...` (correct), the `~/.honeycomb/hivedoctor.daemons.json` + `state-<name>.json` runtime paths, and all thehive-in-honeycomb design wording.
+- Independent verification: 0 stale `honeycomb/hivedoctor/src` refs remain; runtime paths intact; no `~/.hivedoctor` corruption; internal links resolve; `git diff --check` clean; no em/en dashes introduced in authored prose.
+- Artifacts updated: PRD-001 QA report (W-2 Resolved entry), consolidated report (section 4b), this ledger. PRD-005..016 needed no change (0 refs).
+- Note: W-2 (stale prefix) is now fixed across PRD-001..004; W-1 (link-form) remains open in PRD-002/003 only.

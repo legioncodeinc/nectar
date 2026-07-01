@@ -36,7 +36,7 @@ hivenectar binds a loopback HTTP socket, mirroring honeycomb's loopback-only pos
 | Host | `127.0.0.1` (loopback) | mirrors `honeycomb/embeddings/src/index.ts:67` |
 | Port | **3854** | **CONFIRMED** (next free after thehive=3853; 3850/3851/3852 occupied — see parent index) |
 
-The port is distinct from every occupied port: 3850 (honeycomb, `honeycomb/src/shared/constants.ts:14`), 3851 (embeddings, `honeycomb/embeddings/src/index.ts:68`), 3852 (hivedoctor status page, `honeycomb/hivedoctor/src/status-page/server.ts:93`). See the parent index's port contract table.
+The port is distinct from every occupied port: 3850 (honeycomb, `honeycomb/src/shared/constants.ts:14`), 3851 (embeddings, `honeycomb/embeddings/src/index.ts:68`), 3852 (hivedoctor status page, `hivedoctor/src/status-page/server.ts:93`). See the parent index's port contract table.
 
 ## Single-instance PID/lock guard
 
@@ -50,17 +50,17 @@ hivenectar reuses honeycomb's single-instance lock pattern: write `<name>.pid` +
 
 The pattern to mirror is `acquireSingleInstanceLock` (`honeycomb/src/daemon/runtime/assemble.ts:715-732`): `mkdirSync(runtimeDir, { recursive: true })`, read the existing PID via `readPidFile`, `isPidAlive` (signal-0 probe; `ESRCH` → stale, `EPERM` → alive-but-other-user), and on a live PID throw a `DaemonAlreadyRunningError` **before binding** so the port is never double-bound. hivenectar's filenames differ from honeycomb's (`daemon.pid`/`daemon.lock`, `honeycomb/src/daemon/runtime/assemble.ts:184,186`) so the two daemons' locks coexist in the same `~/.honeycomb` dir — a single `ls ~/.honeycomb/*.pid` enumerates every live daemon, the same convenience honeycomb's PID file provides (`honeycomb/src/daemon/runtime/assemble.ts:726-727` comment: "`cat ~/.honeycomb/daemon.pid`").
 
-> **Why a distinct lock, not a shared one.** hivedoctor already reads `~/.honeycomb/daemon.pid` to respect honeycomb's lock during restart (`honeycomb/hivedoctor/src/config.ts:53,155` `daemonPidPath` default `~/.honeycomb/daemon.pid`). hivenectar's supervision entry (PRD-003c) points hivedoctor at `~/.honeycomb/hivenectar.pid` instead, so hivedoctor's restart rung respects the right daemon's lock. Two daemons cannot share one lock file — that would make the second one refuse to start.
+> **Why a distinct lock, not a shared one.** hivedoctor already reads `~/.honeycomb/daemon.pid` to respect honeycomb's lock during restart (`hivedoctor/src/config.ts:53,155` `daemonPidPath` default `~/.honeycomb/daemon.pid`). hivenectar's supervision entry (PRD-003c) points hivedoctor at `~/.honeycomb/hivenectar.pid` instead, so hivedoctor's restart rung respects the right daemon's lock. Two daemons cannot share one lock file — that would make the second one refuse to start.
 
 ## `/health` endpoint contract
 
-hivenectar exposes a `/health` endpoint that hivedoctor probes identically to how it probes honeycomb — a `GET /health` over `node:http` with a short timeout (`honeycomb/hivedoctor/src/health-probe.ts:4`). The endpoint is **purpose-built for hivenectar**, not a parity copy of honeycomb's `/health`: the top-level coarse bit (`ok`/`degraded`) is the field hivedoctor classifies on (modeled on honeycomb's `PipelineStatus` at `honeycomb/src/daemon/runtime/health.ts:42`), but the body carries hivenectar-native subsystem fields honeycomb's `/health` does not have — because hivenectar and honeycomb answer *different* operational questions (hivenectar has brooding, an enricher queue, a projection writer, and per-provider embeddings state; honeycomb does not). Copying honeycomb's body would ship inert fields (hivenectar has no local/team/hybrid auth modes) while omitting the signal an operator actually needs.
+hivenectar exposes a `/health` endpoint that hivedoctor probes identically to how it probes honeycomb — a `GET /health` over `node:http` with a short timeout (`hivedoctor/src/health-probe.ts:4`). The endpoint is **purpose-built for hivenectar**, not a parity copy of honeycomb's `/health`: the top-level coarse bit (`ok`/`degraded`) is the field hivedoctor classifies on (modeled on honeycomb's `PipelineStatus` at `honeycomb/src/daemon/runtime/health.ts:42`), but the body carries hivenectar-native subsystem fields honeycomb's `/health` does not have — because hivenectar and honeycomb answer *different* operational questions (hivenectar has brooding, an enricher queue, a projection writer, and per-provider embeddings state; honeycomb does not). Copying honeycomb's body would ship inert fields (hivenectar has no local/team/hybrid auth modes) while omitting the signal an operator actually needs.
 
 | Property | Value | Citation / status |
 |---|---|---|
 | Path | `/health` | mirrors `honeycomb/src/daemon/runtime/server.ts:72` (the unprotected `/health` route group) |
 | Protection | unprotected (no auth, no session) | mirrors `honeycomb/src/daemon/runtime/server.ts:72` `{ path: "/health", protect: false, session: false }` |
-| hivedoctor probe URL | `http://127.0.0.1:3854/health` | **CONFIRMED** port 3854; modeled on `honeycomb/hivedoctor/src/config.ts:75` `healthUrl: "http://127.0.0.1:3850/health"` |
+| hivedoctor probe URL | `http://127.0.0.1:3854/health` | **CONFIRMED** port 3854; modeled on `hivedoctor/src/config.ts:75` `healthUrl: "http://127.0.0.1:3850/health"` |
 
 ### Body shape (CONFIRMED — decision #20 revised)
 
@@ -162,7 +162,7 @@ hivenectar installs `SIGINT`/`SIGTERM` handlers that drain services, close the s
 - HTTP bind pattern (loopback + lifecycle): `honeycomb/src/daemon/index.ts:117-187` (`runDaemon`, `runAssembledDaemon`, `startDaemonListener`, signal handlers).
 - Single-instance lock: `honeycomb/src/daemon/runtime/assemble.ts:184,186,692-732` (`LOCK_FILE_NAME`, `PID_FILE_NAME`, `isPidAlive`, `acquireSingleInstanceLock`, `readPidFile`).
 - `/health` coarse bit + route group: `honeycomb/src/daemon/runtime/health.ts:42` (`PipelineStatus`); `honeycomb/src/daemon/runtime/server.ts:72` (unprotected `/health` route).
-- hivedoctor's probe target + read of the daemon PID: `honeycomb/hivedoctor/src/config.ts:36-38,53,75,155`; `honeycomb/hivedoctor/src/health-probe.ts:4`.
+- hivedoctor's probe target + read of the daemon PID: `hivedoctor/src/config.ts:36-38,53,75,155`; `hivedoctor/src/health-probe.ts:4`.
 - Deep Lake client surface: `honeycomb/src/daemon/storage/client.ts:1-60` (org resolution, forced scope, timeout, tracing, redaction).
 - Runtime dir resolution: `honeycomb/src/daemon/runtime/auth/credentials-store.ts:71` (`.honeycomb`); `honeycomb/src/daemon/runtime/assemble.ts:688-690`.
 

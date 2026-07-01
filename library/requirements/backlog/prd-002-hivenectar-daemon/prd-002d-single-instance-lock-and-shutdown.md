@@ -47,7 +47,7 @@ The lock mirrors `acquireSingleInstanceLock` ([`honeycomb/src/daemon/runtime/ass
 
 The lock and PID files carry the same value: the lock is what the guard checks; the PID file is the operator-facing convenience (`cat ~/.honeycomb/hivenectar.pid`), mirroring honeycomb's comment at [`honeycomb/src/daemon/runtime/assemble.ts:726-727`](../../../../honeycomb/src/daemon/runtime/assemble.ts). The filenames are distinct from honeycomb's (`daemon.pid`/`daemon.lock`, [`honeycomb/src/daemon/runtime/assemble.ts:184,186`](../../../../honeycomb/src/daemon/runtime/assemble.ts)) so the two daemons' locks coexist — a single `ls ~/.honeycomb/*.pid` enumerates every live daemon.
 
-> **Why a distinct lock, not a shared one.** Two daemons cannot share one lock file — that would make the second one refuse to start. hivedoctor already reads `~/.honeycomb/daemon.pid` to respect honeycomb's lock during restart ([`honeycomb/hivedoctor/src/config.ts:53,155`](../../../../honeycomb/hivedoctor/src/config.ts)). hivenectar's supervision entry (PRD-003c) points hivedoctor at `~/.honeycomb/hivenectar.pid` instead, so the restart rung respects the right daemon's lock.
+> **Why a distinct lock, not a shared one.** Two daemons cannot share one lock file — that would make the second one refuse to start. hivedoctor already reads `~/.honeycomb/daemon.pid` to respect honeycomb's lock during restart ([`hivedoctor/src/config.ts:53,155`](../../../../hivedoctor/src/config.ts)). hivenectar's supervision entry (PRD-003c) points hivedoctor at `~/.honeycomb/hivenectar.pid` instead, so the restart rung respects the right daemon's lock.
 
 ---
 
@@ -126,6 +126,6 @@ A bind failure (`EADDRINUSE` on `127.0.0.1:3854`) after a clean lock acquire rol
 - Graceful shutdown close path + signal handlers: [`honeycomb/src/daemon/index.ts:166-187`](../../../../honeycomb/src/daemon/index.ts) (`close`, `onSignal`, `process.once("SIGINT"/"SIGTERM", …)`).
 - Bind-failure rollback: [`honeycomb/src/daemon/index.ts:159-164`](../../../../honeycomb/src/daemon/index.ts).
 - Runtime dir + lock/pid filenames: [`honeycomb/src/daemon/runtime/assemble.ts:184,186,688-690,726-727`](../../../../honeycomb/src/daemon/runtime/assemble.ts); [`honeycomb/src/daemon/runtime/auth/credentials-store.ts:71`](../../../../honeycomb/src/daemon/runtime/auth/credentials-store.ts).
-- hivedoctor's read of the daemon PID (the contract PRD-003c generalizes to hivenectar): [`honeycomb/hivedoctor/src/config.ts:53,155`](../../../../honeycomb/hivedoctor/src/config.ts).
+- hivedoctor's read of the daemon PID (the contract PRD-003c generalizes to hivenectar): [`hivedoctor/src/config.ts:53,155`](../../../../hivedoctor/src/config.ts).
 
 No open questions. The PID/lock filenames (`~/.honeycomb/hivenectar.{pid,lock}`) are inherited defaults from [PRD-001b](../prd-001-three-daemon-topology/prd-001b-hivenectar-process-and-health.md), flagged above.

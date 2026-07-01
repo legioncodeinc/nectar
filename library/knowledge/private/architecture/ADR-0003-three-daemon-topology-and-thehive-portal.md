@@ -97,5 +97,5 @@ Corpus references that say "Hivenectar is supervised by hivedoctor" remain true 
 - `library/requirements/MASTER-PRD-INDEX.md:9-19` - locked decisions for topology, recall, table healing, watcher, embeddings, and Portkey caching.
 - `library/requirements/MASTER-PRD-INDEX.md:29-35` - PRD-001 contract requiring ADR-0003.
 - `library/requirements/MASTER-PRD-INDEX.md:49-65` - hivedoctor registry and thehive portal PRD boundaries.
-- `honeycomb/hivedoctor/src/supervisor.ts:144-343` - current hivedoctor health-probe supervision contract to generalize.
-- `honeycomb/hivedoctor/src/config.ts:28-84` - current single-daemon config shape to generalize into registry entries.
+- `hivedoctor/src/supervisor.ts:144-343` - current hivedoctor health-probe supervision contract to generalize.
+- `hivedoctor/src/config.ts:28-84` - current single-daemon config shape to generalize into registry entries.

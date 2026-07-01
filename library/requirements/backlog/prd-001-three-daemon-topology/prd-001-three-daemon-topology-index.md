@@ -70,7 +70,7 @@ The decision is a **process-layer** topology change only. The data layer is unch
 |---|---|---|---|
 | honeycomb daemon | 3850 | `honeycomb/src/shared/constants.ts:14` `DAEMON_PORT = 3850` | Occupied |
 | embeddings daemon | 3851 | `honeycomb/embeddings/src/index.ts:68` `EMBED_PORT = 3851` | Occupied |
-| hivedoctor status page | 3852 | `honeycomb/hivedoctor/src/status-page/server.ts:93` `DEFAULT_STATUS_PAGE_PORT = 3852` | Occupied |
+| hivedoctor status page | 3852 | `hivedoctor/src/status-page/server.ts:93` `DEFAULT_STATUS_PAGE_PORT = 3852` | Occupied |
 | **thehive portal** | **3853** | **CONFIRMED** (hivedoctor status page occupies 3852) | |
 | **hivenectar daemon** | **3854** | **CONFIRMED** (next free after thehive=3853) | |
 
@@ -82,7 +82,7 @@ The decision is a **process-layer** topology change only. The data layer is unch
 | **thehive** | `~/.honeycomb/thehive.pid` | `~/.honeycomb/thehive.lock` | **DEFAULT — confirm before implementation** |
 | **hivenectar** | `~/.honeycomb/hivenectar.pid` | `~/.honeycomb/hivenectar.lock` | **DEFAULT — confirm before implementation** |
 
-The `~/.honeycomb` runtime dir is the honeycomb convention: `LEGACY_CREDENTIALS_DIR_NAME = ".honeycomb"` (`honeycomb/src/daemon/runtime/auth/credentials-store.ts:71`), resolved via `join(homedir(), LEGACY_CREDENTIALS_DIR_NAME)` (`honeycomb/src/daemon/runtime/assemble.ts:688-690`). thehive and hivenectar place their own `*.pid` / `*.lock` siblings in the same dir so a single `ls ~/.honeycomb/*.pid` enumerates every live daemon — mirroring how hivedoctor already reads `~/.honeycomb/daemon.pid` (`honeycomb/hivedoctor/src/config.ts:53,155`).
+The `~/.honeycomb` runtime dir is the honeycomb convention: `LEGACY_CREDENTIALS_DIR_NAME = ".honeycomb"` (`honeycomb/src/daemon/runtime/auth/credentials-store.ts:71`), resolved via `join(homedir(), LEGACY_CREDENTIALS_DIR_NAME)` (`honeycomb/src/daemon/runtime/assemble.ts:688-690`). thehive and hivenectar place their own `*.pid` / `*.lock` siblings in the same dir so a single `ls ~/.honeycomb/*.pid` enumerates every live daemon — mirroring how hivedoctor already reads `~/.honeycomb/daemon.pid` (`hivedoctor/src/config.ts:53,155`).
 
 ---
 

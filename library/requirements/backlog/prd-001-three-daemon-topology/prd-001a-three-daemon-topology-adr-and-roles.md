@@ -62,11 +62,11 @@ Each role owns exactly one concern. The table is the authority; the prose beneat
 
 ### hivedoctor — minimal supervisor + registry
 
-hivedoctor today is a one-directional `/health`-probe watchdog that supervises exactly one daemon (honeycomb at `:3850`). The supervisor probes `GET /health` on a fixed interval, classifies the result, and runs the remediation ladder (restart → reinstall → uninstall-hivemind → escalate) when the probe is unhealthy (`honeycomb/hivedoctor/src/supervisor.ts:144-343` — `createSupervisor`, the `tick` watch loop, the `heal` function; `honeycomb/hivedoctor/src/config.ts:28-84` — the single-daemon `HiveDoctorConfig` with `healthUrl`, `daemonPidPath`, `probeIntervalMs`).
+hivedoctor today is a one-directional `/health`-probe watchdog that supervises exactly one daemon (honeycomb at `:3850`). The supervisor probes `GET /health` on a fixed interval, classifies the result, and runs the remediation ladder (restart → reinstall → uninstall-hivemind → escalate) when the probe is unhealthy (`hivedoctor/src/supervisor.ts:144-343` — `createSupervisor`, the `tick` watch loop, the `heal` function; `hivedoctor/src/config.ts:28-84` — the single-daemon `HiveDoctorConfig` with `healthUrl`, `daemonPidPath`, `probeIntervalMs`).
 
 The three-daemon topology generalizes this minimal contract: hivedoctor gains a **minimal daemon registry** — a named list of supervised daemons (honeycomb, thehive, hivenectar), each with its own `healthUrl` / `pidPath` / `probeInterval` / `startupGrace` / restart thresholds, each with isolated incident + remediation state. Per decision #1, the registry is a **static config file, edited by installers** — there is no runtime registration API. hivedoctor is updated only when a new daemon registers (an installer edits the config), and it otherwise stays state-light.
 
-> The registry *implementation* — the config schema, the per-daemon supervisor instances spawned by the composition root (`honeycomb/hivedoctor/src/compose/index.ts:190-534` — `createHiveDoctor`), and the isolated incident state — is **PRD-004a**, owned out-of-band by the hivedoctor project. This PRD defines only the *contract* (the registry exists, is static, is installer-edited) and consumes it.
+> The registry *implementation* — the config schema, the per-daemon supervisor instances spawned by the composition root (`hivedoctor/src/compose/index.ts:190-534` — `createHiveDoctor`), and the isolated incident state — is **PRD-004a**, owned out-of-band by the hivedoctor project. This PRD defines only the *contract* (the registry exists, is static, is installer-edited) and consumes it.
 
 **hivedoctor explicitly does NOT own portal logic.** This is the load-bearing distinction from the rejected "move the portal into hivedoctor" alternative: if the dashboard lived in hivedoctor, every dashboard update would force a supervisor update, killing the velocity/stability split the user asked for.
 
@@ -134,11 +134,11 @@ What IS shared is the **data layer** (Deep Lake tables + tenancy, PRD-005) and *
 
 ## Implementation notes
 
-- The supervisor watch loop + remediation ladder hivedoctor generalizes from: `honeycomb/hivedoctor/src/supervisor.ts:144-343` (`createSupervisor`, `tick`, `heal`).
-- The single-daemon config the registry generalizes from: `honeycomb/hivedoctor/src/config.ts:28-84` (`HiveDoctorConfig`, `DEFAULTS`, `resolveConfig`).
-- The composition root that today spawns one supervisor (and PRD-004a generalizes to N): `honeycomb/hivedoctor/src/compose/index.ts:190-534` (`createHiveDoctor`).
+- The supervisor watch loop + remediation ladder hivedoctor generalizes from: `hivedoctor/src/supervisor.ts:144-343` (`createSupervisor`, `tick`, `heal`).
+- The single-daemon config the registry generalizes from: `hivedoctor/src/config.ts:28-84` (`HiveDoctorConfig`, `DEFAULTS`, `resolveConfig`).
+- The composition root that today spawns one supervisor (and PRD-004a generalizes to N): `hivedoctor/src/compose/index.ts:190-534` (`createHiveDoctor`).
 - The dashboard code thehive reuses: `honeycomb/src/dashboard/web/registry.tsx` (route registry + `RouteEntry`), plus `pages/*.tsx`.
 - The daemon entry/lifecycle pattern both workload daemons mirror: `honeycomb/src/daemon/index.ts:108-217` (`createServer`, `runDaemon`, `runAssembledDaemon`, the SIGINT/SIGTERM handlers).
-- The remediation ladder's restart rung (the contract hivenectar's supervision consumes, PRD-003): `honeycomb/hivedoctor/src/supervisor.ts:227-259` (rung-1 restart + the give-up-after-N advance).
+- The remediation ladder's restart rung (the contract hivenectar's supervision consumes, PRD-003): `hivedoctor/src/supervisor.ts:227-259` (rung-1 restart + the give-up-after-N advance).
 
 No open questions. The ADR-0003 slug is resolved (the ADR is created; see above); the port and path defaults live in the parent index's contract table.

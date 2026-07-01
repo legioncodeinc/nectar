@@ -1,6 +1,6 @@
 # PRD-004b: hivedoctor status page + CLI — multi-daemon reporting
 
-> **Codebase:** `honeycomb` repo → `hivedoctor/` package. This is an out-of-band sub-PRD; it lands in the hivedoctor codebase, not hivenectar.
+> **Codebase:** the `hivedoctor` repo. This is an out-of-band sub-PRD; it lands in the hivedoctor codebase, not hivenectar.
 
 ## Overview
 

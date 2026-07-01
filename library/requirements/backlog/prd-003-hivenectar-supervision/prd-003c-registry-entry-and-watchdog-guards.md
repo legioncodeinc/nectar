@@ -6,9 +6,9 @@
 
 ## Overview
 
-hivenectar becomes a supervised daemon by appending **one entry** to hivedoctor's daemon registry file (`~/.honeycomb/hivedoctor.daemons.json`, the registry PRD-004a specifies). That entry carries hivenectar's `healthUrl`, `pidPath`, `probeIntervalMs`, `startupGraceMs`, and restart thresholds — the per-daemon values that `HiveDoctorConfig` ([`hivedoctor/src/config.ts:28-54`](../../../../honeycomb/hivedoctor/src/config.ts)) currently holds once for the single honeycomb daemon. At the next hivedoctor boot, hivedoctor reads the registry and spawns one supervisor instance for hivenectar alongside honeycomb and thehive (PRD-004a's composition-root loop).
+hivenectar becomes a supervised daemon by appending **one entry** to hivedoctor's daemon registry file (`~/.honeycomb/hivedoctor.daemons.json`, the registry PRD-004a specifies). That entry carries hivenectar's `healthUrl`, `pidPath`, `probeIntervalMs`, `startupGraceMs`, and restart thresholds — the per-daemon values that `HiveDoctorConfig` ([`hivedoctor/src/config.ts:28-54`](../../../../hivedoctor/src/config.ts)) currently holds once for the single honeycomb daemon. At the next hivedoctor boot, hivedoctor reads the registry and spawns one supervisor instance for hivenectar alongside honeycomb and thehive (PRD-004a's composition-root loop).
 
-The load-bearing correctness property is the **watchdog-war guard**: when hivedoctor's restart rung runs for hivenectar, its lock-held-and-healthy check ([`hivedoctor/src/remediation.ts:147-151`](../../../../honeycomb/hivedoctor/src/remediation.ts)) reads hivenectar's `pidPath` (`~/.honeycomb/hivenectar.pid`), never honeycomb's `~/.honeycomb/daemon.pid` default. A restart that ignored hivenectar's own lock would either fight a healthy hivenectar or start a second one that immediately hits the single-instance lock and exits — the exact failure the guard prevents.
+The load-bearing correctness property is the **watchdog-war guard**: when hivedoctor's restart rung runs for hivenectar, its lock-held-and-healthy check ([`hivedoctor/src/remediation.ts:147-151`](../../../../hivedoctor/src/remediation.ts)) reads hivenectar's `pidPath` (`~/.honeycomb/hivenectar.pid`), never honeycomb's `~/.honeycomb/daemon.pid` default. A restart that ignored hivenectar's own lock would either fight a healthy hivenectar or start a second one that immediately hits the single-instance lock and exits — the exact failure the guard prevents.
 
 ## Goals
 
@@ -29,7 +29,7 @@ The load-bearing correctness property is the **watchdog-war guard**: when hivedo
 
 ## hivenectar's registry entry
 
-hivenectar's installer appends one entry to the registry file PRD-004a specifies (`~/.honeycomb/hivedoctor.daemons.json`). Each entry's fields are the per-daemon values that `HiveDoctorConfig` ([`hivedoctor/src/config.ts:28-54`](../../../../honeycomb/hivedoctor/src/config.ts)) currently holds once for honeycomb:
+hivenectar's installer appends one entry to the registry file PRD-004a specifies (`~/.honeycomb/hivedoctor.daemons.json`). Each entry's fields are the per-daemon values that `HiveDoctorConfig` ([`hivedoctor/src/config.ts:28-54`](../../../../hivedoctor/src/config.ts)) currently holds once for honeycomb:
 
 ```json
 {
@@ -46,37 +46,37 @@ hivenectar's installer appends one entry to the registry file PRD-004a specifies
 | Field | hivenectar value | Resolves from (hivedoctor default) | Citation |
 |---|---|---|---|
 | `name` | `"hivenectar"` | — (the registry key; PRD-004a accepts `"honeycomb"\|"thehive"\|"hivenectar"`) | [`prd-004a`](../prd-004-hivedoctor-registry-and-thehive/prd-004a-hivedoctor-registry-config-and-supervisor-instances.md) schema |
-| `healthUrl` | `http://127.0.0.1:3854/health` | `config.healthUrl` default `http://127.0.0.1:3850/health` | [`hivedoctor/src/config.ts:37,75`](../../../../honeycomb/hivedoctor/src/config.ts) |
-| `pidPath` | `~/.honeycomb/hivenectar.pid` | `config.daemonPidPath` default `~/.honeycomb/daemon.pid` | [`hivedoctor/src/config.ts:53,155`](../../../../honeycomb/hivedoctor/src/config.ts) |
-| `probeIntervalMs` | `30000` | `config.probeIntervalMs` default `30000` | [`hivedoctor/src/config.ts:31,72`](../../../../honeycomb/hivedoctor/src/config.ts) |
-| `startupGraceMs` | `60000` | `config.startupGraceMs` default `60000` | [`hivedoctor/src/config.ts:35,74`](../../../../honeycomb/hivedoctor/src/config.ts) |
-| `restartGiveUpThreshold` | `3` | `config.restartGiveUpThreshold` default `3` | [`hivedoctor/src/config.ts:45,79`](../../../../honeycomb/hivedoctor/src/config.ts) |
-| `restartCooldownMs` | `5000` | `config.restartCooldownMs` default `5000` | [`hivedoctor/src/config.ts:47,80`](../../../../honeycomb/hivedoctor/src/config.ts) |
+| `healthUrl` | `http://127.0.0.1:3854/health` | `config.healthUrl` default `http://127.0.0.1:3850/health` | [`hivedoctor/src/config.ts:37,75`](../../../../hivedoctor/src/config.ts) |
+| `pidPath` | `~/.honeycomb/hivenectar.pid` | `config.daemonPidPath` default `~/.honeycomb/daemon.pid` | [`hivedoctor/src/config.ts:53,155`](../../../../hivedoctor/src/config.ts) |
+| `probeIntervalMs` | `30000` | `config.probeIntervalMs` default `30000` | [`hivedoctor/src/config.ts:31,72`](../../../../hivedoctor/src/config.ts) |
+| `startupGraceMs` | `60000` | `config.startupGraceMs` default `60000` | [`hivedoctor/src/config.ts:35,74`](../../../../hivedoctor/src/config.ts) |
+| `restartGiveUpThreshold` | `3` | `config.restartGiveUpThreshold` default `3` | [`hivedoctor/src/config.ts:45,79`](../../../../hivedoctor/src/config.ts) |
+| `restartCooldownMs` | `5000` | `config.restartCooldownMs` default `5000` | [`hivedoctor/src/config.ts:47,80`](../../../../hivedoctor/src/config.ts) |
 
-> **Port 3854, not 3853.** hivenectar's `healthUrl` uses port **3854** (confirmed in [`prd-001b`](../prd-001-three-daemon-topology/prd-001b-hivenectar-process-and-health.md): the next free port after thehive=3853; 3850/3851/3852/3853 occupied). A sibling registry sample elsewhere shows thehive's 3853 against the hivenectar row — that is a typo; the binding value is 3854. `pidPath` carries `~` for readability; the registry loader expands `~` to `homedir()` exactly as `resolveConfig` already does ([`hivedoctor/src/config.ts:153-155`](../../../../honeycomb/hivedoctor/src/config.ts)).
+> **Port 3854, not 3853.** hivenectar's `healthUrl` uses port **3854** (confirmed in [`prd-001b`](../prd-001-three-daemon-topology/prd-001b-hivenectar-process-and-health.md): the next free port after thehive=3853; 3850/3851/3852/3853 occupied). A sibling registry sample elsewhere shows thehive's 3853 against the hivenectar row — that is a typo; the binding value is 3854. `pidPath` carries `~` for readability; the registry loader expands `~` to `homedir()` exactly as `resolveConfig` already does ([`hivedoctor/src/config.ts:153-155`](../../../../hivedoctor/src/config.ts)).
 
 ### Startup grace (DEFAULT — confirm before implementation)
 
-**DEFAULT — confirm before implementation.** hivenectar's `startupGraceMs` = `60000` (60s), matching hivedoctor's built-in default ([`config.ts:74`](../../../../honeycomb/hivedoctor/src/config.ts) `startupGraceMs: 60_000`). During the grace window after a boot or restart, the supervisor's `tick` treats a non-`ok` probe as "still booting" and does not enter the heal path ([`supervisor.ts:297-301`](../../../../honeycomb/hivedoctor/src/supervisor.ts): `graceRemainingMs > 0` → log `tick.booting` and return). hivenectar's cold-boot path (Deep Lake client init, auth/scoping, worker start before the socket bind — PRD-002) fits comfortably inside 60s; if a slower environment needs more, the entry's `startupGraceMs` is the override.
+**DEFAULT — confirm before implementation.** hivenectar's `startupGraceMs` = `60000` (60s), matching hivedoctor's built-in default ([`config.ts:74`](../../../../hivedoctor/src/config.ts) `startupGraceMs: 60_000`). During the grace window after a boot or restart, the supervisor's `tick` treats a non-`ok` probe as "still booting" and does not enter the heal path ([`supervisor.ts:297-301`](../../../../hivedoctor/src/supervisor.ts): `graceRemainingMs > 0` → log `tick.booting` and return). hivenectar's cold-boot path (Deep Lake client init, auth/scoping, worker start before the socket bind — PRD-002) fits comfortably inside 60s; if a slower environment needs more, the entry's `startupGraceMs` is the override.
 
 ---
 
 ## Watchdog-war guards (rung 1, restart)
 
-hivedoctor's restart rung (`createRestartRung`, [`hivedoctor/src/remediation.ts:124-160`](../../../../honeycomb/hivedoctor/src/remediation.ts)) runs two idempotency guards *before* kicking a restart, in this order (the guard order at [`remediation.ts:125-131`](../../../../honeycomb/hivedoctor/src/remediation.ts)):
+hivedoctor's restart rung (`createRestartRung`, [`hivedoctor/src/remediation.ts:124-160`](../../../../hivedoctor/src/remediation.ts)) runs two idempotency guards *before* kicking a restart, in this order (the guard order at [`remediation.ts:125-131`](../../../../hivedoctor/src/remediation.ts)):
 
-1. **Cooldown** — if hivedoctor restarted this daemon within `cooldownMs`, SKIP (do not fight its own restart-helper). [`remediation.ts:139-143`](../../../../honeycomb/hivedoctor/src/remediation.ts).
-2. **Lock-held-and-healthy** — if the PID file names a daemon AND `/health` answers, SKIP (a second daemon would just hit the single-instance lock and exit). [`remediation.ts:147-151`](../../../../honeycomb/hivedoctor/src/remediation.ts).
+1. **Cooldown** — if hivedoctor restarted this daemon within `cooldownMs`, SKIP (do not fight its own restart-helper). [`remediation.ts:139-143`](../../../../hivedoctor/src/remediation.ts).
+2. **Lock-held-and-healthy** — if the PID file names a daemon AND `/health` answers, SKIP (a second daemon would just hit the single-instance lock and exit). [`remediation.ts:147-151`](../../../../hivedoctor/src/remediation.ts).
 
-Both guards are **dependency-injected** via `RestartRungDeps` ([`remediation.ts:107-122`](../../../../honeycomb/hivedoctor/src/remediation.ts)): `readDaemonPid` (`:111`), `isHealthy` (`:113`), `cooldownMs` (`:115`), `lastRestartAt`/`markRestarted` (`:119-121`). This is what makes them per-entry rather than shared — the composition root (PRD-004a) passes a `readDaemonPid` that reads **the entry's `pidPath`** and an entry-local `lastRestartAt`/`markRestarted` pair.
+Both guards are **dependency-injected** via `RestartRungDeps` ([`remediation.ts:107-122`](../../../../hivedoctor/src/remediation.ts)): `readDaemonPid` (`:111`), `isHealthy` (`:113`), `cooldownMs` (`:115`), `lastRestartAt`/`markRestarted` (`:119-121`). This is what makes them per-entry rather than shared — the composition root (PRD-004a) passes a `readDaemonPid` that reads **the entry's `pidPath`** and an entry-local `lastRestartAt`/`markRestarted` pair.
 
 For hivenectar's entry, this means:
 
-- `readDaemonPid` reads `~/.honeycomb/hivenectar.pid` — **not** the honeycomb `~/.honeycomb/daemon.pid` default from [`config.ts:53`](../../../../honeycomb/hivedoctor/src/config.ts). This delivers [`prd-004a`](../prd-004-hivedoctor-registry-and-thehive/prd-004a-hivedoctor-registry-config-and-supervisor-instances.md) a-AC-7: the lock-held-and-healthy guard checks the right daemon's PID.
+- `readDaemonPid` reads `~/.honeycomb/hivenectar.pid` — **not** the honeycomb `~/.honeycomb/daemon.pid` default from [`config.ts:53`](../../../../hivedoctor/src/config.ts). This delivers [`prd-004a`](../prd-004-hivedoctor-registry-and-thehive/prd-004a-hivedoctor-registry-config-and-supervisor-instances.md) a-AC-7: the lock-held-and-healthy guard checks the right daemon's PID.
 - `isHealthy` probes `http://127.0.0.1:3854/health` — hivenectar's own endpoint (003a), so the "answering" half of the check is against hivenectar, not honeycomb.
 - `cooldownMs` = hivenectar's `restartCooldownMs` (5000), and the `lastRestartAt`/`markRestarted` pair is entry-local — a hivenectar restart's cooldown does not gate honeycomb's restart, and vice versa. This delivers a-AC-8.
 
-> **Why this matters for hivenectar specifically.** hivenectar's single-instance lock (003a) means a second hivenectar process throws before binding port 3854. If hivedoctor's restart rung ignored the lock-held-and-healthy guard — or read the wrong PID file — it would start a second hivenectar that immediately exits, increment hivenectar's consecutive-restart-failure count, and needlessly advance toward the give-up threshold. The guard reads hivenectar's *own* PID + `/health`, sees the daemon is actually fine (or recovering), and SKIPS with `detail: "lock-held-and-healthy"` ([`remediation.ts:149-150`](../../../../honeycomb/hivedoctor/src/remediation.ts)). A skip is deliberately NOT a failed restart — it does not push toward give-up ([`supervisor.ts:236-240`](../../../../honeycomb/hivedoctor/src/supervisor.ts)).
+> **Why this matters for hivenectar specifically.** hivenectar's single-instance lock (003a) means a second hivenectar process throws before binding port 3854. If hivedoctor's restart rung ignored the lock-held-and-healthy guard — or read the wrong PID file — it would start a second hivenectar that immediately exits, increment hivenectar's consecutive-restart-failure count, and needlessly advance toward the give-up threshold. The guard reads hivenectar's *own* PID + `/health`, sees the daemon is actually fine (or recovering), and SKIPS with `detail: "lock-held-and-healthy"` ([`remediation.ts:149-150`](../../../../hivedoctor/src/remediation.ts)). A skip is deliberately NOT a failed restart — it does not push toward give-up ([`supervisor.ts:236-240`](../../../../hivedoctor/src/supervisor.ts)).
 
 ---
 
@@ -109,23 +109,23 @@ Registration is a **file edit at install time**, not a runtime call (PRD-004a's 
 ### US-003c.3 — A healthy, locked hivenectar is not double-restarted
 **As** hivedoctor, **when** hivenectar's PID file names a live process and `/health` answers `ok`, **I** skip the restart, **so that** I do not start a second hivenectar that would hit the single-instance lock and exit.
 
-- Acceptance: the lock-held-and-healthy guard returns `{ ok: false, skipped: true, detail: "lock-held-and-healthy" }` (mirrors [`remediation.ts:147-151`](../../../../honeycomb/hivedoctor/src/remediation.ts)).
-- Acceptance: the skip does not increment hivenectar's consecutive-restart-failure count (mirrors [`supervisor.ts:236-240`](../../../../honeycomb/hivedoctor/src/supervisor.ts)).
+- Acceptance: the lock-held-and-healthy guard returns `{ ok: false, skipped: true, detail: "lock-held-and-healthy" }` (mirrors [`remediation.ts:147-151`](../../../../hivedoctor/src/remediation.ts)).
+- Acceptance: the skip does not increment hivenectar's consecutive-restart-failure count (mirrors [`supervisor.ts:236-240`](../../../../hivedoctor/src/supervisor.ts)).
 
 ### US-003c.4 — hivenectar's cooldown is isolated from honeycomb's
 **As** hivedoctor, **when** I just restarted hivenectar, **a** second hivenectar restart inside its cooldown is skipped, **and** honeycomb's restart is unaffected.
 
-- Acceptance: the cooldown guard skips a restart inside `restartCooldownMs` for the hivenectar entry only (mirrors [`remediation.ts:139-143`](../../../../honeycomb/hivedoctor/src/remediation.ts)).
+- Acceptance: the cooldown guard skips a restart inside `restartCooldownMs` for the hivenectar entry only (mirrors [`remediation.ts:139-143`](../../../../hivedoctor/src/remediation.ts)).
 - Acceptance: hivenectar's `lastRestartAt`/`markRestarted` is entry-local, so its cooldown does not gate any other entry (delivers [`prd-004a`](../prd-004-hivedoctor-registry-and-thehive/prd-004a-hivedoctor-registry-config-and-supervisor-instances.md) a-AC-8).
 
 ---
 
 ## Implementation notes
 
-- Registry entry (the row hivenectar appends): schema + field-to-`HiveDoctorConfig` mapping in [`prd-004a`](../prd-004-hivedoctor-registry-and-thehive/prd-004a-hivedoctor-registry-config-and-supervisor-instances.md) "Registry file" section; per-daemon field defaults in [`honeycomb/hivedoctor/src/config.ts:28-84`](../../../../honeycomb/hivedoctor/src/config.ts) (`healthUrl` `:37,75`; `daemonPidPath` `:53,155`; `probeIntervalMs` `:31,72`; `startupGraceMs` `:35,74`; `restartGiveUpThreshold` `:45,79`; `restartCooldownMs` `:47,80`).
-- Watchdog-war guards (rung 1): [`honeycomb/hivedoctor/src/remediation.ts:107-160`](../../../../honeycomb/hivedoctor/src/remediation.ts) — `RestartRungDeps` (`:107-122`), `createRestartRung` guard order (`:124-131`), cooldown guard (`:139-143`), lock-held-and-healthy guard (`:147-151`).
-- Supervisor tick + skip handling: [`honeycomb/hivedoctor/src/supervisor.ts:236-320`](../../../../honeycomb/hivedoctor/src/supervisor.ts) — a skip does not increment the failure count (`:236-240`); the startup-grace window gates the heal path (`:297-301`).
-- `~` expansion in pidPath: [`honeycomb/hivedoctor/src/config.ts:153-155`](../../../../honeycomb/hivedoctor/src/config.ts) (`resolveConfig` homedir expansion the registry loader reuses).
+- Registry entry (the row hivenectar appends): schema + field-to-`HiveDoctorConfig` mapping in [`prd-004a`](../prd-004-hivedoctor-registry-and-thehive/prd-004a-hivedoctor-registry-config-and-supervisor-instances.md) "Registry file" section; per-daemon field defaults in [`hivedoctor/src/config.ts:28-84`](../../../../hivedoctor/src/config.ts) (`healthUrl` `:37,75`; `daemonPidPath` `:53,155`; `probeIntervalMs` `:31,72`; `startupGraceMs` `:35,74`; `restartGiveUpThreshold` `:45,79`; `restartCooldownMs` `:47,80`).
+- Watchdog-war guards (rung 1): [`hivedoctor/src/remediation.ts:107-160`](../../../../hivedoctor/src/remediation.ts) — `RestartRungDeps` (`:107-122`), `createRestartRung` guard order (`:124-131`), cooldown guard (`:139-143`), lock-held-and-healthy guard (`:147-151`).
+- Supervisor tick + skip handling: [`hivedoctor/src/supervisor.ts:236-320`](../../../../hivedoctor/src/supervisor.ts) — a skip does not increment the failure count (`:236-240`); the startup-grace window gates the heal path (`:297-301`).
+- `~` expansion in pidPath: [`hivedoctor/src/config.ts:153-155`](../../../../hivedoctor/src/config.ts) (`resolveConfig` homedir expansion the registry loader reuses).
 - PID file the guard reads: `~/.honeycomb/hivenectar.pid` (written by 003a's `acquireSingleInstanceLock`, mirroring [`honeycomb/src/daemon/runtime/assemble.ts:715-732`](../../../../honeycomb/src/daemon/runtime/assemble.ts)).
 
 No open questions. The `startupGraceMs` = 60000 default is flagged above.

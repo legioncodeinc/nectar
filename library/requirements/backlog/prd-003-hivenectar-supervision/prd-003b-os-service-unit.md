@@ -10,8 +10,8 @@ This is the hivenectar-side analog of [`prd-004d-thehive-service-unit-and-regist
 
 ## Goals
 
-- hivenectar defines a launchd LaunchAgent, a systemd `--user` unit, and a Windows Scheduled Task, each encoding restart-on-crash and start-on-boot (the two self-supervision non-negotiables from [`hivedoctor/src/service/templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts)).
-- hivenectar's installer resolves the platform + scope (user scope by default, no root/admin) and writes the unit file, mirroring hivedoctor's `createServiceModule.install` ([`hivedoctor/src/service/index.ts:129-234`](../../../../honeycomb/hivedoctor/src/service/index.ts)).
+- hivenectar defines a launchd LaunchAgent, a systemd `--user` unit, and a Windows Scheduled Task, each encoding restart-on-crash and start-on-boot (the two self-supervision non-negotiables from [`hivedoctor/src/service/templates.ts`](../../../../hivedoctor/src/service/templates.ts)).
+- hivenectar's installer resolves the platform + scope (user scope by default, no root/admin) and writes the unit file, mirroring hivedoctor's `createServiceModule.install` ([`hivedoctor/src/service/index.ts:129-234`](../../../../hivedoctor/src/service/index.ts)).
 - The unit execs the `hivenectar daemon` run command (no shell), so a crash restarts the daemon and a reboot brings it back.
 - The unit name is distinct from hivedoctor's and thehive's so the three service units coexist.
 
@@ -26,13 +26,13 @@ This is the hivenectar-side analog of [`prd-004d-thehive-service-unit-and-regist
 
 ## Unit definition per platform
 
-hivedoctor's templates encode the two self-supervision non-negotiables — restart-on-crash and start-on-boot — through platform-specific directives ([`hivedoctor/src/service/templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts) header). hivenectar's units adopt the same directives with hivenectar's label, exec, and run command.
+hivedoctor's templates encode the two self-supervision non-negotiables — restart-on-crash and start-on-boot — through platform-specific directives ([`hivedoctor/src/service/templates.ts`](../../../../hivedoctor/src/service/templates.ts) header). hivenectar's units adopt the same directives with hivenectar's label, exec, and run command.
 
-> **`HIVENECTAR_RUN_COMMAND`** = `daemon` — the subcommand the unit execs to start the hivenectar process (mirrors hivedoctor's `HIVEDOCTOR_RUN_COMMAND = "run"` at [`templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts)).
+> **`HIVENECTAR_RUN_COMMAND`** = `daemon` — the subcommand the unit execs to start the hivenectar process (mirrors hivedoctor's `HIVEDOCTOR_RUN_COMMAND = "run"` at [`templates.ts`](../../../../hivedoctor/src/service/templates.ts)).
 
 ### macOS — launchd LaunchAgent
 
-hivenectar renders a launchd plist mirroring `renderLaunchdPlist` ([`hivedoctor/src/service/templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts)):
+hivenectar renders a launchd plist mirroring `renderLaunchdPlist` ([`hivedoctor/src/service/templates.ts`](../../../../hivedoctor/src/service/templates.ts)):
 
 - `RunAtLoad` → start-on-boot/login.
 - `KeepAlive` → restart-on-crash.
@@ -42,13 +42,13 @@ hivenectar renders a launchd plist mirroring `renderLaunchdPlist` ([`hivedoctor/
 
 | Property | Value | Citation / status |
 |---|---|---|
-| Label | `com.hivenectar.daemon` | **DEFAULT — confirm before implementation** (hivedoctor's is `com.legioncode.hivedoctor` at [`platform.ts:37`](../../../../honeycomb/hivedoctor/src/service/platform.ts)) |
-| Unit path (user) | `~/Library/LaunchAgents/com.hivenectar.daemon.plist` | mirrors [`platform.ts:118-130`](../../../../honeycomb/hivedoctor/src/service/platform.ts) `userUnitPath("darwin")` |
-| Restart throttle | `RESTART_SEC` (5s) | [`templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts) `RESTART_SEC = 5` |
+| Label | `com.hivenectar.daemon` | **DEFAULT — confirm before implementation** (hivedoctor's is `com.legioncode.hivedoctor` at [`platform.ts:37`](../../../../hivedoctor/src/service/platform.ts)) |
+| Unit path (user) | `~/Library/LaunchAgents/com.hivenectar.daemon.plist` | mirrors [`platform.ts:118-130`](../../../../hivedoctor/src/service/platform.ts) `userUnitPath("darwin")` |
+| Restart throttle | `RESTART_SEC` (5s) | [`templates.ts`](../../../../hivedoctor/src/service/templates.ts) `RESTART_SEC = 5` |
 
 ### Linux — systemd `--user` unit
 
-hivenectar renders a systemd unit mirroring `renderSystemdUnit` ([`hivedoctor/src/service/templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts)):
+hivenectar renders a systemd unit mirroring `renderSystemdUnit` ([`hivedoctor/src/service/templates.ts`](../../../../hivedoctor/src/service/templates.ts)):
 
 - `Restart=always` + `RestartSec` = `RESTART_SEC` (5s) → restart-on-crash.
 - `WantedBy=default.target` (with `systemctl --user enable`) → start-on-login/boot.
@@ -57,13 +57,13 @@ hivenectar renders a systemd unit mirroring `renderSystemdUnit` ([`hivedoctor/sr
 
 | Property | Value | Citation / status |
 |---|---|---|
-| Unit name | `hivenectar.service` | **DEFAULT — confirm before implementation** (hivedoctor's is `hivedoctor.service` at [`platform.ts:40`](../../../../honeycomb/hivedoctor/src/service/platform.ts)) |
-| Unit path (user) | `~/.config/systemd/user/hivenectar.service` | mirrors [`platform.ts:118-130`](../../../../honeycomb/hivedoctor/src/service/platform.ts) `userUnitPath("linux")` |
-| Restart directives | `Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0` | mirrors [`templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts) `renderSystemdUnit` |
+| Unit name | `hivenectar.service` | **DEFAULT — confirm before implementation** (hivedoctor's is `hivedoctor.service` at [`platform.ts:40`](../../../../hivedoctor/src/service/platform.ts)) |
+| Unit path (user) | `~/.config/systemd/user/hivenectar.service` | mirrors [`platform.ts:118-130`](../../../../hivedoctor/src/service/platform.ts) `userUnitPath("linux")` |
+| Restart directives | `Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0` | mirrors [`templates.ts`](../../../../hivedoctor/src/service/templates.ts) `renderSystemdUnit` |
 
 ### Windows — Scheduled Task (per-user default)
 
-hivenectar renders a Scheduled Task XML mirroring `renderScheduledTaskXml` ([`hivedoctor/src/service/templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts)):
+hivenectar renders a Scheduled Task XML mirroring `renderScheduledTaskXml` ([`hivedoctor/src/service/templates.ts`](../../../../hivedoctor/src/service/templates.ts)):
 
 - `LogonTrigger` → start at user logon (start-on-boot equivalent without admin).
 - `RestartOnFailure` with `Interval` = `WINDOWS_RESTART_INTERVAL` (`PT1M`) → restart-on-crash.
@@ -72,38 +72,38 @@ hivenectar renders a Scheduled Task XML mirroring `renderScheduledTaskXml` ([`hi
 
 | Property | Value | Citation / status |
 |---|---|---|
-| Task name | `HivenectarDaemon` | **DEFAULT — confirm before implementation** (hivedoctor's is `HiveDoctor` at [`platform.ts:43`](../../../../honeycomb/hivedoctor/src/service/platform.ts)) |
-| Restart interval | `WINDOWS_RESTART_INTERVAL` (`PT1M`) | [`templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts) — Task Scheduler rejects sub-minute intervals (`PT5S` fails `/Create /XML`) |
-| Manager | `schtasks` (per-user, no admin/UAC) | [`platform.ts:154-173`](../../../../honeycomb/hivedoctor/src/service/platform.ts) — Windows default; `sc.exe` (Windows Service) is the enterprise opt-in at system scope only |
+| Task name | `HivenectarDaemon` | **DEFAULT — confirm before implementation** (hivedoctor's is `HiveDoctor` at [`platform.ts:43`](../../../../hivedoctor/src/service/platform.ts)) |
+| Restart interval | `WINDOWS_RESTART_INTERVAL` (`PT1M`) | [`templates.ts`](../../../../hivedoctor/src/service/templates.ts) — Task Scheduler rejects sub-minute intervals (`PT5S` fails `/Create /XML`) |
+| Manager | `schtasks` (per-user, no admin/UAC) | [`platform.ts:154-173`](../../../../hivedoctor/src/service/platform.ts) — Windows default; `sc.exe` (Windows Service) is the enterprise opt-in at system scope only |
 
-> **Windows restart interval is `PT1M`, not the POSIX 5s.** Task Scheduler rejects sub-minute intervals (`PT5S` makes `schtasks /Create /XML` fail with "(29,24):Interval:PT5S ... incorrectly formatted or out of range"); the minimum it accepts is `PT1M`. POSIX keeps `RESTART_SEC` (seconds). This is hivedoctor's `WINDOWS_RESTART_INTERVAL` constant ([`templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts)) — hivenectar adopts the same split.
+> **Windows restart interval is `PT1M`, not the POSIX 5s.** Task Scheduler rejects sub-minute intervals (`PT5S` makes `schtasks /Create /XML` fail with "(29,24):Interval:PT5S ... incorrectly formatted or out of range"); the minimum it accepts is `PT1M`. POSIX keeps `RESTART_SEC` (seconds). This is hivedoctor's `WINDOWS_RESTART_INTERVAL` constant ([`templates.ts`](../../../../hivedoctor/src/service/templates.ts)) — hivenectar adopts the same split.
 
 ---
 
 ## Platform + scope resolution
 
-hivenectar's installer resolves which manager and which scope from three injected facts (platform, home dir, privilege), mirroring hivedoctor's `resolveServicePlan` ([`hivedoctor/src/service/platform.ts:154-187`](../../../../honeycomb/hivedoctor/src/service/platform.ts)):
+hivenectar's installer resolves which manager and which scope from three injected facts (platform, home dir, privilege), mirroring hivedoctor's `resolveServicePlan` ([`hivedoctor/src/service/platform.ts:154-187`](../../../../hivedoctor/src/service/platform.ts)):
 
 | Platform | Manager | User-scope path | Citation |
 |---|---|---|---|
-| macOS (`darwin`) | launchd | `~/Library/LaunchAgents/<label>.plist` | [`platform.ts:118-130`](../../../../honeycomb/hivedoctor/src/service/platform.ts) |
-| Linux (`linux`) | systemd | `~/.config/systemd/user/<unit>.service` | [`platform.ts:118-130`](../../../../honeycomb/hivedoctor/src/service/platform.ts) |
-| Windows (`win32`) | schtasks (per-user task) | registered via `schtasks /Create /XML` (no owned file on disk) | [`platform.ts:118-130,154-173`](../../../../honeycomb/hivedoctor/src/service/platform.ts) |
+| macOS (`darwin`) | launchd | `~/Library/LaunchAgents/<label>.plist` | [`platform.ts:118-130`](../../../../hivedoctor/src/service/platform.ts) |
+| Linux (`linux`) | systemd | `~/.config/systemd/user/<unit>.service` | [`platform.ts:118-130`](../../../../hivedoctor/src/service/platform.ts) |
+| Windows (`win32`) | schtasks (per-user task) | registered via `schtasks /Create /XML` (no owned file on disk) | [`platform.ts:118-130,154-173`](../../../../hivedoctor/src/service/platform.ts) |
 
-**User scope is the default everywhere** (mirrors [`platform.ts:15-19`](../../../../honeycomb/hivedoctor/src/service/platform.ts)): it needs no root/admin and matches a per-user `npm i -g`. A privileged context MAY install a system-scoped unit; an unprivileged context MUST fall back to user scope rather than failing (the fallback ordering at [`platform.ts:160-163`](../../../../honeycomb/hivedoctor/src/service/platform.ts): `wantsSystem && canSystem ? "system" : "user"`, recording `fellBackToUser`). An unsupported platform throws and the installer surfaces a clean "unsupported platform" result.
+**User scope is the default everywhere** (mirrors [`platform.ts:15-19`](../../../../hivedoctor/src/service/platform.ts)): it needs no root/admin and matches a per-user `npm i -g`. A privileged context MAY install a system-scoped unit; an unprivileged context MUST fall back to user scope rather than failing (the fallback ordering at [`platform.ts:160-163`](../../../../hivedoctor/src/service/platform.ts): `wantsSystem && canSystem ? "system" : "user"`, recording `fellBackToUser`). An unsupported platform throws and the installer surfaces a clean "unsupported platform" result.
 
 ---
 
 ## Install flow
 
-hivenectar's installer follows hivedoctor's `createServiceModule.install` order ([`hivedoctor/src/service/index.ts:143-192`](../../../../honeycomb/hivedoctor/src/service/index.ts)):
+hivenectar's installer follows hivedoctor's `createServiceModule.install` order ([`hivedoctor/src/service/index.ts:143-192`](../../../../hivedoctor/src/service/index.ts)):
 
-1. **Resolve the plan** — platform + manager + scope + unit path ([`index.ts:138-152`](../../../../honeycomb/hivedoctor/src/service/index.ts)); an unsupported platform returns `ok: false` with a message, not a thrown stack.
-2. **Write the unit file first** (when file-based) — `mkdirp` the target dir, then `writeFile` the rendered unit text ([`index.ts:154-172`](../../../../honeycomb/hivedoctor/src/service/index.ts)); for schtasks the XML is staged beside the workspace (`~/.honeycomb/hivenectar/hivenectar-task.xml`) so `schtasks /Create /XML` can read it.
-3. **Run the manager's install argv** — `launchctl bootstrap` / `systemctl --user enable --now` / `schtasks /Create` (the `installCommands` argv, run via `execFile` with no shell and a per-command timeout); a manager-command failure returns `ok: false` so the CLI maps it to a non-zero exit ([`index.ts:174-185`](../../../../honeycomb/hivedoctor/src/service/index.ts)).
-4. **Surface an honest result message** naming the manager and scope ([`index.ts:186-191`](../../../../honeycomb/hivedoctor/src/service/index.ts)).
+1. **Resolve the plan** — platform + manager + scope + unit path ([`index.ts:138-152`](../../../../hivedoctor/src/service/index.ts)); an unsupported platform returns `ok: false` with a message, not a thrown stack.
+2. **Write the unit file first** (when file-based) — `mkdirp` the target dir, then `writeFile` the rendered unit text ([`index.ts:154-172`](../../../../hivedoctor/src/service/index.ts)); for schtasks the XML is staged beside the workspace (`~/.honeycomb/hivenectar/hivenectar-task.xml`) so `schtasks /Create /XML` can read it.
+3. **Run the manager's install argv** — `launchctl bootstrap` / `systemctl --user enable --now` / `schtasks /Create` (the `installCommands` argv, run via `execFile` with no shell and a per-command timeout); a manager-command failure returns `ok: false` so the CLI maps it to a non-zero exit ([`index.ts:174-185`](../../../../hivedoctor/src/service/index.ts)).
+4. **Surface an honest result message** naming the manager and scope ([`index.ts:186-191`](../../../../hivedoctor/src/service/index.ts)).
 
-Every shell-out is `execFile` (no shell) and never throws; every fs call is wrapped so a permission error becomes a returned `ServiceResult`, never a thrown stack (the crash-safe posture at [`index.ts:14-18`](../../../../honeycomb/hivedoctor/src/service/index.ts)). The uninstall reverses this: run the manager's uninstall argv (idempotent — a missing unit is tolerated), then delete the unit file so it cannot resurrect on next boot ([`index.ts:194-232`](../../../../honeycomb/hivedoctor/src/service/index.ts)).
+Every shell-out is `execFile` (no shell) and never throws; every fs call is wrapped so a permission error becomes a returned `ServiceResult`, never a thrown stack (the crash-safe posture at [`index.ts:14-18`](../../../../hivedoctor/src/service/index.ts)). The uninstall reverses this: run the manager's uninstall argv (idempotent — a missing unit is tolerated), then delete the unit file so it cannot resurrect on next boot ([`index.ts:194-232`](../../../../hivedoctor/src/service/index.ts)).
 
 ---
 
@@ -112,7 +112,7 @@ Every shell-out is `execFile` (no shell) and never throws; every fs call is wrap
 ### US-003b.1 — The OS restarts hivenectar on crash
 **As an** operator, **when** hivenectar crashes, **the** OS service unit restarts it within the platform's throttle, **so that** hivenectar self-heals before hivedoctor's restart rung even needs to fire.
 
-- Acceptance: on macOS, the plist has `KeepAlive=true` + `ThrottleInterval=5` (mirrors [`templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts) `renderLaunchdPlist`).
+- Acceptance: on macOS, the plist has `KeepAlive=true` + `ThrottleInterval=5` (mirrors [`templates.ts`](../../../../hivedoctor/src/service/templates.ts) `renderLaunchdPlist`).
 - Acceptance: on Linux, the unit has `Restart=always` + `RestartSec=5` (mirrors `renderSystemdUnit`).
 - Acceptance: on Windows, the task has `RestartOnFailure` with `Interval=PT1M` + `Count=999` (mirrors `renderScheduledTaskXml`).
 
@@ -125,22 +125,22 @@ Every shell-out is `execFile` (no shell) and never throws; every fs call is wrap
 ### US-003b.3 — User scope by default; no root/admin needed
 **As an** operator, **when** I install hivenectar without root/admin, **the** installer registers a user-scope unit, **so that** a per-user `npm i -g` is sufficient.
 
-- Acceptance: an unprivileged install registers a LaunchAgent / `systemctl --user` unit / per-user Scheduled Task (mirrors [`platform.ts:15-19,160-163`](../../../../honeycomb/hivedoctor/src/service/platform.ts)).
-- Acceptance: an unsupported platform returns a clean `ok: false` result, not a thrown stack (mirrors [`index.ts:138-152`](../../../../honeycomb/hivedoctor/src/service/index.ts)).
+- Acceptance: an unprivileged install registers a LaunchAgent / `systemctl --user` unit / per-user Scheduled Task (mirrors [`platform.ts:15-19,160-163`](../../../../hivedoctor/src/service/platform.ts)).
+- Acceptance: an unsupported platform returns a clean `ok: false` result, not a thrown stack (mirrors [`index.ts:138-152`](../../../../hivedoctor/src/service/index.ts)).
 
 ### US-003b.4 — Uninstall removes the unit so it does not resurrect
 **As an** operator, **when** I uninstall hivenectar, **the** installer deregisters the unit and deletes the unit file, **so that** hivenectar does not start on the next boot.
 
-- Acceptance: uninstall runs the manager's uninstall argv (idempotent on a missing unit) then removes the unit file (mirrors [`index.ts:194-232`](../../../../honeycomb/hivedoctor/src/service/index.ts)).
+- Acceptance: uninstall runs the manager's uninstall argv (idempotent on a missing unit) then removes the unit file (mirrors [`index.ts:194-232`](../../../../hivedoctor/src/service/index.ts)).
 
 ---
 
 ## Implementation notes
 
-- Unit templates (the pattern to mirror): [`honeycomb/hivedoctor/src/service/templates.ts`](../../../../honeycomb/hivedoctor/src/service/templates.ts) — `renderLaunchdPlist`, `renderSystemdUnit`, `renderScheduledTaskXml`, `renderUnit`; `RESTART_SEC = 5`; `WINDOWS_RESTART_INTERVAL = "PT1M"`; `quoteSystemdToken`; `escapeXml`.
-- Platform + scope resolution (the pattern to mirror): [`honeycomb/hivedoctor/src/service/platform.ts`](../../../../honeycomb/hivedoctor/src/service/platform.ts) — `SERVICE_LABEL`/`SYSTEMD_UNIT_NAME`/`WINDOWS_TASK_NAME` (`:37-43`); `resolveServicePlan` (`:154-187`); `userUnitPath`/`systemUnitPath` (`:117-143`); user-scope default + fallback ordering (`:15-19,160-163`).
-- Install/uninstall flow (the pattern to mirror): [`honeycomb/hivedoctor/src/service/index.ts:129-234`](../../../../honeycomb/hivedoctor/src/service/index.ts) — `createServiceModule.install` (write-unit-first, then manager argv, `:143-192`); `uninstall` (deregister + delete unit, `:194-232`); crash-safe `execFile` runner + injected `ServiceFs` (`:14-18,111-123`).
-- Service argv (install/uninstall/status commands): [`honeycomb/hivedoctor/src/service/argv.ts`](../../../../honeycomb/hivedoctor/src/service/argv.ts) (`installCommands`, `uninstallCommands`, `statusCommand`).
+- Unit templates (the pattern to mirror): [`hivedoctor/src/service/templates.ts`](../../../../hivedoctor/src/service/templates.ts) — `renderLaunchdPlist`, `renderSystemdUnit`, `renderScheduledTaskXml`, `renderUnit`; `RESTART_SEC = 5`; `WINDOWS_RESTART_INTERVAL = "PT1M"`; `quoteSystemdToken`; `escapeXml`.
+- Platform + scope resolution (the pattern to mirror): [`hivedoctor/src/service/platform.ts`](../../../../hivedoctor/src/service/platform.ts) — `SERVICE_LABEL`/`SYSTEMD_UNIT_NAME`/`WINDOWS_TASK_NAME` (`:37-43`); `resolveServicePlan` (`:154-187`); `userUnitPath`/`systemUnitPath` (`:117-143`); user-scope default + fallback ordering (`:15-19,160-163`).
+- Install/uninstall flow (the pattern to mirror): [`hivedoctor/src/service/index.ts:129-234`](../../../../hivedoctor/src/service/index.ts) — `createServiceModule.install` (write-unit-first, then manager argv, `:143-192`); `uninstall` (deregister + delete unit, `:194-232`); crash-safe `execFile` runner + injected `ServiceFs` (`:14-18,111-123`).
+- Service argv (install/uninstall/status commands): [`hivedoctor/src/service/argv.ts`](../../../../hivedoctor/src/service/argv.ts) (`installCommands`, `uninstallCommands`, `statusCommand`).
 - Sibling PRD: [`prd-004d-thehive-service-unit-and-registration`](../prd-004-hivedoctor-registry-and-thehive/prd-004d-thehive-service-unit-and-registration.md) — thehive's own service unit (the other workload daemon's analog).
 
 No open questions. The unit names (`com.hivenectar.daemon` / `hivenectar` / `HivenectarDaemon`) are flagged defaults above.
