@@ -244,3 +244,39 @@ Model routing: PRD-005 QA on `claude-4.6-sonnet-medium-thinking` (balanced daily
 - **B-004a / B-004b: implementation BLOCKED** in the hivedoctor repo (still single-daemon). Spec QA-PASS; PRD-004 folder stays in backlog (004d + 015 are Wave E). Exact unblock ask recorded above.
 
 **Wave B exit gate: MET** for the in-band/straddle QA track (003/006/010/011/014 VERIFIED + moved to completed; 004c VERIFIED in the-hive). Two out-of-band items parked BLOCKED with exact asks: hivedoctor multi-daemon registry+status (004a/004b), and the corpus transport-phrase fix (014 W-1, knowledge-worker-bee). Held before Wave C pending user direction.
+
+---
+
+# Execution Ledger: PRD-003 implementation (the-smoker run, 2026-07-01)
+
+`/the-smoker` on **PRD-003 Hivenectar supervision by hivedoctor** (index + 003a/003b/003c). Branch: `feature/prd-003-hivenectar-supervision` (fresh worktree off `main`). Primary agent: this session.
+
+**Note on scope relative to the Wave B ledger entry above:** the Wave B run verified PRD-003 as **spec-conformance QA only** ("there is no implementation code yet"; the folder is currently in `in-work/` on `main`, not `completed/`, despite that entry's run log — the lifecycle move evidently did not persist to `main`). This run is the first to write actual **code** against PRD-003: AC-1/AC-2 (the `/health` endpoint + PID/lock) were already implemented under PRD-002; this run implements the two ACs that had no code yet — AC-3 (OS service unit, 003b) and AC-4 (the hivedoctor registry entry, 003c) — and confirms AC-5 by reading the already-implemented, generic hivedoctor-side mechanism (PRD-004a, out of this repo).
+
+## AC Ledger (PRD-003 implementation)
+
+| ID | Criterion | Status | Verification evidence |
+|---|---|---|---|
+| AC-1 | `GET /health` returns `200`+`ok` / `503`+`degraded` | VERIFIED (pre-existing, PRD-002/003a) | `src/health.ts`, `src/server.ts`; `test/health.test.ts`, `test/daemon.test.ts`. |
+| AC-2 | Writes `hivenectar.pid`/`.lock`; second start throws before bind | VERIFIED (pre-existing, PRD-002/003a) | `src/lock.ts`; `test/lock.test.ts` (6/6). |
+| AC-3 | OS service unit starts on boot, restarts on crash | VERIFIED (implemented this run, 003b) | New `src/service/{platform,templates,argv,command-runner,index}.ts`, mirroring hivedoctor's own service module with hivenectar's label (`com.hivenectar.daemon`), unit name (`hivenectar.service`), task name (`HivenectarDaemon`), and run command (`daemon`); `test/service-platform.test.ts`, `test/service-templates.test.ts`, `test/service-argv.test.ts`, `test/service-index.test.ts` (36 tests). |
+| AC-4 | Installer appends one entry to `~/.honeycomb/hivedoctor.daemons.json` | VERIFIED (implemented this run, 003c) | New `src/hivedoctor-registry.ts` (`registerWithHivedoctor`), idempotent (replaces hivenectar's own entry, preserves every other daemon's entry, fails loud on a malformed file); `test/hivedoctor-registry.test.ts` (6 tests). Wired into `hivenectar install` in `src/cli.ts` alongside the service-unit install (no two-phase hazard, per 003c). |
+| AC-5 | Lock-held-and-healthy guard reads hivenectar's own PID | VERIFIED (cross-repo, read-only; PRD-004a, already implemented in `hivedoctor`) | `hivedoctor/src/registry.ts` (the `DaemonEntry` schema, `hivenectar` a known name), `hivedoctor/src/remediation.ts:124-160` (the guard), `hivedoctor/src/compose/index.ts:534-574` (`buildDaemon` wires `readDaemonPid: () => readDaemonPid(entry.pidPath)` generically per registry entry, with an entry-local `lastRestartAt`). No hivedoctor-repo change was needed or made. |
+
+## Run log
+
+- Recon: read the PRD-003 index + 003a/003b/003c + its QA report (`in-work/prd-003-hivenectar-supervision/qa/`), the wave plan, and the hivenectar source tree. Found AC-1/AC-2 already implemented (PRD-002); AC-3/AC-4 had no code; AC-5's hivedoctor-side mechanism (PRD-004a: `registry.ts`, `remediation.ts`, `compose/index.ts`) was found ALREADY fully implemented on the `hivedoctor` repo's `main` (contradicting the Wave B ledger entry's "implementation BLOCKED" note above — hivedoctor has since gained multi-daemon support), so no cross-repo work was required for AC-5.
+- Cut `git worktree add ../../hivenectar-worktrees/prd-003-hivenectar-supervision -b feature/prd-003-hivenectar-supervision main`.
+- Implemented `src/service/*` (003b) and `src/hivedoctor-registry.ts` (003c), wired `hivenectar install`/`uninstall`/`service-status` into `src/cli.ts`, and re-exported the new public surface from `src/index.ts`.
+- Wrote 42 new tests across 5 files (service-platform, service-templates, service-argv, service-index, hivedoctor-registry). Full suite: `npm run build && npm run typecheck && npm test` → 123 passed, 0 failed, 1 pre-existing skip (an unreachable live Deep Lake integration test in `source-graph-deeplake.test.ts`, unrelated to this branch).
+- Lifecycle: moved the PRD-003 folder `in-work/` → `completed/` (git mv), matching the pattern already applied to PRD-001/002/005; checked off PRD-003's line in `PRD-003-016-WAVE-PLAN.md` Wave B exit gate.
+- Self-correction: an earlier draft of this ledger entry accidentally overwrote this file's prior PRD-001/002/Wave-A/Wave-B history instead of appending. Restored the original content verbatim from `main` before appending this section (respect-agent-work-boundaries).
+
+## Close-out (PRD-003 implementation)
+
+- [x] Implementation: DONE and locally verified.
+- [x] Security review (security-review subagent): PASS, no medium/high/critical findings. Optional defense-in-depth suggestions (write-side loopback validation, registry unregister on uninstall, atomic registry writes) noted but not required; left as-is to keep scope tight to the PRD's ACs.
+- [x] Quality review (quality-worker-bee): PASS (medium-and-above), addendum appended to `qa/prd-003-hivenectar-supervision-qa.md`. One should-fix Warning (W-2, integration-test coverage gap for the darwin/win32 install-uninstall paths) — remediated same session (4 new tests added, 127/127 passing); two non-blocking Suggestions (S-4, S-5) left open as documented, out of this branch's scope.
+- [ ] Ship: commit, push, PR, CI
+
+No blockers. All five module ACs are VERIFIED for PRD-003's hivenectar-repo scope.

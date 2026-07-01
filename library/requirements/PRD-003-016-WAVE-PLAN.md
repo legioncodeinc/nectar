@@ -111,7 +111,7 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 
 **Exit gate (tied to ACs):**
 
-- [ ] 003: hivedoctor probes `/health`, the installer appends hivenectar's registry entry, and the lock-held-and-healthy guard skips a redundant restart (PRD-003 AC-1..AC-5).
+- [x] 003: hivedoctor probes `/health`, the installer appends hivenectar's registry entry, and the lock-held-and-healthy guard skips a redundant restart (PRD-003 AC-1..AC-5).
 - [ ] 004b: `hivedoctor status` reports every registered daemon (PRD-004 AC-6).
 - [ ] 004c: thehive serves the dashboard shell on boot without waiting for a workload daemon, and is upgradeable without restarting hivedoctor (PRD-004 AC-3, AC-4).
 - [ ] 006: `node:fs.watch` intake debounces to one cycle; classification maps to new/changed/missing; the 5-step ladder is implemented with the deliberate gaps preserved (PRD-006 ACs).
