@@ -102,3 +102,54 @@ export type {
   LadderStep,
   LadderAction,
 } from "./registration/ladder.js";
+
+// PRD-003b: OS service unit (launchd / systemd / schtasks).
+export {
+  resolveServicePlan,
+  resolveServiceContext,
+  SERVICE_LABEL,
+  SYSTEMD_UNIT_NAME,
+  WINDOWS_TASK_NAME,
+  HIVENECTAR_RUN_COMMAND,
+  RESTART_SEC,
+  WINDOWS_RESTART_INTERVAL,
+  renderUnit,
+  installCommands,
+  uninstallCommands,
+  statusCommand,
+  createExecFileRunner,
+  createServiceModule,
+  createNodeServiceFs,
+  serviceStatus,
+} from "./service/index.js";
+export type {
+  ServicePlan,
+  ServiceEnvironment,
+  ServiceCommand,
+  CommandRunner,
+  CommandResult,
+  CommandRunOptions,
+  ServiceModule,
+  ServiceModuleDeps,
+  ServiceResult,
+  ServiceStatus,
+  ServiceFs,
+} from "./service/index.js";
+
+// PRD-003c: hivenectar's entry in hivedoctor's daemon registry.
+export {
+  HIVENECTAR_DAEMON_NAME,
+  DEFAULT_PROBE_INTERVAL_MS,
+  DEFAULT_STARTUP_GRACE_MS,
+  DEFAULT_RESTART_GIVE_UP_THRESHOLD,
+  DEFAULT_RESTART_COOLDOWN_MS,
+  HivedoctorRegistryError,
+  defaultHivedoctorRegistryPath,
+  buildHivenectarRegistryEntry,
+  registerWithHivedoctor,
+} from "./hivedoctor-registry.js";
+export type {
+  HivedoctorRegistryEntry,
+  RegisterWithHivedoctorOptions,
+  RegisterWithHivedoctorResult,
+} from "./hivedoctor-registry.js";
