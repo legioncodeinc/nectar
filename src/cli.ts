@@ -20,6 +20,7 @@ import { assembleDaemon } from "./daemon.js";
 import { resolveConfig } from "./config.js";
 import { createServiceModule, serviceStatus } from "./service/index.js";
 import { registerWithHivedoctor } from "./hivedoctor-registry.js";
+import { emitInstalled, emitUninstalled, recordDaemonStart } from "./telemetry-usage/emit.js";
 
 const USAGE = `hivenectar - semantic memory layer over a source tree
 
@@ -75,17 +76,29 @@ async function runInstall(): Promise<number> {
     return 1;
   }
 
+  // Usage telemetry: fired only on full success, after the user-facing output.
+  // emitInstalled never throws and is bounded, so it cannot alter the exit code.
+  if (serviceResult.ok) {
+    await emitInstalled();
+  }
+
   return serviceResult.ok ? 0 : 1;
 }
 
 /** `hivenectar uninstall` (PRD-003b): deregisters the OS service unit so it does not resurrect. */
 async function runUninstall(): Promise<number> {
+  // Usage telemetry: fire BEFORE teardown (fire-and-forget) so the event has a
+  // chance to leave while the service unit is being removed. Awaited only
+  // after teardown completes; emitUninstalled never throws, so the uninstall
+  // outcome and exit code are unaffected either way.
+  const telemetryDone = emitUninstalled();
   const serviceModule = createServiceModule({
     execPath: resolveServiceExecPath(),
     preferSystemScope: preferSystemScope(),
   });
   const result = await serviceModule.uninstall();
   process.stdout.write(`${result.message}\n`);
+  await telemetryDone;
   return result.ok ? 0 : 1;
 }
 
@@ -132,6 +145,10 @@ async function runDaemon(): Promise<void> {
   process.stdout.write(
     `hivenectar daemon listening on http://${daemon.config.host}:${port}/health\n`,
   );
+  // Usage telemetry: first_run (once per machine) + updated (on a version
+  // change) fire AFTER a successful bind. Fire-and-forget: recordDaemonStart
+  // never throws and the daemon does not wait on it.
+  void recordDaemonStart();
   // Keep the process alive; shutdown is driven by SIGINT/SIGTERM.
 }
 
