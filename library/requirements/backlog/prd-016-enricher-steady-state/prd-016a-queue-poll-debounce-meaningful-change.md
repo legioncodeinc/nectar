@@ -131,7 +131,7 @@ A reformat changes the content hash (so raw-hash equality would trigger a wastef
 ## Flagged defaults
 
 - **[DEFAULT — confirm before implementation]** Enricher poll interval: 30s (`ai/enricher-and-llm-model.md` § Enricher queue debounce — "default 30 seconds"). From corpus, confirm.
-- **[DEFAULT — confirm before implementation]** Watcher intake debounce: 500ms (`ai/enricher-and-llm-model.md` § Watcher intake debounce; mirrored from Honeycomb's `fs.watch` + `setTimeout` pattern, DECISION #4). From corpus, confirm.
+- **[DEFAULT — confirm before implementation]** Watcher intake debounce: 500ms. The corpus (`ai/enricher-and-llm-model.md` § Watcher intake debounce) specifies the mechanism but leaves the window value unspecified; the 500ms figure mirrors Honeycomb's `honeycomb/src/daemon/runtime/services/file-watcher.ts:177` (`fs.watch` + `setTimeout` pattern, DECISION #4). Mirrored default, confirm.
 - **[DEFAULT — confirm before implementation]** `REDESCRIBE_THRESHOLD`: 0.85 (`ai/enricher-and-llm-model.md` § The "meaningful change" heuristic — "default 0.85"; configurable per-repo via `~/.honeycomb/hivenectar.json`). From corpus, confirm.
 
 ---
@@ -145,4 +145,4 @@ A reformat changes the content hash (so raw-hash equality would trigger a wastef
 - [`../../../requirements/MASTER-PRD-INDEX.md`](../../../requirements/MASTER-PRD-INDEX.md) — DECISION #4 (`node:fs.watch`, not chokidar).
 - `honeycomb/src/daemon/runtime/services/poll-loop.ts:1-227` — the adaptive poll loop (`buildWorkerPollLoop`) the cadence mirrors.
 - `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts:171, 210-217` — the worker harness + `DEFAULT_POLL_INTERVAL_MS` the enricher overrides to 30s.
-- [`../../backlog/prd-006-file-registration-protocol/`](../../backlog/prd-006-file-registration-protocol/) — the re-association ladder the debounced intake feeds.
+- [`../../completed/prd-006-file-registration-protocol/`](../../completed/prd-006-file-registration-protocol/) — the re-association ladder the debounced intake feeds.

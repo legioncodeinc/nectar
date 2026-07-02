@@ -110,7 +110,7 @@ Existing descriptions stay valid until proven otherwise. An operator who swaps m
 - [`./prd-016-enricher-steady-state-index.md`](./prd-016-enricher-steady-state-index.md)
 - [`./prd-016a-queue-poll-debounce-meaningful-change.md`](./prd-016a-queue-poll-debounce-meaningful-change.md) — the heuristic that gates this call.
 - [`./prd-016c-failure-handling-persistent-alert.md`](./prd-016c-failure-handling-persistent-alert.md) — what happens when this call fails.
-- [`../prd-010-portkey-gateway/prd-010a-portkey-transport-reuse.md`](../prd-010-portkey-gateway/prd-010a-portkey-transport-reuse.md) — the transport this call uses (mechanics owner).
-- [`../prd-010-portkey-gateway/prd-010b-model-selection-and-describe-model.md`](../prd-010-portkey-gateway/prd-010b-model-selection-and-describe-model.md) — the Gemini 2.5 Flash default + the `describe_model` column's shared contract.
-- [`../prd-014-embeddings-provider-switch/`](../prd-014-embeddings-provider-switch/) — the embeddings provider switch this PRD consumes for the 768-dim embedding.
+- [`../../in-work/prd-010-portkey-gateway/prd-010a-portkey-transport-reuse.md`](../../in-work/prd-010-portkey-gateway/prd-010a-portkey-transport-reuse.md) — the transport this call uses (mechanics owner).
+- [`../../in-work/prd-010-portkey-gateway/prd-010b-model-selection-and-describe-model.md`](../../in-work/prd-010-portkey-gateway/prd-010b-model-selection-and-describe-model.md) — the Gemini 2.5 Flash default + the `describe_model` column's shared contract.
+- [`../../in-work/prd-014-embeddings-provider-switching/`](../../in-work/prd-014-embeddings-provider-switching/) — the embeddings provider switch this PRD consumes for the 768-dim embedding.
 - [`../../../knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) — AUTHORITATIVE: the model-call shape, `describe_model` audit, the `inherited-from:<prev_content_hash>` marker, and the embeddings/BM25-fallback posture.

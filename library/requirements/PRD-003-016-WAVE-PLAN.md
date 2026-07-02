@@ -125,7 +125,7 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 
 ### Parallel item - PRD-017 service check-in + SQLite telemetry (added 2026-07-02)
 
-**PRD:** 017 (in-band; index + 017a/b/c under `in-work/prd-017-service-checkin-and-sqlite-telemetry/`, moved from `backlog/` 2026-07-02 when the implementation landed). Postdates this plan's commissioning; profiled in the dependency map Section 4. **Status: IMPLEMENTED + merged on hivenectar `main`** (`src/telemetry/{db,checkin,metrics,logs,index}.ts`, `src/hivedoctor-registry.ts` `telemetryDbPath`, `src/daemon.ts` wiring; 10/10 module ACs verified per the apiary execution ledger). Held in `in-work/`, not `completed/`, until its on-disk QA report lands.
+**PRD:** 017 (in-band; index + 017a/b/c under `completed/prd-017-service-checkin-and-sqlite-telemetry/`). Postdates this plan's commissioning; profiled in the dependency map Section 4. **Status: COMPLETE.** Implemented + merged on hivenectar `main` (`src/telemetry/{db,checkin,metrics,logs,index}.ts`, `src/hivedoctor-registry.ts` `telemetryDbPath`, `src/daemon.ts` wiring); retrospective QA PASS-with-warnings on disk (2026-07-02, all 10 module + 17 sub-PRD ACs traced to code and AC-labeled tests, #33 amendments confirmed); folder moved to `completed/`. The one Warning (all 5 metrics counters dormant in production because the registration pipeline is not constructed on the live daemon boot path) is an inherited PRD-006 wiring gap, tracked for the Wave C integration, not a 017 defect.
 
 **Placement rationale:** its hard in-set gates (002 daemon + health source, 003 registry writer + install path, 004a registry schema) are all complete, so it does not belong to any pending wave's entry gate. It runs in parallel with Wave C. Its counter wiring into the 007/016 pipeline paths is additive and fail-soft; those touchpoints land whenever 007/016 land, without gating either direction.
 
@@ -137,7 +137,7 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 - [x] 017b: a hivedoctor-style read-only WAL poll observes live since-restart metrics with no push channel and no lock stalls (AC-4, AC-9). *Verified: `test/telemetry/integration.test.ts` "a hivedoctor-style read-only reader"; 5-counter `service_metrics` snapshot per the pinned Contract B.*
 - [x] 017c: logs carry verbosity levels and the store rotates at its bound (AC-5, AC-8). *Verified: `src/telemetry/logs.ts` (`DEFAULT_LOG_ROW_CAP=5000`, redaction + drop-unredactable), `test/telemetry/logs.test.ts`.*
 - [x] Cross-cutting: telemetry failure is fail-soft, never blocking boot or the nectar pipeline (AC-7); no metric or log row carries sensitive data (AC-10). *Verified: fail-soft tests across `checkin/metrics/logs` suites + `createNullTelemetry`; no-sensitive-data tests in `metrics.test.ts`/`logs.test.ts`.*
-- [ ] Retrospective Wave-0-standard QA report written into `in-work/prd-017-.../qa/`; on PASS, move the folder to `completed/`.
+- [x] Retrospective Wave-0-standard QA report written (`completed/prd-017-.../qa/prd-017-service-checkin-and-sqlite-telemetry-qa.md`, PASS-with-warnings, 0 Critical / 1 inherited Warning / 1 Suggestion); folder moved to `completed/` 2026-07-02.
 
 **Known dormancy (documented, not a defect):** the `descriptionsGenerated`/`embeddingsComputed` counters and the registration-pipeline live wiring read 0 in production until PRD-007/016 land and write described/embedded rows through the same `appendVersion` seam; no further 017 wiring is needed then (apiary ledger QA addendum, `src/telemetry/metrics.ts`).
 
@@ -261,7 +261,7 @@ The table above is preserved as the scan-time record; current disposition:
 - **R-10: CLOSED.** Corpus carries `confidence`, `skipped-deleted`, and the user-authorized `fingerprint` column.
 - **R-11: CLOSED.** PRD-013 index slug corrected 2026-07-02.
 - **R-12: CLOSED.** PRD-001/002 moved to `completed/` (user-approved); lifecycle-equals-location holds across the tree.
-- **R-13 (NEW; downgraded to LOW 2026-07-02, later).** PRD-017 is implemented + merged on hivenectar `main` and the hivedoctor poll/merge side is built, so the original risk (unbuilt consumers) is closed. The two #33 amendments (heartbeat 5s, 24h age-bound log rotation) are applied in `src/telemetry/` with tests green. Residual: the retrospective on-disk QA report (the folder's `in-work/` -> `completed/` condition).
+- **R-13: CLOSED 2026-07-02.** PRD-017 implemented + merged, #33 amendments applied, retrospective QA PASS-with-warnings on disk, folder in `completed/`. Residual tracking item (not a 017 risk): the inherited PRD-006 live-wiring gap that keeps the metrics counters dormant until the registration pipeline is constructed on the daemon boot path (Wave C integration).
 
 ---
 
@@ -269,7 +269,7 @@ The table above is preserved as the scan-time record; current disposition:
 
 The program is complete only when all of the following hold, across all three repositories:
 
-1. **Every PRD 001 to 017 is authored, QA-passed at medium-and-above, and implemented**, with every module acceptance criterion and every sub-PRD user story verified. As of 2026-07-02 (later update): 001-006 complete (003/006 as code; 004 across all four sub-PRDs in the owning repos); 017 implemented + merged, in `in-work/` pending its retrospective QA report; 010/011/014 in `in-work/` (spec-QA'd, implementation open); 007/008/009/012/013/015/016 QA-pending; QA is a hard gate (R-1).
+1. **Every PRD 001 to 017 is authored, QA-passed at medium-and-above, and implemented**, with every module acceptance criterion and every sub-PRD user story verified. As of 2026-07-02 (PM update): 001-006 and 017 complete (003/006/017 as code; 004 across all four sub-PRDs in the owning repos); 010/011/014 in `in-work/` (spec-QA'd, implementation in flight on `feature/smoker-wave-b-impl-and-wave0-qa`); 007/008/009/012/013/015/016 QA-pending or in QA; QA is a hard gate (R-1).
 2. **The out-of-band PRDs are merged in their owning repos:** 004a/004b in `hivedoctor` (both landed); 004c/004d in `honeycomb`/`thehive` (both landed); 015 in `thehive` (open); 005 and 013 in the `honeycomb` data/recall layer (open); 010/014 straddle placement resolved (R-3). PRD-017's poll-side partners (hivedoctor PRD-001/002, the-hive PRD-004/005) have landed in their owning repos.
 3. **No deferrals remain unless explicitly authorized.** The "no deferrals unless explicitly authorized" mandate means each of the following must be either resolved or carry a recorded user authorization to defer:
   - PRD-009's after-013 deferral (R-4).

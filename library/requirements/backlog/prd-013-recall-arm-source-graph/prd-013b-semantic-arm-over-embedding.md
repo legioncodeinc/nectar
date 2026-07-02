@@ -27,7 +27,7 @@ This sub-PRD adds a `source_graph_versions` entry to `SEMANTIC_ARMS` (`recall.ts
 
 ## The 768-dim contract
 
-The `embedding` column is `FLOAT4[]`, **768-dim**, vector over `title + ' ' + description` — the same dimensionality as `sessions.message_embedding` and `memory.summary_embedding`, which is the whole reason the same hybrid pipeline can query all three ([PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) § "The `embedding` column"; [`recall-integration.md`](../../../knowledge/private/data/recall-integration.md) § "Fusion with the other arms"). `runSemanticArms` rejects any non-768 query vector before any arm runs (`recall.ts:1025`: `queryVector.length !== EMBEDDING_DIMS → null`), so the semantic arm never executes on a wrong-dim query. PRD-014's provider switch honors this: both the local nomic default and the Cohere-via-Portkey opt-in produce 768-dim vectors, or the guard discards the vector.
+The `embedding` column is `FLOAT4[]`, **768-dim**, vector over `title + ' ' + description` — the same dimensionality as `sessions.message_embedding` and `memory.summary_embedding`, which is the whole reason the same hybrid pipeline can query all three ([PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) § "The `embedding` column"; [`recall-integration.md`](../../../knowledge/private/data/recall-integration.md) § "Fusion with the other arms"). `runSemanticArms` rejects any non-768 query vector before any arm runs (`recall.ts:1025`: `queryVector.length !== EMBEDDING_DIMS → null`), so the semantic arm never executes on a wrong-dim query. PRD-014's provider switch honors this: both the local nomic default and the Cohere-via-Portkey opt-in produce 768-dim vectors, or the guard discards the vector.
 
 ## The `SEMANTIC_ARMS` entry
 
@@ -63,7 +63,7 @@ The new entry:
 
 ### The version-table nuance (verified constraint)
 
-`source_graph_versions` is **append-only**, one row per observed state of a file (`MAX(seq)` per nectar is the "latest version" query, [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)). The embedding lives on the version row, not on a current-state row as it does on `memories`/`sessions`. This is the one place the source-graph semantic arm diverges from its siblings, and the divergence is a verified constraint, not an invented value:
+`source_graph_versions` is **append-only**, one row per observed state of a file (`MAX(seq)` per nectar is the "latest version" query, [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)). The embedding lives on the version row, not on a current-state row as it does on `memories`/`sessions`. This is the one place the source-graph semantic arm diverges from its siblings, and the divergence is a verified constraint, not an invented value:
 
 - `vectorSearch` (`recall.ts:943-953`, `storage/vector.ts`) matches the `embedding` column directly and returns scored ids. On an append-only version table, this matches **individual version rows** — including non-latest or undescribed rows whose embedding is non-null — and returns their nectars. A file with two described versions therefore can return two matches for the same nectar.
 - The existing `runSemanticArm` dedups by id within the arm (`recall.ts:976-980`, the `seen` set), and `fuseHits` dedups cross-arm by `source+id` (`recall.ts:403-457`). So a nectar hit twice from the semantic arm collapses to one entry, and a nectar hit by both arms fuses its contributions — the dedup is correct.
@@ -132,11 +132,11 @@ Adding the spec to `SEMANTIC_ARMS` is the integration: `runSemanticArms` iterate
 - [PRD-013](./prd-013-recall-arm-source-graph-index.md) — the module index.
 - [PRD-013a](./prd-013a-lexical-arm-builder-and-weight.md) — the lexical arm this semantic arm pairs with.
 - [PRD-013c](./prd-013c-graceful-bm25-fallback.md) — the graceful fallback when embeddings are off.
-- [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) § "The `embedding` column" — the 768-dim nullable column.
-- [PRD-014](../prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md) — the embeddings provider producing the 768-dim vector.
+- [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) § "The `embedding` column" — the 768-dim nullable column.
+- [PRD-014](../../in-work/prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md) — the embeddings provider producing the 768-dim vector.
 - [`knowledge/private/data/recall-integration.md`](../../../knowledge/private/data/recall-integration.md) § "The added guarded arm", § "Fusion with the other arms", § "Structural-vs-semantic complementarity in practice".
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:852-888`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `SemanticArmSpec` + `SEMANTIC_ARMS`.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:898-984`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `buildSemanticHydrateSql` + `runSemanticArm`.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:1008-1032`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `runSemanticArms` (embeds once, iterates `SEMANTIC_ARMS`).
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:1041-1045, 1073-1075`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `embeddingColumnFor` + `idColumnFor` (rerank seam).
-- [`honeycomb/src/daemon/storage/vector.ts:35, 75-84`](../../../../honeycomb/src/daemon/storage/vector.ts) — `EMBEDDING_DIMS` + `assertEmbeddingDim`.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:852-888` — `SemanticArmSpec` + `SEMANTIC_ARMS`.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:898-984` — `buildSemanticHydrateSql` + `runSemanticArm`.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:1008-1032` — `runSemanticArms` (embeds once, iterates `SEMANTIC_ARMS`).
+- `honeycomb/src/daemon/runtime/memories/recall.ts:1041-1045, 1073-1075` — `embeddingColumnFor` + `idColumnFor` (rerank seam).
+- `honeycomb/src/daemon/storage/vector.ts:35, 75-84` — `EMBEDDING_DIMS` + `assertEmbeddingDim`.

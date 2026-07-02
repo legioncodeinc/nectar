@@ -4,17 +4,17 @@
 
 ## Overview
 
-This sub-PRD owns the three remaining `/api/source-graph` endpoints: the **build trigger** (`/build`, modeled on honeycomb's `/api/graph/build`), the **status surface** (`/status` — queue depth + `describe_status` counts + cost counter), and the **projection CRUD** (read + regenerate `.honeycomb/nectars.json`). All three attach to the group 008a scaffolds and share its `resolveScope` thunk; all three mirror `mountGraphApi`'s handler shape (resolve scope → delegate → failure-as-data) and reach storage solely through the injected storage client ([`honeycomb/src/daemon/runtime/codebase/api.ts:304-347`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts)).
+This sub-PRD owns the three remaining `/api/source-graph` endpoints: the **build trigger** (`/build`, modeled on honeycomb's `/api/graph/build`), the **status surface** (`/status` — queue depth + `describe_status` counts + cost counter), and the **projection CRUD** (read + regenerate `.honeycomb/nectars.json`). All three attach to the group 008a scaffolds and share its `resolveScope` thunk; all three mirror `mountGraphApi`'s handler shape (resolve scope → delegate → failure-as-data) and reach storage solely through the injected storage client (`honeycomb/src/daemon/runtime/codebase/api.ts:304-347`).
 
 Each endpoint maps a corpus-named CLI command ([`knowledge/private/overview.md`](../../../knowledge/private/overview.md)) onto an HTTP verb so the dashboard (PRD-015, hosted by thehive) can drive the same mechanics an operator drives from the CLI: `/build` mirrors `honeycomb hivenectar brood` (PRD-007), `/status` reads the queue the enricher polls (PRD-016), and the projection endpoints mirror `rebuild-projection` (PRD-011). The mechanics themselves are owned by those PRDs; this sub-PRD owns the HTTP handlers that invoke them.
 
 ## Goals
 
-- Mount `POST /api/source-graph/build` as a trigger that invokes the brooding pipeline (PRD-007), modeled on honeycomb's `POST /api/graph/build` at [`honeycomb/src/daemon/runtime/codebase/api.ts:318-330`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts).
+- Mount `POST /api/source-graph/build` as a trigger that invokes the brooding pipeline (PRD-007), modeled on honeycomb's `POST /api/graph/build` at `honeycomb/src/daemon/runtime/codebase/api.ts:318-330`.
 - Mount `GET /api/source-graph/status` that returns queue depth (pending `source_graph_versions` rows), `describe_status` counts, and the cost counter — the same counters an operator reads.
 - Mount the **projection CRUD** endpoints: read the current projection and trigger a regeneration, mirroring the `rebuild-projection` CLI (PRD-011).
-- Resolve scope per-request on every endpoint (mirroring [`codebase/api.ts:309-310`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts)) and reach storage solely through the injected storage client (FR-6 — [`server.ts:13-16`](../../../../honeycomb/src/daemon/runtime/server.ts)).
-- Surface every build/regenerate failure as a 500 data body (`{ error: "build_failed", reason }` / `{ error: "regenerate_failed", reason }`), never an unhandled throw, mirroring [`codebase/api.ts:324-329`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts).
+- Resolve scope per-request on every endpoint (mirroring `honeycomb/src/daemon/runtime/codebase/api.ts:309-310`) and reach storage solely through the injected storage client (FR-6 — `honeycomb/src/daemon/runtime/server.ts:13-16`).
+- Surface every build/regenerate failure as a 500 data body (`{ error: "build_failed", reason }` / `{ error: "regenerate_failed", reason }`), never an unhandled throw, mirroring `honeycomb/src/daemon/runtime/codebase/api.ts:324-329`.
 
 ## Non-Goals
 
@@ -31,7 +31,7 @@ Each endpoint maps a corpus-named CLI command ([`knowledge/private/overview.md`]
 
 ### POST /api/source-graph/build
 
-**What it does:** Triggers a brood (the one-time full-codebase description pipeline, or a forced re-describe). Modeled on honeycomb's `POST /api/graph/build`, which runs the graph worker end-to-end and returns the result, surfacing a build error as a 500 data body ([`honeycomb/src/daemon/runtime/codebase/api.ts:318-330`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts)).
+**What it does:** Triggers a brood (the one-time full-codebase description pipeline, or a forced re-describe). Modeled on honeycomb's `POST /api/graph/build`, which runs the graph worker end-to-end and returns the result, surfacing a build error as a 500 data body (`honeycomb/src/daemon/runtime/codebase/api.ts:318-330`).
 
 ```ts
 group.post("/build", async (c) => {
@@ -68,7 +68,7 @@ group.post("/build", async (c) => {
 
 ### GET /api/source-graph/status
 
-**What it does:** Returns the coarse pipeline status an operator and the dashboard read: queue depth (the count of `source_graph_versions` rows with `describe_status = 'pending'` the enricher polls), the `describe_status` breakdown (described / pending / failed / skipped), and the cumulative cost counter. The queue-depth query is the same "latest pending version per nectar" shape the enricher's pending-work query uses ([`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) § Enricher queue debounce; [`prd-016a`](../prd-016-enricher-steady-state/prd-016a-queue-poll-debounce-meaningful-change.md)).
+**What it does:** Returns the coarse pipeline status an operator and the dashboard read: queue depth (the count of `source_graph_versions` rows with `describe_status = 'pending'` the enricher polls), the `describe_status` breakdown (one counter per real enum value: `pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`, `skipped-deleted`), and the cumulative cost counter. The queue-depth query is the same "latest pending version per nectar" shape the enricher's pending-work query uses ([`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) § Enricher queue debounce; [`prd-016a`](../prd-016-enricher-steady-state/prd-016a-queue-poll-debounce-meaningful-change.md)).
 
 ```ts
 group.get("/status", async (c) => {
@@ -89,18 +89,25 @@ group.get("/status", async (c) => {
 ```json
 {
   "queueDepth": 12,
-  "describeStatus": { "described": 1842, "pending": 12, "failed": 3, "skipped": 143 },
+  "describeStatus": {
+    "pending": 12,
+    "described": 1842,
+    "failed": 3,
+    "skipped-too-large": 40,
+    "skipped-binary": 61,
+    "skipped-deleted": 42
+  },
   "costSpentUsd": 2.71,
   "degraded": false
 }
 ```
 
 - `queueDepth` — pending rows awaiting the enricher (the latest-pending-per-nectar count).
-- `describeStatus` — the `describe_status` column breakdown (the column lives on `source_graph_versions`, [`knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md)).
+- `describeStatus` — the `describe_status` column breakdown, one counter per real enum value (`pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`, `skipped-deleted`), carried verbatim from the schema's six-value column enum (the column lives on `source_graph_versions`, [`knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md); the `DescribeStatus` union at `src/source-graph/model.ts:38-53`). The three `skipped-*` reasons stay distinct and are never collapsed into a single `skipped` bucket.
 - `costSpentUsd` — the cumulative brooding/enricher cost counter.
-- `degraded` — `true` when the status read could not reach the table (mirrors the per-arm fail-soft: a missing table degrades to an empty status, never a 500-on-boot — [`honeycomb/src/daemon/runtime/memories/recall.ts:24-35`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts)).
+- `degraded` — `true` when the status read could not reach the table (mirrors the per-arm fail-soft: a missing table degrades to an empty status, never a 500-on-boot — `honeycomb/src/daemon/runtime/memories/recall.ts:24-35`).
 
-This endpoint is **read-only** and cheap (aggregate counts, not a full scan), mirroring honeycomb's coarse `/health`/`/api/status` posture (no heavy query for a liveness/status read — [`honeycomb/src/daemon/runtime/server.ts:318-341`](../../../../honeycomb/src/daemon/runtime/server.ts)).
+This endpoint is **read-only** and cheap (aggregate counts, not a full scan), mirroring honeycomb's coarse `/health`/`/api/status` posture (no heavy query for a liveness/status read — `honeycomb/src/daemon/runtime/server.ts:330-383`).
 
 ---
 
@@ -151,7 +158,7 @@ The projection-not-sidecar invariant holds: these endpoints never write the proj
 
 **Acceptance criteria:**
 - AC-008c.1.1 Given a resolvable scope, when I `POST /api/source-graph/build`, then the handler invokes PRD-007's brood pipeline with the resolved scope + flags and returns its result.
-- AC-008c.1.2 Given a pipeline failure, then the handler returns `{ error: "build_failed", reason }` with status 500, mirroring [`codebase/api.ts:324-329`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts).
+- AC-008c.1.2 Given a pipeline failure, then the handler returns `{ error: "build_failed", reason }` with status 500, mirroring `honeycomb/src/daemon/runtime/codebase/api.ts:324-329`.
 - AC-008c.1.3 Given `force: true`, then the pipeline re-describes every file, mirroring `brood --force` ([`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md)).
 
 ### US-008c.2 — Read pipeline status
@@ -159,9 +166,9 @@ The projection-not-sidecar invariant holds: these endpoints never write the proj
 **As a** operator, **I want to** `GET /api/source-graph/status`, **so that** I see queue depth, `describe_status` counts, and cost at a glance.
 
 **Acceptance criteria:**
-- AC-008c.2.1 Given a resolvable scope, when I `GET /api/source-graph/status`, then the handler returns `queueDepth` (latest-pending-per-nectar count), `describeStatus` (the column breakdown), and `costSpentUsd`.
-- AC-008c.2.2 Given the table is missing on a fresh workspace, then the handler returns a degraded status (empty counts, `degraded: true`), never a 500 — mirroring the per-arm fail-soft at [`recall.ts:24-35`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts).
-- AC-008c.2.3 Given the status read, then it issues aggregate counts only (no full scan), mirroring the coarse `/health`/`/api/status` posture at [`server.ts:318-341`](../../../../honeycomb/src/daemon/runtime/server.ts).
+- AC-008c.2.1 Given a resolvable scope, when I `GET /api/source-graph/status`, then the handler returns `queueDepth` (latest-pending-per-nectar count), `describeStatus` (a counter per real `describe_status` enum value: `pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`, `skipped-deleted`), and `costSpentUsd`.
+- AC-008c.2.2 Given the table is missing on a fresh workspace, then the handler returns a degraded status (empty counts, `degraded: true`), never a 500 — mirroring the per-arm fail-soft at `honeycomb/src/daemon/runtime/memories/recall.ts:24-35`.
+- AC-008c.2.3 Given the status read, then it issues aggregate counts only (no full scan), mirroring the coarse `/health`/`/api/status` posture at `honeycomb/src/daemon/runtime/server.ts:330-383`.
 
 ### US-008c.3 — Read and regenerate the projection
 
@@ -176,12 +183,12 @@ The projection-not-sidecar invariant holds: these endpoints never write the proj
 
 ## Implementation notes
 
-- **Inject the mechanics, do not reach storage directly for behavior.** Each handler takes an injected function (`options.runBrood`, `options.readSourceGraphStatus`, `options.readProjection`, `options.rebuildProjection`) owned by the mechanic's PRD; only the status read issues a direct storage count query (through the injected storage client — FR-6, [`server.ts:13-16`](../../../../honeycomb/src/daemon/runtime/server.ts)).
+- **Inject the mechanics, do not reach storage directly for behavior.** Each handler takes an injected function (`options.runBrood`, `options.readSourceGraphStatus`, `options.readProjection`, `options.rebuildProjection`) owned by the mechanic's PRD; only the status read issues a direct storage count query (through the injected storage client — FR-6, `honeycomb/src/daemon/runtime/server.ts:13-16`).
 - **Shared `resolveScope`.** All four endpoints use the same `resolveScope` thunk 008a establishes and 008b shares; the `NO_ORG_BODY` 400 is uniform.
-- **Build mirrors `/api/graph/build` exactly in shape.** Resolve scope → delegate → failure-as-data is the `runGraphBuild` pattern at [`codebase/api.ts:318-330`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts); hivenectar's variant swaps the graph worker for the brood pipeline.
-- **Status is coarse + cheap.** The status endpoint issues aggregate counts, not a full table scan, mirroring honeycomb's `/health` posture (a cheap probe — [`server.ts:318-341`](../../../../honeycomb/src/daemon/runtime/server.ts)). The queue-depth count reuses the enricher's latest-pending-per-nectar semantics.
+- **Build mirrors `/api/graph/build` exactly in shape.** Resolve scope → delegate → failure-as-data is the `runGraphBuild` pattern at `honeycomb/src/daemon/runtime/codebase/api.ts:318-330`; hivenectar's variant swaps the graph worker for the brood pipeline.
+- **Status is coarse + cheap.** The status endpoint issues aggregate counts, not a full table scan, mirroring honeycomb's `/health` posture (a cheap probe — `honeycomb/src/daemon/runtime/server.ts:330-383`). The queue-depth count reuses the enricher's latest-pending-per-nectar semantics.
 - **Projection endpoints are thin.** `readProjection`/`rebuildProjection` delegate entirely to PRD-011; this sub-PRD adds no projection logic of its own.
-- **`describe_status` values.** The status breakdown enumerates the column's values (`described` / `pending` / `failed` / `skipped`), carried from [`knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md); no new values invented here.
+- **`describe_status` values.** The status breakdown reports one counter per real `describe_status` enum value: the six values `pending`, `described`, `failed`, `skipped-too-large`, `skipped-binary`, `skipped-deleted`, carried verbatim from the schema's six-value column enum ([`knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md); the `DescribeStatus` union at `src/source-graph/model.ts:38-53`). No new values are invented, and the three `skipped-*` reasons are kept distinct (never collapsed into a single `skipped` bucket, since `skipped-deleted` is load-bearing: it is distinct from `failed` so the enricher does not keep retrying a file that is gone). If an operator-facing rollup of the three `skipped-*` counts is ever surfaced, it is labeled explicitly as an aggregate of those three real values, not a new enum value.
 
 ---
 
@@ -191,7 +198,7 @@ The projection-not-sidecar invariant holds: these endpoints never write the proj
 - [`./prd-008a-route-group-scaffolding.md`](./prd-008a-route-group-scaffolding.md) — the group + shared `resolveScope`.
 - [`./prd-008b-search-endpoint.md`](./prd-008b-search-endpoint.md) — the sibling search handler.
 - [`../prd-007-brooding-process/prd-007-brooding-process-index.md`](../prd-007-brooding-process/prd-007-brooding-process-index.md) — owns the brood pipeline `/build` invokes.
-- [`../prd-011-portable-projection/prd-011-portable-projection-index.md`](../prd-011-portable-projection/prd-011-portable-projection-index.md) — owns the projection format + rebuild the projection endpoints invoke.
+- [`../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md`](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md) — owns the projection format + rebuild the projection endpoints invoke.
 - [`../prd-016-enricher-steady-state/prd-016a-queue-poll-debounce-meaningful-change.md`](../prd-016-enricher-steady-state/prd-016a-queue-poll-debounce-meaningful-change.md) — the pending-work query whose shape the status `queueDepth` mirrors.
 - [`../../../knowledge/private/overview.md`](../../../knowledge/private/overview.md) — the CLI commands these endpoints mirror onto HTTP.
 - [`../../../knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) — the `describe_status` column the status breakdown reads.

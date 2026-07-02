@@ -426,3 +426,84 @@ The CodeRabbit Major "Step-4 fingerprints disappear across restarts" is now CLOS
 - **Tests:** restart-survival test `test/registration-service.test.ts` "step 4 reads the PERSISTED fingerprint from the version row (survives restart, no in-memory cache)" (registers a file so its row carries a fingerprint, then with NO in-memory state runs step 4 for a moved-and-edited file and asserts the injected fuzzy step receives the missing candidate's persisted `version.fingerprint` and carries the nectar). Schema test `test/source-graph.test.ts` "source_graph_versions carries a nullable fingerprint column ... and still passes the guard". Deep Lake mapping: `test/source-graph-deeplake.test.ts` "appendVersion maps the fingerprint column (value when set, NULL when null)" + fingerprint round-trip assertions in the `latestVersion` mapping tests and the live round-trip (asserts `fingerprint` round-trips when creds are present).
 - **Migration posture:** pre-existing rows written before the column existed leave `fingerprint` NULL and self-heal on next observation (step-2 edit persists a fresh fingerprint); a full backfill rides the brooding pass (PRD-007). Nullable + `withHeal` make the column additive and heal-safe.
 - **Verification:** `npm run build` + `npm run typecheck` clean; deterministic suite (all except the flaky live Deep Lake round-trip) is green; the full run's only failure remains the pre-existing flaky live `source-graph-deeplake.test.ts` round-trip (network eventual-consistency), which now also asserts fingerprint round-trip when it can run. No dependency added; no deliberate gap pinned (persisting a fingerprint does not pin the TLSH confidence threshold, which stays injected/unpinned); only the authorized files were touched.
+
+---
+
+# Execution Ledger: full-program the-smoker run (2026-07-02, PM)
+
+`/the-smoker` driving the live frontier of `PRD-003-016-WAVE-PLAN.md`: the 010/011/014 implementations, PRD-017's retrospective QA, the Wave 0 QA gate for 007/008/012/013/016, then Waves C/D/E as they unblock. Branch: `feature/smoker-wave-b-impl-and-wave0-qa` (worktree at `../../nectar-worktrees/smoker-run`, off `main` @ `09f087b`). Status legend: OPEN / IN PROGRESS / DONE / VERIFIED / BLOCKED.
+
+## AC Ledger
+
+### PRD-010 Portkey gateway (impl worker A, worktree `src/portkey/`)
+
+| ID | Criterion (abbrev) | Status |
+|---|---|---|
+| 010-AC-1 | Brooding/enricher call POSTs `https://api.portkey.ai/v1/chat/completions` with `x-portkey-api-key` + `x-portkey-config` from the mirrored `buildPortkeyHeaders` | VERIFIED at the dormant-wired bar (`src/portkey/{headers,transport}.ts`; tests `010-AC-1 ...` x2; exact URL + both headers proven on an injected fetch; 007/016 glue is Wave C) |
+| 010-AC-2 | No explicit model -> resolves `gemini-2.5-flash` (`activeModel` default, decision #29) | VERIFIED (`src/portkey/config.ts` `DEFAULT_ACTIVE_MODEL`; tests `010-AC-2 ...` x2; orchestrator grep-confirmed) |
+| 010-AC-3 | `brood --force --model <new>` resets non-skipped rows to pending + re-describes under new model | VERIFIED at the dormant-wired bar (`src/portkey/describe-model.ts` `resetForRedescribe`; tests `010-AC-3 ...` x2; the `brood` verb itself is PRD-007/Wave C wiring) |
+| 010-AC-4 | `source_graph_versions.describe_model` records the producing model | VERIFIED at the dormant-wired bar (`buildDescribeModelStamp`/`applyDescribeModelStamp`; test `010-AC-4 ...`; live writes land with 007/016) |
+| 010-AC-5 | Semantic cache/guardrails are Portkey-server-side; NO client vault toggle (DECISION #6, deliberate gap) | VERIFIED (test `010-AC-5 config surface has no cache or guardrail toggle keys`; orchestrator grep of `src/portkey/config.ts` clean) |
+
+### PRD-011 Portable projection (impl worker B, worktree `src/projection/`)
+
+| ID | Criterion (abbrev) | Status |
+|---|---|---|
+| 011-AC-1 | End of brooding -> complete `.honeycomb/nectars.json` written atomically (temp+rename) | VERIFIED at the trigger-seam bar (`src/projection/write.ts` temp+`renameSync`, orchestrator grep-confirmed; tests `011-AC-1 ...` x2 incl. simulated crash; the brood-end invocation is Wave C) |
+| 011-AC-2 | Enricher cycle with new descriptions -> projection rewritten atomically | VERIFIED at the trigger-seam bar (`ProjectionWriter` 30s debounce; test `011-AC-2 ...`; enricher invocation is Wave C) |
+| 011-AC-3 | `rebuild-projection` regenerates from a single latest-described-per-nectar scan, atomic write | VERIFIED, wired REAL (CLI verbs `rebuild-projection` + `project --rebuild-projection` against the durable Deep Lake store via `rebuildProjectionAsync` + the new `listLatestDescribedVersions` store method; test `011-AC-3 ...` + wave2-integration tests) |
+| 011-AC-4 | Projection `version` > schema version -> ignored with warning, fall back to full brooding | VERIFIED (`src/projection/load.ts`; tests `011-AC-4 ...` x2) |
+| 011-AC-5 | `project` triple mismatch -> ignored with warning, never partially loaded | VERIFIED (tests `011-AC-5 ...` x2 incl. invalid-ULID rejection) |
+| 011-AC-6 | Fresh clone + current projection -> hash-matched files inherit nectar+description, zero LLM, zero fuzzy | VERIFIED at the machinery bar (`src/projection/inherit.ts`; tests `011-AC-6 ...` x2 incl. never-overwrite; daemon boot hookup is Wave C) |
+| 011-AC-7 | Rebuild output byte-identical modulo `generated_at` | VERIFIED (canonical serialization; tests `011-AC-7 ...` x2) |
+
+### PRD-014 Embeddings provider switching (impl worker C, worktree `src/embeddings/`)
+
+| ID | Criterion (abbrev) | Status |
+|---|---|---|
+| 014-AC-1 | No explicit provider -> local nomic daemon path (default) | VERIFIED (`src/embeddings/{provider,local-nomic,config}.ts`; tests `014-AC-1 ...` x3) |
+| 014-AC-2 | Cohere-via-Portkey opt-in POSTs the Portkey embeddings endpoint (rerank-transport pattern; decision #30: embed-v4.0 @ `output_dimension: 768`, config values) | VERIFIED as-specified (`src/embeddings/cohere-portkey.ts`, now importing the unified `src/portkey/headers.ts`; tests `014-AC-2 ...` x4). NOTE: the #30 premise flag stands (768 not in embed-v4.0's accepted set); config-driven, awaiting the user's amendment pick |
+| 014-AC-3 | Non-768-dim vector discarded by the dim guard (column stays NULL), never stored | VERIFIED (`src/embeddings/guard.ts` wrapping BOTH providers; tests `014-AC-3 ...` x3 + mixed-batch cases) |
+| 014-AC-4 | Embeddings off/failed-warm -> column NULL, BM25 fallback, no error | VERIFIED (tests `014-AC-4 ...` x4 incl. dead-daemon + 503-not-warm fail-soft) |
+
+### QA track (quality-worker-bee, parallel)
+
+| ID | Item | Status |
+|---|---|---|
+| QA-017 | Retrospective implementation-vs-PRD QA of PRD-017 (incl. #33 amendments) -> report in `prd-017-.../qa/`; on PASS folder moves to `completed/` | VERIFIED (PASS-with-warnings: 0 Critical / 1 inherited Warning / 1 Suggestion; all 10 module + 17 sub-PRD ACs traced; typecheck + 247/247 independently re-run; folder moved to `completed/`) |
+| QA-007 | Wave-0 corpus-conformance QA of PRD-007 -> `backlog/prd-007-brooding-process/qa/` | VERIFIED (bee: FAIL on C-1, the fixed-40 batch cap contradicting locked decision #22; cost math + buckets + honeycomb citations verified verbatim, 65 stale links + 8 link-form refs remediated by the bee. Orchestrator applied #22 across PRD-007b/index + the decisions doc + the dep map; post-remediation clean PASS at medium+) |
+| QA-008 | Wave-0 QA of PRD-008 -> `backlog/prd-008-hivenectar-api-endpoints/qa/` | VERIFIED (bee: BLOCKED on C-1 + W-1, 113 mechanical defects fixed. Orchestrator decided C-1 per the locked zero-runtime-dependency invariant, and a remediation bee reframed PRD-008 to hivenectar's own `RouteGroup` seam over `node:http` (all 5 Hono spots + the hard AC), added the PRD-002a reconciliation note, and fixed W-1 to the verbatim six-value `describe_status` enum. Post-remediation clean PASS at medium+. Sub-medium residual noted: the index Non-Goal + 008a still reference a daemon-owned `/api/status` that the shipped server does not expose; reconcile with the Wave D implementation) |
+| QA-012 | Wave-0 QA of PRD-012 -> `backlog/prd-012-manual-source-graph-search/qa/` | VERIFIED (bee: PASS-with-warnings, 0 Critical; 40+ honeycomb citations zero-drift; bee fixed W-1/W-2/W-3 mechanically. Orchestrator closed W-5, the two-step vectorSearch-then-hydrate omission. **RIDER, blocks 012b implementation only:** W-4, the CLI-name DEFAULT `hivenectar search <query>` vs the operational-verb namespace; folded into the pending Wave C/D sign-off ask) |
+| QA-013 | Wave-0 QA of PRD-013 -> `backlog/prd-013-recall-arm-source-graph/qa/` | VERIFIED (PASS clean post-remediation: 0 Critical; ~30 honeycomb symbol/line citations verified against real code, SQL-safety floor conformant; bee fixed W-2..W-5 + S-1 in place). **RIDER, blocks 013a implementation only:** W-1, decision #17 promises `ARM_CLASS_WEIGHT` tunability via `hivenectar_rrf_multiplier`, but no such knob exists in honeycomb and no PRD-013 AC scopes building it; USER ASK (folded into the pending Wave C DEFAULT sign-off): scope the mechanism or defer it as an explicit Non-Goal |
+| QA-016 | Wave-0 QA of PRD-016 -> `backlog/prd-016-enricher-steady-state/qa/` | VERIFIED (bee: PASS-with-warnings, 0 Critical, 31/31 ACs traced, all honeycomb citations zero-drift, 5 mechanical link fixes; orchestrator remediated W-6 attribution + W-7 PRD-011 trigger + the MASTER-PRD-INDEX 2000ms->500ms defect; post-remediation clean PASS at medium+) |
+
+### Later waves (gated; enter the ledger in full when their wave opens)
+
+| Wave | Scope | Gate |
+|---|---|---|
+| C | 007 (brooding), 016 (enricher), 012a (search engine) in nectar; 013 (recall arm) in honeycomb | 010/011/014 VERIFIED + QA-007/016/013/012 PASS + R-7 sign-off of their DEFAULTs |
+| D | 008 (API group) + 012b (search endpoint) in nectar | Wave C VERIFIED + QA-008 PASS |
+| E | 015 (dashboard page, the-hive) + 009 (harness-exposure doc) | Wave D VERIFIED; 013 VERIFIED (for 009); QA-009/015 |
+
+## Wave plan (this run)
+
+- **Wave 1 (parallel, 9 workers):** impl A (PRD-010, `composer-2.5-fast`, IDE-tractable transport reuse per plan routing) + impl B (PRD-011, `composer-2.5-fast`, atomic-write engine) + impl C (PRD-014, `claude-opus-4-8-thinking-high`, subtle dim-contract/strategy switch per plan routing) in the shared worktree with disjoint module ownership (`src/portkey/`, `src/projection/`, `src/embeddings/`; shared files `cli.ts`/`index.ts`/`daemon.ts`/`worker.ts` are OFF-LIMITS, wired in Wave 2); 6 quality-worker-bee QA passes (`claude-sonnet-5-thinking-high`, independent of authors) on 017-retro/007/008/012/013/016 in the main tree, each confined to its own PRD folder.
+- **Wave 2 (integration + verification):** one integrator wires CLI verbs/exports/daemon seams, dedups any parallel transport duplication, drives the full suite green; orchestrator independently verifies every AC and flips DONE -> VERIFIED; QA remediations medium+ resolved; lifecycle moves (017 -> completed on PASS).
+- **Wave 3+ (as unblocked):** Wave C implementations (007/016/012a nectar; 013 honeycomb), then Wave D (008+012b), then Wave E (015 the-hive; 009 doc). Cross-repo items and the R-7 per-PRD DEFAULT sign-offs are the known gates; sign-off ask surfaced to the user.
+- **Close-out:** security-worker-bee (armed security-stinger) then quality-worker-bee (armed quality-stinger) on the full delta, medium+ remediated, per the arming contract.
+- **Ship:** commit, push, PR per touched repo with this ledger + wave plan + close-out results; monitor CI to green.
+
+**Watchdog:** all 9 Wave-1 workers run in background with completion notification; a 25-minute timer backstops stall detection. A stalled worker is terminated and its brief decomposed, never relaunched at the same scope.
+
+## Run log
+
+- Recon: frontier confirmed against the wave plan second status update (2026-07-02). Worktree cut at `09f087b` (includes decisions #29-#33 implementation). Wave 1 dispatched.
+- Impl A (PRD-010) reported DONE: `src/portkey/{headers,config,transport,describe-model}.ts` + `test/portkey-gateway.test.ts` (11/11 AC-named tests), DECISION #6 gap unfilled, env DEFAULTs `HIVENECTAR_PORTKEY_ENABLED/API_KEY/CONFIG`, `HIVENECTAR_ACTIVE_MODEL`. All 010 AC rows -> DONE pending independent verification. Integration notes captured (index exports, health `portkey.enabled` bit, brood --force wiring, possible store batch-update helpers).
+- Impl B (PRD-011) reported DONE: `src/projection/{format,store-adapter,generate,write,load,inherit}.ts` + `test/projection-ac.test.ts` (12/12 AC-named tests; bare-hex hash per hash.ts), full suite 270/0/3 in the worktree at that point. All 011 AC rows -> DONE pending independent verification. Integration notes captured (CLI verbs, daemon boot load/inherit, trigger hooks, recommended `listLatestDescribedVersions` store addition: the latest-described-vs-latest gap is a REAL correctness note for Wave 2).
+- Impl C (PRD-014) reported DONE: `src/embeddings/{http,portkey-headers,provider,guard,local-nomic,cohere-portkey,config,index}.ts` + 3 test files (20 AC-named tests); worktree full suite 290/0/3, typecheck + build clean. All 014 AC rows -> DONE pending independent verification. Selector is a superset of the legacy `embeddings.enabled` boolean (decision #5 honored); dim guard wraps BOTH providers; Portkey-header duplication with `src/portkey/headers.ts` flagged for Wave-2 unification.
+- Wave 2 (integrator) complete: header duplication unified (ONE `buildPortkeyHeaders` in `src/portkey/headers.ts`, orchestrator grep-confirmed), `src/index.ts` exports, health `portkey.enabled` + `embeddings.provider` populated at assemble, `listLatestDescribedVersions` added to both store seams, `rebuild-projection` + `project --rebuild-projection` wired REAL against the Deep Lake store (CLI tenancy: org/workspace from `~/.deeplake/credentials.json`, `project_id` from required `HIVENECTAR_PROJECT_ID`, root from `HIVENECTAR_PROJECT_ROOT`). Deferred to Wave C by design: daemon boot projection load + inheritance, brood/enricher write triggers.
+- Independent verification (orchestrator, fresh run in the worktree): typecheck + build clean; `npm test` 297 pass / 0 fail / 3 pre-existing skips; spot checks green (one header definition, `gemini-2.5-flash` default, no cache/guardrail toggle, temp+`renameSync` atomic write). All 010/011/014 AC rows flipped DONE -> VERIFIED at their stated bars.
+- Close-out A (security-worker-bee, armed security-stinger) complete on the branch delta: **0 Critical, 0 High; 3 Medium remediated in place** (M1 unbounded HTTP on all three new transports -> AbortController + configurable timeouts mirroring `deeplake-transport.ts`; M2 no size ceiling on the untrusted committed projection file -> 100 MiB statSync check, new `file_too_large` reason; M3 `__proto__`/`constructor`/`prototype` keys in the projection JSON -> whole-document fail-closed rejection, CWE-1321). 8 regression tests added (`test/security-remediation-wave-b.test.ts`); suite 305 pass / 0 fail / 3 skips. Confirmed clean: secret handling, SQL guards on `listLatestDescribedVersions`, path safety, tenancy-safe inheritance, no model-output injection path.
+- Close-out B (quality-worker-bee, armed quality-stinger, cross-family model `gpt-5.5-medium-fast`, run AFTER security): **clean PASS, 0 Critical / 0 Warning / 0 Suggestion.** All 16 module ACs across 010/011/014 verified at the declared Wave B bar (per-AC table in `in-work/prd-010-portkey-gateway/qa/wave-b-implementation-quality-report.md`, committed on the branch); independent typecheck + build + 305/0/3 test run; deliberate gaps unfilled, DEFAULTs unchanged, no honeycomb import in the delta, no runtime dependency added, no pre-existing test weakened. Only ship note: stage the untracked source/test files (done at commit).
+- **Close-out complete. Ship:** branch committed + pushed, PR opened (see run-close entry below). Docs/QA/lifecycle delta committed on nectar `main` (local commit, not pushed; the PR carries the code).
+- **FLAG on decision #30 (verified against Cohere docs 2026-07-02): embed-v4.0's `output_dimension` accepts ONLY [256, 512, 1024, 1536]; 768 is not a valid value.** The decision's "Matryoshka-native 768" premise is wrong: as configured, the live gateway would reject (or mis-dim) the request and the guard would discard, leaving the Cohere opt-in inert. The transport sends config-driven model + output_dimension, so the remedy is a one-line config/default amendment. USER ASK (amend #30), options: (a) request 1024 and truncate+renormalize to 768 client-side (Matryoshka prefixes degrade gracefully), (b) switch the hosted opt-in default to a natively-768 model via the same gateway (e.g. OpenAI text-embedding-3-small with `dimensions: 768`, or Gemini text-embedding-004), (c) keep as-is and document the opt-in as inert until an operator supplies a 768-capable config. Local nomic (the default) is unaffected.

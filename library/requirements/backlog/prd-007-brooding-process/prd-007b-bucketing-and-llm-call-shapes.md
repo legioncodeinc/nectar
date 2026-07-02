@@ -8,7 +8,7 @@ The core of brooding: how the files that survive the [007a](./prd-007a-discovery
 
 Every bucket, threshold, call shape, prompt field, and cost figure below is carried **verbatim** from [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "Bucketing," "The batch call," "The solo call," "Embedding," and "The cost math." No number is rounded or paraphrased. The four buckets — skip-binary, skip-too-large, batch, solo — are the load-bearing structure; the 4 KB / 100 KB / 256 KB thresholds are tuned against Gemini 2.5 Flash's 1M-token context window; and the cost table is the highest hallucination-risk surface in this PRD, reproduced exactly.
 
-The LLM calls route through Portkey (transport + model selection owned by [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md)); the embeddings go through the provider switch (owned by [PRD-014](../prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md)). This sub-PRD owns the *bucketing logic*, the *prompt shapes*, and the *cost math*; it does not own the transport.
+The LLM calls route through Portkey (transport + model selection owned by [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md)); the embeddings go through the provider switch (owned by [PRD-014](../../in-work/prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md)). This sub-PRD owns the *bucketing logic*, the *prompt shapes*, and the *cost math*; it does not own the transport.
 
 ## Goals
 
@@ -16,14 +16,14 @@ The LLM calls route through Portkey (transport + model selection owned by [PRD-0
 - Carry the **thresholds verbatim**: `BATCH_FILE_SIZE` = 4 KB, `BATCH_TOTAL_SIZE` = 100 KB, `MAX_DESCRIBE_SIZE` = 256 KB, binary detection = NUL bytes in first 8 KB or known-binary extension.
 - Carry the **batch call prompt and the solo call prompt verbatim**, including the output shapes: batch (title ≤80 chars + 1–3 sentence description + 1–5 concepts), solo (3–5 sentence description + primary symbol).
 - Carry the **cost math table verbatim** — the 2000-file breakdown, the ~$3.05 total ($0.65 input + $2.40 output), ~2.15M input tokens, ~318 calls, and the ~$15 / ~$0.30 scale figures — with no rounding or paraphrase.
-- Define the **batch size cap** default (40 files) within the corpus's 30–50 band, and the embedding step that follows every description.
+- Apply **dynamic token-budget batch packing** (locked decision #22): pack files until the estimated input-token budget approaches the batch budget, capped by `BATCH_TOTAL_SIZE` (100 KB) plus a max-files safety ceiling in the corpus's 30–50 band; and define the embedding step that follows every description.
 
 ## Non-Goals
 
 - The discovery + content-hash pre-check that produces the files entering bucketing — [007a](./prd-007a-discovery-and-content-hash-precheck.md).
-- The Portkey transport, model selection (Gemini 2.5 Flash), `describe_model` audit, and semantic-cache story — [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md). This sub-PRD assumes the batch/solo calls are made through Portkey; PRD-010 owns how.
-- The embeddings provider switch (local nomic default vs Cohere-via-Portkey) and the 768-dim-must-match-schema rule — [PRD-014](../prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md). This sub-PRD states that embedding happens after description; PRD-014 owns the provider.
-- The tables the descriptions land in (`source_graph_versions`) — [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md).
+- The Portkey transport, model selection (Gemini 2.5 Flash), `describe_model` audit, and semantic-cache story — [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md). This sub-PRD assumes the batch/solo calls are made through Portkey; PRD-010 owns how.
+- The embeddings provider switch (local nomic default vs Cohere-via-Portkey) and the 768-dim-must-match-schema rule — [PRD-014](../../in-work/prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md). This sub-PRD states that embedding happens after description; PRD-014 owns the provider.
+- The tables the descriptions land in (`source_graph_versions`) — [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md).
 - The resumability rules that span the bucketing flow — [007c](./prd-007c-resumability-state-machine.md).
 - The `--dry-run` cost *preview* output format (it consumes the cost math here but owns its own surface) — [007d](./prd-007d-cli-surface-and-dry-run.md).
 
@@ -53,9 +53,9 @@ Carried verbatim from [`brooding-pipeline.md`](../../../knowledge/private/ai/bro
 
 [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) states the tuning rationale verbatim: "The thresholds are tuned against Gemini 2.5 Flash's 1M-token context window and per-call economics. 4 KB of source ≈ 1K tokens; 40 files ≈ 40K tokens of input, well under the window. The output (one title + one 1–3 sentence description per file) is ≈ 50–100 tokens per file, ≈ 2–4K tokens per batch."
 
-### Batch size cap *(DEFAULT — confirm before implementation)*
+### Batch packing *(LOCKED — decision #22, supersedes the earlier fixed-40 DEFAULT)*
 
-The corpus states batch calls pack **"30–50 files per LLM call"** ([`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md)). This PRD registers **`40` files** as the batch-size cap — the midpoint of the 30–50 band, and the count the pipeline diagram + the cost table use ("group into batches of ~40 files", "40 files/call"). It is flagged **DEFAULT — confirm before implementation**: an implementation may choose any value in the 30–50 band as long as the `BATCH_TOTAL_SIZE` (100 KB) cumulative cap is also respected, since the cost math holds for the band, not for a single value.
+The corpus states batch calls pack **"30–50 files per LLM call"** ([`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md)). Locked decision #22 (`PRD-DECISIONS-AND-DEFAULTS.md`) resolves how an implementation packs within that band: **DYNAMIC token-budget packing** — pack files until the estimated input-token count approaches the batch budget, capped by the `BATCH_TOTAL_SIZE` (100 KB) cumulative cap plus a max-files safety ceiling in the 30–50 band. This adapts to actual file sizes rather than counting files, and preserves the cost math (which holds for the band, not for a single value; the corpus's "~40 files/call" is the representative illustration the cost table uses).
 
 ---
 
@@ -106,7 +106,7 @@ The skip buckets mint a nectar and record metadata but make **no LLM call**, lea
 - **skip-binary** — `describe_status = 'skipped-binary'`, `title = filename`, `description = ''`.
 - **skip-too-large** — `describe_status = 'skipped-too-large'`, `title = filename`. The structural CodeGraph still extracts symbols from these files; Hivenectar simply does not describe them semantically.
 
-The four valid `describe_status` terminal values a brood produces are therefore `described`, `failed`, `skipped-too-large`, and `skipped-binary` — matching the column contract in [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md).
+The four valid `describe_status` terminal values a brood produces are therefore `described`, `failed`, `skipped-too-large`, and `skipped-binary` — matching the column contract in [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md).
 
 ---
 
@@ -118,7 +118,7 @@ After the description is written (batch or solo), the enricher computes a 768-di
 - **Hosted opt-in provider:** Cohere via Portkey.
 - **Fallback:** if embeddings are off or the selected provider is unavailable, the embedding is left NULL and recall silently falls back to BM25 over `title` and `description` — no error, no quality cliff, the same degradation behavior as session and memory recall.
 
-The provider switch, the 768-dim-must-match-schema rule, and the `embed.dim_rejected` guard are owned by [PRD-014](../prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md). This sub-PRD states only that embedding happens after description, over `title + ' ' + description`.
+The provider switch, the 768-dim-must-match-schema rule, and the `embed.dim_rejected` guard are owned by [PRD-014](../../in-work/prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md). This sub-PRD states only that embedding happens after description, over `title + ' ' + description`.
 
 ---
 
@@ -181,7 +181,7 @@ Then persist rows (PRD-005) and regenerate the projection (PRD-011). Resumabilit
 ### US-007b.1 — Small files are batched to collapse cost
 **As an** operator, **when** brooding reaches 1500 small (≤4 KB) files, **they** are packed ~40 per batch call (38 calls), **so that** per-file description cost drops by an order of magnitude versus solo.
 
-- Acceptance: batch bucket criteria = text + `size_bytes ≤ 4 KB` + cumulative `≤ 100 KB`, 30–50 files/call (default cap 40) ([`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) "Bucketing").
+- Acceptance: batch bucket criteria = text + `size_bytes ≤ 4 KB` + cumulative `≤ 100 KB`, packed dynamically to the token budget within the 30–50 files/call band (decision #22) ([`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) "Bucketing").
 
 ### US-007b.2 — Binary and oversized files are skipped, not described
 **As an** operator, **when** brooding reaches a `.png` or a 1 MB file, **it** mints a nectar but makes no LLM call, **so that** cost is not wasted on undescribable content.
@@ -199,11 +199,11 @@ Then persist rows (PRD-005) and regenerate the projection (PRD-011). Resumabilit
 
 - All four buckets + thresholds + the two prompts are carried verbatim from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md). The batch system prompt is reproduced character-for-character above.
 - The batch call's "re-try malformed solo or mark `failed`" failure path feeds the resumability state machine in [007c](./prd-007c-resumability-state-machine.md) — a `failed` row is re-enqueueable.
-- The LLM calls go through Portkey; the model is Gemini 2.5 Flash by default (configurable via `agent.yaml` / Portkey per [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md)). The transport + model selection is owned by [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md); this sub-PRD owns only the call *shape* (batch vs solo, prompt, output fields).
-- The `describe_model` column ([PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)) records which model produced each description; brooding sets it to the model the call used.
-- The describe→embed→persist composition mirrors `runGraphBuild`'s extract→finalize→persist at [`honeycomb/src/daemon/runtime/codebase/api.ts:247-253`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts): brooding extracts a description, embeds it, and persists atomically.
+- The LLM calls go through Portkey; the model is Gemini 2.5 Flash by default (configurable via `agent.yaml` / Portkey per [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md)). The transport + model selection is owned by [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md); this sub-PRD owns only the call *shape* (batch vs solo, prompt, output fields).
+- The `describe_model` column ([PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)) records which model produced each description; brooding sets it to the model the call used.
+- The describe→embed→persist composition mirrors `runGraphBuild`'s extract→finalize→persist at `honeycomb/src/daemon/runtime/codebase/api.ts:247-253`: brooding extracts a description, embeds it, and persists atomically.
 
-No open questions. The bucketing + prompts + cost math are all carried verbatim from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md); the only flagged default is the batch-size cap of 40 (DEFAULT — confirm before implementation).
+No open questions. The bucketing + prompts + cost math are all carried verbatim from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md); batch packing is resolved by locked decision #22 (dynamic token-budget packing within the 30–50 band, 100 KB cumulative cap).
 
 ## Related
 
@@ -213,7 +213,7 @@ No open questions. The bucketing + prompts + cost math are all carried verbatim 
 - [PRD-007d](./prd-007d-cli-surface-and-dry-run.md) — `--dry-run` consumes the cost math here.
 - [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) — the authoritative bucketing + prompts + cost math.
 - [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) — the Gemini 2.5 Flash rationale + `describe_model`.
-- [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `describe_status` / `describe_model` columns this stage writes.
-- [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md) — the Portkey transport + model selection.
-- [PRD-014](../prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md) — the embeddings provider switch + BM25 fallback.
-- [`honeycomb/src/daemon/runtime/codebase/api.ts:234-261`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts) — `runGraphBuild`, the extract→persist composition to mirror.
+- [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `describe_status` / `describe_model` columns this stage writes.
+- [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md) — the Portkey transport + model selection.
+- [PRD-014](../../in-work/prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md) — the embeddings provider switch + BM25 fallback.
+- `honeycomb/src/daemon/runtime/codebase/api.ts:234-261` — `runGraphBuild`, the extract→persist composition to mirror.

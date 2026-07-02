@@ -6,7 +6,7 @@
 
 The operator-facing surface that triggers and controls brooding: the **`brood` command**, the **`--force`** flag (re-describe everything), the **`--limit N`** flag (cost cap), the **`--dry-run`** flag (cost preview with no LLM calls), and the two **triggering paths** (automatic on first run with no `source_graph` rows, or explicit invocation). All four surface elements are carried verbatim from [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "Triggering brooding."
 
-This sub-PRD owns the **brooding-specific** CLI behavior. The *invocation dispatch* (the two entry binaries — bare `hivenectar` lifecycle vs `honeycomb hivenectar <verb>` operational, the loopback thin-client posture) is owned by [PRD-002c](../prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md); this sub-PRD owns what the `brood` verb and its flags *do* when invoked. The `--model <new>` flag's model-selection mechanic is owned by [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md); this sub-PRD documents only that `--force --model <new>` is the model-swap re-describe path.
+This sub-PRD owns the **brooding-specific** CLI behavior. The *invocation dispatch* (the two entry binaries — bare `hivenectar` lifecycle vs `honeycomb hivenectar <verb>` operational, the loopback thin-client posture) is owned by [PRD-002c](../../completed/prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md); this sub-PRD owns what the `brood` verb and its flags *do* when invoked. The `--model <new>` flag's model-selection mechanic is owned by [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md); this sub-PRD documents only that `--force --model <new>` is the model-swap re-describe path.
 
 The `--dry-run` cost preview is this sub-PRD's distinctive deliverable: it consumes the cost math from [007b](./prd-007b-bucketing-and-llm-call-shapes.md) and prints it to the operator *before* any LLM call is made, as the corpus's recommended first step on any new project.
 
@@ -19,11 +19,11 @@ The `--dry-run` cost preview is this sub-PRD's distinctive deliverable: it consu
 
 ## Non-Goals
 
-- The CLI *invocation dispatch* — the two entry binaries, the loopback thin-client posture, the global-flag parsing — [PRD-002c](../prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md). This sub-PRD owns the `brood` verb's behavior; 002c owns how the verb is reached.
-- The `--model <new>` flag's model-selection mechanic + the `describe_model` audit — [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md). `--force --model <new>` is named here as the model-swap re-describe path; PRD-010 owns what `<new>` resolves to and how the model is selected.
+- The CLI *invocation dispatch* — the two entry binaries, the loopback thin-client posture, the global-flag parsing — [PRD-002c](../../completed/prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md). This sub-PRD owns the `brood` verb's behavior; 002c owns how the verb is reached.
+- The `--model <new>` flag's model-selection mechanic + the `describe_model` audit — [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md). `--force --model <new>` is named here as the model-swap re-describe path; PRD-010 owns what `<new>` resolves to and how the model is selected.
 - The bucketing, prompt shapes, and cost-math internals that `--dry-run` *displays* — [007b](./prd-007b-bucketing-and-llm-call-shapes.md). This sub-PRD owns the *preview surface*; 007b owns the numbers.
 - The HTTP API endpoint that maps to brooding (`POST /api/source-graph/build`) — [PRD-008](../prd-008-hivenectar-api-endpoints/prd-008-hivenectar-api-endpoints-index.md). The CLI verb and the API endpoint are parallel surfaces over the same mechanic.
-- The `rebuild-projection` / `prune` / `review-matches` commands — those are not brood commands; they are owned by [PRD-011](../prd-011-portable-projection/prd-011-portable-projection-index.md) and [PRD-006](../prd-006-file-registration-protocol/prd-006-file-registration-protocol-index.md) respectively, and documented in [002c](../prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md).
+- The `rebuild-projection` / `prune` / `review-matches` commands — those are not brood commands; they are owned by [PRD-011](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md) and [PRD-006](../../completed/prd-006-file-registration-protocol/prd-006-file-registration-protocol-index.md) respectively, and documented in [002c](../../completed/prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md).
 
 ---
 
@@ -81,7 +81,7 @@ The operator can invoke brooding directly with the `brood` command and any combi
 
 **What it does:** The **model-swap re-describe path**. Forces re-description of every non-skipped file using a different model than the default (Gemini 2.5 Flash), and records the model in the `describe_model` column for each row. [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) states: "runs `honeycomb hivenectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`." The model is **not** swapped automatically on a config change — the operator must run this explicitly.
 
-> **Mechanic owner:** the `--model <new>` flag's resolution + the `describe_model` audit are owned by [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md). This sub-PRD documents the flag's *effect* (force + re-describe with a chosen model); PRD-010 owns what `<new>` resolves to.
+> **Mechanic owner:** the `--model <new>` flag's resolution + the `describe_model` audit are owned by [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md). This sub-PRD documents the flag's *effect* (force + re-describe with a chosen model); PRD-010 owns what `<new>` resolves to.
 
 ---
 
@@ -168,11 +168,11 @@ All four surface elements interact with the resumability state machine in [007c]
 ## Implementation notes
 
 - The command + flag surface is carried verbatim from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) "Triggering brooding." Each invocation's one-line behavior in this sub-PRD matches the source doc's code-block comments.
-- The CLI is a **thin client** that reaches the running daemon over loopback `:3854` for the operational verbs (mirroring honeycomb's loopback `DaemonClient` posture), per [PRD-002c](../prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md). The brood mechanic executes daemon-side; the CLI dispatches to it.
+- The CLI is a **thin client** that reaches the running daemon over loopback `:3854` for the operational verbs (mirroring honeycomb's loopback `DaemonClient` posture), per [PRD-002c](../../completed/prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md). The brood mechanic executes daemon-side; the CLI dispatches to it.
 - `--dry-run` is the only flag that produces no daemon-side mutation; the others (`brood`, `--force`, `--limit`) execute the full pipeline stages (007a → 007b → embed → persist → regenerate projection).
 - The automatic trigger's "no `source_graph` rows OR no `.honeycomb/nectars.json`" condition is checked at daemon startup / project registration, not on every boot — brooding does **not** run on every daemon boot ([`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) "What brooding does not do").
-- The `--model` flag's mechanic (what model id `<new>` resolves to, how Portkey routes it, how `describe_model` is set) is owned by [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md); this sub-PRD names only the flag's *effect*.
-- The CLI invocation dispatch — `honeycomb hivenectar` as the operational namespace, reaching the daemon over loopback — mirrors `honeycomb/src/cli/index.ts` (the thin-client `main` + lifecycle/operational split documented in [PRD-002c](../prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md)).
+- The `--model` flag's mechanic (what model id `<new>` resolves to, how Portkey routes it, how `describe_model` is set) is owned by [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md); this sub-PRD names only the flag's *effect*.
+- The CLI invocation dispatch — `honeycomb hivenectar` as the operational namespace, reaching the daemon over loopback — mirrors `honeycomb/src/cli/index.ts` (the thin-client `main` + lifecycle/operational split documented in [PRD-002c](../../completed/prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md)).
 
 No open questions. The command + flag surface is carried verbatim from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md); no defaults are flagged in this sub-PRD (the discovery command default lives in [007a](./prd-007a-discovery-and-content-hash-precheck.md), the batch-size-cap default in [007b](./prd-007b-bucketing-and-llm-call-shapes.md)).
 
@@ -184,6 +184,6 @@ No open questions. The command + flag surface is carried verbatim from [`broodin
 - [PRD-007c](./prd-007c-resumability-state-machine.md) — how `--force` / `--limit` interact with the resume rules.
 - [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) — the authoritative "Triggering brooding" + "What brooding does not do."
 - [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) — the `--force --model <new>` model-swap path + the no-automatic-swap rule.
-- [PRD-002c](../prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md) — the CLI *invocation dispatch* (entry binaries, loopback thin-client) this verb lives in.
+- [PRD-002c](../../completed/prd-002-hivenectar-daemon/prd-002c-hivenectar-cli-surface.md) — the CLI *invocation dispatch* (entry binaries, loopback thin-client) this verb lives in.
 - [PRD-008](../prd-008-hivenectar-api-endpoints/prd-008-hivenectar-api-endpoints-index.md) — the parallel HTTP endpoint (`POST /api/source-graph/build`).
-- [PRD-010](../prd-010-portkey-gateway/prd-010-portkey-gateway-index.md) — owns the `--model <new>` flag's model-selection mechanic.
+- [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md) — owns the `--model <new>` flag's model-selection mechanic.

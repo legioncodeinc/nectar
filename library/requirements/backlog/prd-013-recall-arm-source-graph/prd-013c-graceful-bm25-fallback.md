@@ -80,10 +80,10 @@ The fallback is graceful in quality, not just in error-handling. A description-l
 - [PRD-013](./prd-013-recall-arm-source-graph-index.md) — the module index.
 - [PRD-013a](./prd-013a-lexical-arm-builder-and-weight.md) — the lexical arm that forms the resilient floor.
 - [PRD-013b](./prd-013b-semantic-arm-over-embedding.md) — the semantic arm that degrades to empty when embeddings are off.
-- [PRD-014c](../prd-014-embeddings-provider-switching/prd-014c-provider-switch-and-bm25-fallback.md) — the embeddings-provider-side BM25 fallback (the same graceful-degradation posture, from the provider switch's perspective).
+- [PRD-014c](../../in-work/prd-014-embeddings-provider-switching/prd-014c-provider-switch-and-bm25-fallback.md) — the embeddings-provider-side BM25 fallback (the same graceful-degradation posture, from the provider switch's perspective).
 - [`knowledge/private/data/recall-integration.md`](../../../knowledge/private/data/recall-integration.md) § "The added guarded arm", § "Fusion with the other arms", § "What recall does not do with Hivenectar".
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:24-35`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — the per-arm rationale.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:826-842`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `runArm` (per-arm fail-soft).
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:955-959`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `runSemanticArm` per-arm fail-soft.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:1008-1032`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `runSemanticArms` null-on-every-failure.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:2044-2106`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — the two branches + the honest `degraded` flag.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:24-35` — the per-arm rationale.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:826-842` — `runArm` (per-arm fail-soft).
+- `honeycomb/src/daemon/runtime/memories/recall.ts:955-959` — `runSemanticArm` per-arm fail-soft.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:1008-1032` — `runSemanticArms` null-on-every-failure.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:2044-2106` — the two branches + the honest `degraded` flag.

@@ -20,6 +20,7 @@ Brooding describes every file once. The enricher is everything after: the steady
 - The meaningful-change heuristic classifies a content delta: Jaccard ≥ `REDESCRIBE_THRESHOLD` (default 0.85) is cosmetic → inherit the prior description with `describe_model = inherited-from:<prev_content_hash>`; below the threshold is meaningful → enter the pending queue.
 - Each enricher model call routes through Portkey (`/v1/chat/completions`) and stamps the producing model on the `describe_model` column; cosmetic inheritance stamps `inherited-from:<prev_content_hash>`.
 - A failed batch marks its version rows `describe_status = 'failed'` and retries them solo on the next cycle; persistent failure (default 5 consecutive cycles) raises a dashboard alert and stops further enrichment until an operator acknowledges.
+- An enricher cycle that wrote one or more new descriptions invokes PRD-011's projection rewrite (trigger #2): the debounced projection writer regenerates `.honeycomb/nectars.json` so the committed projection tracks the newly-described versions (PRD-011 AC-2). A cycle that wrote nothing new skips the trigger.
 
 ## Non-Goals
 
@@ -72,7 +73,7 @@ None at the endpoint level. The enricher is an internal background loop. Its per
 
 All four enricher cadence/threshold values are carried from the corpus (`ai/enricher-and-llm-model.md`) and flagged for confirmation:
 - **[DEFAULT — confirm before implementation]** Enricher poll interval: 30s (`ai/enricher-and-llm-model.md` § Debouncing and rate limiting — "default 30 seconds"). From corpus, confirm.
-- **[DEFAULT — confirm before implementation]** Watcher intake debounce: 500ms (`ai/enricher-and-llm-model.md` § Watcher intake debounce; mirrored from Honeycomb's `fs.watch` + `setTimeout` pattern, DECISION #4). From corpus, confirm.
+- **[DEFAULT — confirm before implementation]** Watcher intake debounce: 500ms. The corpus (`ai/enricher-and-llm-model.md` § Watcher intake debounce) specifies the mechanism but leaves the window value unspecified; the 500ms figure mirrors Honeycomb's `honeycomb/src/daemon/runtime/services/file-watcher.ts:177` (`fs.watch` + `setTimeout` pattern, DECISION #4). Mirrored default, confirm.
 - **[DEFAULT — confirm before implementation]** `REDESCRIBE_THRESHOLD`: 0.85 — cosmetic-change inheritance threshold (`ai/enricher-and-llm-model.md` § The "meaningful change" heuristic — "default 0.85"). From corpus, confirm.
 - **[DEFAULT — confirm before implementation]** Persistent-failure alert: 5 consecutive failed cycles (`ai/enricher-and-llm-model.md` § Rate limiting — "default: 5 consecutive cycles"). From corpus, confirm.
 
@@ -82,7 +83,8 @@ All four enricher cadence/threshold values are carried from the corpus (`ai/enri
 
 - [`../../../requirements/MASTER-PRD-INDEX.md`](../../../requirements/MASTER-PRD-INDEX.md) — PRD-016 entry; DECISION #4 (`node:fs.watch` watcher, not chokidar).
 - [`../../../knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) — AUTHORITATIVE: the enricher contract, the two debounce layers, the meaningful-change heuristic, rate limiting, failure modes, and the 30s/500ms/0.85/5 values.
-- [`../../../knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md`) — brooding is the bootstrap the enricher follows.
+- [`../../../knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) — brooding is the bootstrap the enricher follows.
 - [`../../../knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) — the `source_graph_versions` rows + `describe_status` lifecycle the enricher drives.
+- [`../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md`](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md) — the projection whose trigger #2 (end of an enricher cycle that wrote new descriptions) this loop invokes; co-dependent per the dependency map.
 - `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts` — the lease → route → run → complete/fail worker harness the loop mirrors.
 - `honeycomb/src/daemon/runtime/services/poll-loop.ts` — the adaptive poll loop the cadence mirrors.

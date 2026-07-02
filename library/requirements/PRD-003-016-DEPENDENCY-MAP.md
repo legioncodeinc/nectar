@@ -67,7 +67,7 @@ The exhaustive dependency profile for the Hivenectar PRD set. For any PRD or sub
 | 014 | Embeddings provider switching | Authored | in-work / QA-PASS (Wave B; one corpus deferral) | IN-WORK | STRADDLE | in-band + honeycomb transport | M | P1 |
 | 015 | Dashboard Source Graph page | Authored | backlog / QA-pending | AUTHORED-BACKLOG | OOB-THEHIVE | out-of-band | M | P1 |
 | 016 | Enricher steady-state loop | Authored | backlog / QA-pending | AUTHORED-BACKLOG | IN-BAND | in-band | L | P1 |
-| 017 | Service check-in + SQLite telemetry | Authored | in-work / QA-report pending | IMPLEMENTED + merged (`src/telemetry/`, 10/10 module ACs verified per the apiary ledger); on-disk QA report outstanding; 007/016 counter touchpoints dormant | IN-BAND | in-band (+ hivedoctor/the-hive poll side, landed OOB) | L | P1 |
+| 017 | Service check-in + SQLite telemetry | Authored | completed / QA PASS-with-warnings (retrospective, 2026-07-02) | COMPLETE: implemented + merged (`src/telemetry/`), retrospective QA on disk; 007/016 counter touchpoints dormant until Wave C wires the registration pipeline into the daemon | IN-BAND | in-band (+ hivedoctor/the-hive poll side, landed OOB) | L | P1 |
 
 Notes on the snapshot:
 
@@ -276,7 +276,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 **Blockers / gaps:** QA-pending. Depends on 010 and 014, which the master index linear order lists after 007 (D-6).
 
-**DEFAULT-confirm flags carried:** discovery command `git ls-files --cached --others --exclude-standard -z`; batch size cap 40.
+**DEFAULT-confirm flags carried:** discovery command `git ls-files --cached --others --exclude-standard -z`. Batch packing is LOCKED (decision #22: dynamic token-budget packing within the 30-50 band, 100 KB cumulative cap; PRD-007b reconciled 2026-07-02).
 
 ---
 
@@ -794,7 +794,7 @@ The rows above are preserved as the scan-time record; current disposition:
 - **B-9: RESOLVED.** The corpus `data/source-graph-schema.md` now carries `confidence`, the `skipped-deleted` enum value, and the later user-authorized `fingerprint` column (decisions #13/#14/#28).
 - **B-10: RESOLVED 2026-07-02.** PRD-013 index slug corrected (D-8).
 - **B-11: RESOLVED.** PRD-001 and PRD-002 moved to `completed/` (Wave A close, user-approved).
-- **B-12 (NEW; narrowed 2026-07-02, later): PRD-017 lacks only its on-disk QA report.** The hivenectar implementation is merged on `main` (all 10 module ACs verified per the apiary ledger) and the cross-repo poll side is built (hivedoctor PRD-001/002 and the-hive PRD-004/005 merged), so the earlier "poll side unbuilt" reading is superseded. What remains: a Wave-0-standard QA report into `in-work/prd-017-service-checkin-and-sqlite-telemetry/qa/`, after which the folder moves to `completed/`. Owner: quality-worker-bee.
+- **B-12: CLOSED 2026-07-02.** The retrospective QA report is on disk (`completed/prd-017-service-checkin-and-sqlite-telemetry/qa/`, PASS-with-warnings: 0 Critical, 1 inherited Warning, 1 Suggestion) and the folder moved to `completed/`. The Warning (metrics counters dormant in production until the registration pipeline is constructed on the daemon boot path) is the inherited PRD-006 gap, tracked for the Wave C integration.
 
 ---
 

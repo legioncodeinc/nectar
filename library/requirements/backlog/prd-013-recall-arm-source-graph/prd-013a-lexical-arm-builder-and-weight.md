@@ -8,7 +8,7 @@
 
 The lexical arm is the resilient floor of the source-graph recall. It runs a guarded `ILIKE` match over the file's `title` / `description` / `concepts`, scoped to the latest described version per nectar, and projects the four columns (`source` / `id` / `text` / `created_at`) that `rowsToRankedArm` (`recall.ts:488-497`) reads into a ranked entry. It is the first half of the hybrid arm — the half that runs even when embeddings are off (PRD-013c).
 
-This sub-PRD owns four coupled edits that make the arm a first-class participant in the fused recall: (1) a new `buildSourceGraphVersionsArmSql` builder mirroring `buildMemoriesArmSql` (`recall.ts:319-337`); (2) the `"source_graph_versions"` entry in the `RecallSource` union (`recall.ts:169`) plus the matching branch in `readSource` (`recall.ts:385-389`); (3) the weight wired through `ARM_CLASS_WEIGHT` + `kindOfSource` (`recall.ts:158-166`) so the RRF fusion scores the arm as a clean distilled hit; and (4) the `runArm` call + `rowsToRankedArm` entry in the `Promise.all` + `arms` array (`recall.ts:2096-2118`). The SQL shape carries verbatim from [`recall-integration.md`](../../../knowledge/private/data/recall-integration.md) § "The added guarded arm"; the per-arm-not-UNION-ALL rationale is [`recall.ts:24-35`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts).
+This sub-PRD owns four coupled edits that make the arm a first-class participant in the fused recall: (1) a new `buildSourceGraphVersionsArmSql` builder mirroring `buildMemoriesArmSql` (`recall.ts:319-337`); (2) the `"source_graph_versions"` entry in the `RecallSource` union (`recall.ts:169`) plus the matching branch in `readSource` (`recall.ts:385-389`); (3) the weight wired through `ARM_CLASS_WEIGHT` + `kindOfSource` (`recall.ts:158-166`) so the RRF fusion scores the arm as a clean distilled hit; and (4) the `runArm` call + `rowsToRankedArm` entry in the `Promise.all` + `arms` array (`recall.ts:2096-2118`). The SQL shape carries verbatim from [`recall-integration.md`](../../../knowledge/private/data/recall-integration.md) § "The added guarded arm"; the per-arm-not-UNION-ALL rationale is `honeycomb/src/daemon/runtime/memories/recall.ts:24-35`.
 
 ## Goals
 
@@ -26,7 +26,7 @@ This sub-PRD owns four coupled edits that make the arm a first-class participant
 
 ## Why per-arm, not `UNION ALL`
 
-Carried verbatim from the locked decision ([`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md) decision #2) and the code's own rationale block (`recall.ts:24-35`): each arm is its own guarded `storage.query`, not one `UNION ALL`. On a fresh workspace partition the store's heal-on-insert creates `memories`, but nothing has created `memory` / `sessions` / `source_graph_versions` yet — so they do not exist. A single `UNION ALL` fails as a whole (`query_error`: relation does not exist), which used to fail-soft the *whole* recall to empty and silently wipe the real `memories` hit (the live dogfood bug). Running each arm separately makes a missing/failing sibling arm degrade to "empty for that arm" — exactly the per-arm tolerance the collector uses (`recall.ts:826-842`).
+Carried verbatim from the locked decision ([`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md) decision #2) and the code's own rationale block (`recall.ts:24-35`): each arm is its own guarded `storage.query`, not one `UNION ALL`. On a fresh workspace partition the store's heal-on-insert creates `memories`, but nothing has created `memory` / `sessions` / `source_graph_versions` yet — so they do not exist. A single `UNION ALL` fails as a whole (`query_error`: relation does not exist), which used to fail-soft the *whole* recall to empty and silently wipe the real `memories` hit (the live dogfood bug). Running each arm separately makes a missing/failing sibling arm degrade to "empty for that arm" — exactly the per-arm tolerance the collector uses (`recall.ts:826-842`).
 
 The consequence for the 4th arm is free: a workspace where Hivenectar brooding has not yet run has no `source_graph_versions` table, and the new arm returns `[]` for that arm only. The other three arms still answer. A `UNION ALL` append is therefore rejected — it would regress the deliberate graceful-degradation design.
 
@@ -108,7 +108,6 @@ export function buildSourceGraphVersionsArmSql(
 	const versionsTbl = sqlIdent("source_graph_versions");
 	const nectarCol = sqlIdent("nectar");
 	const seqCol = sqlIdent("seq");
-	const pathCol = sqlIdent("path");
 	const titleCol = sqlIdent("title");
 	const descriptionCol = sqlIdent("description");
 	const conceptsCol = sqlIdent("concepts");
@@ -133,7 +132,7 @@ export function buildSourceGraphVersionsArmSql(
 
 ### Column mapping — verified against PRD-005b
 
-Every column above exists in the `source_graph_versions` DDL (carried verbatim into [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)): `nectar`, `seq`, `path`, `title`, `description`, `concepts` (JSON-encoded string array, `'[]'`), `describe_status` (`'pending'`/`'described'`/`'failed'`/`'skipped-too-large'`/`'skipped-binary'`), `described_at`. The `concepts` ILIKE over the JSON string surfaces a concept-tag match (e.g. a `["auth","jwt"]` concepts cell matches the term `jwt`), matching the corpus's `v.concepts ILIKE :concept_pattern`.
+Every column above exists in the `source_graph_versions` DDL (carried verbatim into [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)): `nectar`, `seq`, `path`, `title`, `description`, `concepts` (JSON-encoded string array, `'[]'`), `describe_status` (`'pending'`/`'described'`/`'failed'`/`'skipped-too-large'`/`'skipped-binary'`), `described_at`. The `concepts` ILIKE over the JSON string surfaces a concept-tag match (e.g. a `["auth","jwt"]` concepts cell matches the term `jwt`), matching the corpus's `v.concepts ILIKE :concept_pattern`.
 
 ### Projection — the four columns `rowsToRankedArm` reads
 
@@ -146,7 +145,7 @@ Every column above exists in the `source_graph_versions` DDL (carried verbatim i
 
 ### Per-arm `LIMIT` *(DEFAULT — confirm before implementation)*
 
-The arm's per-arm `LIMIT` matches the existing arms' bound: the clamped caller `limit` (`resolveRecallLimit` at `recall.ts:128-129`, default `DEFAULT_RECALL_LIMIT = 20`, ceiling `MAX_RECALL_LIMIT = 200`). Every existing arm is bounded by the overall `limit` (`recall.ts:2096-2101`) precisely so no single arm starves the fusion; the 4th arm matches that bound — it receives the same `limit` the other arms receive, applied after the merge (`recall.ts:2119`). This is flagged as a default pending implementation confirmation; the alternative (a smaller per-arm cap on the source-graph arm to keep file descriptions from crowding out memory/session hits) is a fusion-tuning decision deferred to the eval harness, not introduced here.
+The arm's per-arm `LIMIT` matches the existing arms' bound: the clamped caller `limit` (`resolveRecallLimit` at `recall.ts:303-308`, default `DEFAULT_RECALL_LIMIT = 20`, ceiling `MAX_RECALL_LIMIT = 200`). Every existing arm is bounded by the overall `limit` (`recall.ts:2096-2101`) precisely so no single arm starves the fusion; the 4th arm matches that bound — it receives the same `limit` the other arms receive, applied after the merge (`recall.ts:2119`). This is flagged as a default pending implementation confirmation; the alternative (a smaller per-arm cap on the source-graph arm to keep file descriptions from crowding out memory/session hits) is a fusion-tuning decision deferred to the eval harness, not introduced here.
 
 ## Insertion — the `Promise.all` and `arms` array
 
@@ -191,12 +190,12 @@ The `runArm` wrapper (`recall.ts:826-842`) is the fail-soft contract: a non-`ok`
 - [PRD-013](./prd-013-recall-arm-source-graph-index.md) — the module index.
 - [PRD-013b](./prd-013b-semantic-arm-over-embedding.md) — the semantic arm over `embedding` that pairs with this lexical arm.
 - [PRD-013c](./prd-013c-graceful-bm25-fallback.md) — the graceful fallback when embeddings are off.
-- [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `source_graph_versions` DDL the builder reads.
-- [PRD-005c](../prd-005-source-graph-catalog-tables/prd-005c-tenancy-and-project-id-filter.md) — the `project_id` soft-filter contract.
+- [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `source_graph_versions` DDL the builder reads.
+- [PRD-005c](../../completed/prd-005-source-graph-catalog-tables/prd-005c-tenancy-and-project-id-filter.md) — the `project_id` soft-filter contract.
 - [`knowledge/private/data/recall-integration.md`](../../../knowledge/private/data/recall-integration.md) § "The added guarded arm", § "Fusion with the other arms", § "Weighting and the Hivenectar multiplier".
-- [`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md) decision #2 — per-arm, not `UNION ALL`.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:24-35`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — the per-arm rationale.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:128-129, 141, 158-169, 180, 385-389`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — limits, `RRF_K`, `ARM_CLASS_WEIGHT`, `kindOfSource`, `RecallSource`, `RecallKind`, `readSource`.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:319-337, 484-497, 819-842, 1073-1075`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `buildMemoriesArmSql` (mirror), `fusionKey`/`rowsToRankedArm`, `projectConjunctFor`/`runArm`, `idColumnFor`.
-- [`honeycomb/src/daemon/runtime/memories/recall.ts:2064-2119`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — the `Promise.all` + `arms` insertion points.
-- [`honeycomb/src/daemon/runtime/recall/scope-clause.ts:355-401`](../../../../honeycomb/src/daemon/runtime/recall/scope-clause.ts) — `buildProjectScopeConjunct`.
+- [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md) decision #2 — per-arm, not `UNION ALL`.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:24-35` — the per-arm rationale.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:129, 131, 141, 158-169, 180, 303-308, 385-389` — limits (`DEFAULT_RECALL_LIMIT`/`MAX_RECALL_LIMIT`), `RRF_K`, `ARM_CLASS_WEIGHT`, `kindOfSource`, `RecallSource`, `RecallKind`, `resolveRecallLimit`, `readSource`.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:319-337, 484-497, 819-842, 1073-1075` — `buildMemoriesArmSql` (mirror), `fusionKey`/`rowsToRankedArm`, `projectConjunctFor`/`runArm`, `idColumnFor`.
+- `honeycomb/src/daemon/runtime/memories/recall.ts:2064-2119` — the `Promise.all` + `arms` insertion points.
+- `honeycomb/src/daemon/runtime/recall/scope-clause.ts:355-401` — `buildProjectScopeConjunct`.

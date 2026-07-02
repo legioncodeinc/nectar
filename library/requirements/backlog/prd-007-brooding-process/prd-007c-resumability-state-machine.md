@@ -8,7 +8,7 @@ Brooding is **resumable**. A brood can be killed mid-flight (laptop closed, proc
 
 This sub-PRD carries the resumability contract verbatim from [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "Resumability." The core design choice is that every nectar mint and every description write is a **committed Deep Lake write, not an in-memory accumulation** — so the table itself is the resumption log. This is the same append-only/resumable pattern Honeycomb uses for the pollinating loop and the skillify miner, carried verbatim from the source doc.
 
-The three rules (skip already-brooded / re-enqueue minted-not-described / discover fresh) and the absence of a lockfile are the entire state machine. There are no transitions to invent — the `describe_status` column ([PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)) is the single source of truth, and the brooder's resumption logic is a read over it.
+The three rules (skip already-brooded / re-enqueue minted-not-described / discover fresh) and the absence of a lockfile are the entire state machine. There are no transitions to invent — the `describe_status` column ([PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)) is the single source of truth, and the brooder's resumption logic is a read over it.
 
 ## Goals
 
@@ -19,11 +19,11 @@ The three rules (skip already-brooded / re-enqueue minted-not-described / discov
 
 ## Non-Goals
 
-- The `describe_status` column's DDL and its full value set — [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md). This sub-PRD *reads* the column; PRD-005 owns its definition.
+- The `describe_status` column's DDL and its full value set — [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md). This sub-PRD *reads* the column; PRD-005 owns its definition.
 - The bucketing + describe mechanics that *produce* the `describe_status` transitions — [007b](./prd-007b-bucketing-and-llm-call-shapes.md). This sub-PRD owns how a resumed brood *reads* prior state, not how a fresh describe *writes* it.
 - The enricher's failure → `failed` → retry-solo path + persistent-failure alert — [PRD-016](../prd-016-enricher-steady-state/prd-016-enricher-steady-state-index.md). Brooding shares the `failed` status value but the enricher owns the steady-state retry loop.
-- The projection regeneration that happens at end-of-brood / on graceful interruption — [PRD-011](../prd-011-portable-projection/prd-011-portable-projection-index.md). Resumability governs *when* the projection regenerates; PRD-011 owns *how*.
-- The single-instance PID/lock that prevents two daemons — [PRD-002d](../prd-002-hivenectar-daemon/prd-002d-single-instance-lock-and-shutdown.md). That lock is about the *process*, not the *brood* — a brood has no lock of its own.
+- The projection regeneration that happens at end-of-brood / on graceful interruption — [PRD-011](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md). Resumability governs *when* the projection regenerates; PRD-011 owns *how*.
+- The single-instance PID/lock that prevents two daemons — [PRD-002d](../../completed/prd-002-hivenectar-daemon/prd-002d-single-instance-lock-and-shutdown.md). That lock is about the *process*, not the *brood* — a brood has no lock of its own.
 
 ---
 
@@ -79,7 +79,7 @@ A file with no `source_graph` identity row at all was never reached by the kille
 
 ## `describe_status` as the single discriminator
 
-The whole state machine keys off one column: `source_graph_versions.describe_status` ([PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)). Its values and what a resumed brood does with each:
+The whole state machine keys off one column: `source_graph_versions.describe_status` ([PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)). Its values and what a resumed brood does with each:
 
 | `describe_status` | Meaning | Resume action |
 |---|---|---|
@@ -101,13 +101,13 @@ A "brood in progress" lockfile is deliberately absent. The rationale, drawn from
 - **Already-durable.** Because every mint and description is a committed Deep Lake write, the table *already* records exactly which files are done. A lockfile would duplicate that information less reliably.
 - **Consistency with Honeycomb.** The pollinating loop and the skillify miner — the two Honeycomb subsystems the source doc names as using the same pattern — are likewise resumable from their tables without a lockfile. Mirroring that pattern keeps Hivenectar consistent with the codebase it composes with.
 
-The single-instance *process* lock ([PRD-002d](../prd-002-hivenectar-daemon/prd-002d-single-instance-lock-and-shutdown.md)) is unrelated: it prevents two daemon processes from running, not two broods from resuming. A brood resuming after a crash is exactly the intended behavior; a second daemon double-binding the port is not.
+The single-instance *process* lock ([PRD-002d](../../completed/prd-002-hivenectar-daemon/prd-002d-single-instance-lock-and-shutdown.md)) is unrelated: it prevents two daemon processes from running, not two broods from resuming. A brood resuming after a crash is exactly the intended behavior; a second daemon double-binding the port is not.
 
 ---
 
 ## Graceful interruption + projection regeneration
 
-On a graceful interruption (Ctrl-C, or a signal the daemon's shutdown path catches per [PRD-002d](../prd-002-hivenectar-daemon/prd-002d-single-instance-lock-and-shutdown.md)), the daemon regenerates `.honeycomb/nectars.json` from Deep Lake before exiting. [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "Projection regeneration" states: "At the end of brooding (or on graceful interruption), the daemon regenerates `.honeycomb/nectars.json` from Deep Lake." This means a Ctrl-C mid-brood does not lose the work done so far — the projection reflects every committed description up to the interruption point, and the next boot resumes the rest. The projection write itself (atomic temp + rename, validation) is owned by [PRD-011](../prd-011-portable-projection/prd-011-portable-projection-index.md).
+On a graceful interruption (Ctrl-C, or a signal the daemon's shutdown path catches per [PRD-002d](../../completed/prd-002-hivenectar-daemon/prd-002d-single-instance-lock-and-shutdown.md)), the daemon regenerates `.honeycomb/nectars.json` from Deep Lake before exiting. [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "Projection regeneration" states: "At the end of brooding (or on graceful interruption), the daemon regenerates `.honeycomb/nectars.json` from Deep Lake." This means a Ctrl-C mid-brood does not lose the work done so far — the projection reflects every committed description up to the interruption point, and the next boot resumes the rest. The projection write itself (atomic temp + rename, validation) is owned by [PRD-011](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md).
 
 ---
 
@@ -133,8 +133,8 @@ On a graceful interruption (Ctrl-C, or a signal the daemon's shutdown path catch
 
 ## Implementation notes
 
-- The resumption read is a scan over `source_graph_versions` filtered by `describe_status` + tenancy (`org_id`/`workspace_id`/`project_id`, per [PRD-005c](../prd-005-source-graph-catalog-tables/prd-005c-tenancy-and-project-id-filter.md)). The brooder joins to `source_graph` only to distinguish "minted but pending" (rule 2) from "not minted at all" (rule 3) — i.e. a nectar exists in `source_graph` but its latest version is `pending`, versus no nectar exists.
-- "Latest version per nectar" is `ORDER BY seq DESC LIMIT 1` ([PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `seq` monotonic counter), so the resume scan keys off the *latest* version row's status, not any historical one.
+- The resumption read is a scan over `source_graph_versions` filtered by `describe_status` + tenancy (`org_id`/`workspace_id`/`project_id`, per [PRD-005c](../../completed/prd-005-source-graph-catalog-tables/prd-005c-tenancy-and-project-id-filter.md)). The brooder joins to `source_graph` only to distinguish "minted but pending" (rule 2) from "not minted at all" (rule 3) — i.e. a nectar exists in `source_graph` but its latest version is `pending`, versus no nectar exists.
+- "Latest version per nectar" is `ORDER BY seq DESC LIMIT 1` ([PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `seq` monotonic counter), so the resume scan keys off the *latest* version row's status, not any historical one.
 - The committed-write durability relies on the Deep Lake client's write semantics (each mint + each description is a committed append), the same property Honeycomb's pollinating loop and skillify miner depend on (the pattern the source doc names).
 - Do **not** add a brood lockfile. Do **not** add a "brood in progress" boolean column. The source doc is explicit that the state is *fully derivable* from `describe_status`; any additional marker would violate the design and introduce drift.
 
@@ -147,8 +147,8 @@ No open questions. The three rules + the no-lockfile design are carried verbatim
 - [PRD-007b](./prd-007b-bucketing-and-llm-call-shapes.md) — rules 2 + failed-retry re-enter this bucketing; this sub-PRD reads the `describe_status` values 007b writes.
 - [PRD-007d](./prd-007d-cli-surface-and-dry-run.md) — `--force` re-describes by resetting non-skipped rows to `pending` (the inverse of rule 1).
 - [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) — the authoritative resumability contract.
-- [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `describe_status` column + `seq` counter this state machine reads.
-- [PRD-005c](../prd-005-source-graph-catalog-tables/prd-005c-tenancy-and-project-id-filter.md) — the tenancy scope of the resume scan.
-- [PRD-011](../prd-011-portable-projection/prd-011-portable-projection-index.md) — the projection regeneration on graceful interruption.
+- [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `describe_status` column + `seq` counter this state machine reads.
+- [PRD-005c](../../completed/prd-005-source-graph-catalog-tables/prd-005c-tenancy-and-project-id-filter.md) — the tenancy scope of the resume scan.
+- [PRD-011](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md) — the projection regeneration on graceful interruption.
 - [PRD-016](../prd-016-enricher-steady-state/prd-016-enricher-steady-state-index.md) — owns the steady-state `failed` retry loop + persistent-failure alert.
-- [PRD-002d](../prd-002-hivenectar-daemon/prd-002d-single-instance-lock-and-shutdown.md) — the *process* lock (distinct from the absent *brood* lock) + the graceful-shutdown path that triggers projection regen.
+- [PRD-002d](../../completed/prd-002-hivenectar-daemon/prd-002d-single-instance-lock-and-shutdown.md) — the *process* lock (distinct from the absent *brood* lock) + the graceful-shutdown path that triggers projection regen.

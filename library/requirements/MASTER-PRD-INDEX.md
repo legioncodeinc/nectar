@@ -180,7 +180,7 @@ Each PRD lists: **Spec source** (Hivenectar corpus doc(s)), **Conforms to** (Hon
 
 ### PRD-016 — Enricher steady-state loop + meaningful-change heuristic
 
-**Description for next step:** The steady-state description-maintenance loop (brooding is the one-time bootstrap; this is everything after). Polls the pending queue every 30s, debounces via the 2000ms watcher intake, applies the meaningful-change heuristic (Jaccard ≥ 0.85 = cosmetic → inherit, `describe_model = inherited-from:<prev_hash>`), calls the model via Portkey (PRD-010), embeds (PRD-014), updates `describe_status`. Includes the failure → `failed` → retry-solo path and the persistent-failure alert (5 cycles).
+**Description for next step:** The steady-state description-maintenance loop (brooding is the one-time bootstrap; this is everything after). Polls the pending queue every 30s, debounces via the 500ms watcher intake, applies the meaningful-change heuristic (Jaccard ≥ 0.85 = cosmetic → inherit, `describe_model = inherited-from:<prev_hash>`), calls the model via Portkey (PRD-010), embeds (PRD-014), updates `describe_status`. Includes the failure → `failed` → retry-solo path and the persistent-failure alert (5 cycles).
 
 **Spec source:** `ai/enricher-and-llm-model.md` (the authoritative enricher contract + heuristic).
 **Conforms to:** `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts` (the worker harness), `honeycomb/src/daemon/runtime/services/poll-loop.ts` (the adaptive poll loop).

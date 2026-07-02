@@ -134,7 +134,7 @@ When 5 consecutive cycles (default) fail, the dashboard alert fires and enrichme
 - [`./prd-016-enricher-steady-state-index.md`](./prd-016-enricher-steady-state-index.md)
 - [`./prd-016a-queue-poll-debounce-meaningful-change.md`](./prd-016a-queue-poll-debounce-meaningful-change.md) — the cycle that produces these failures.
 - [`./prd-016b-model-call-and-describe-model-audit.md`](./prd-016b-model-call-and-describe-model-audit.md) — the happy path whose failures this PRD catches.
-- [`../prd-010-portkey-gateway/`](../prd-010-portkey-gateway/) — Portkey's transient-429/5xx backoff (PRD-010), which precedes the enricher's `failed` marking.
+- [`../../in-work/prd-010-portkey-gateway/`](../../in-work/prd-010-portkey-gateway/) — Portkey's transient-429/5xx backoff (PRD-010), which precedes the enricher's `failed` marking.
 - [`../prd-008-hivenectar-api-endpoints/`](../prd-008-hivenectar-api-endpoints/) — the `/api/source-graph/status` endpoint surfacing the cost counter + queue-depth gauge (referenced by MASTER-PRD-INDEX.md PRD-008).
 - [`../../../knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) — AUTHORITATIVE: the verbatim failure-modes table, the persistent-failure "5 consecutive cycles" default, and the per-cycle observability contract.
 - `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts:236-260` — the route → run → complete/fail harness shape the enricher's failure routing mirrors (handler throws → `queue.fail`).

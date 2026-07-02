@@ -19,9 +19,9 @@ The composition mirrors Honeycomb's `runGraphBuild` (`honeycomb/src/daemon/runti
 ## Non-Goals
 
 - The bucketing logic that consumes the discovered files — [007b](./prd-007b-bucketing-and-llm-call-shapes.md).
-- The projection's on-disk format, validation-on-load, and atomic-write — [PRD-011](../prd-011-portable-projection/prd-011-portable-projection-index.md). This sub-PRD consumes the projection as a *read* for the pre-check; PRD-011 owns its write contract.
-- The live-watch `node:fs.watch` intake — [PRD-006a](../prd-006-file-registration-protocol/prd-006a-fswatch-intake-and-debounce.md). Discovery here is a full-scan enumeration, not the watcher's debounced event stream.
-- The re-association ladder that runs during cold-catch-up — [PRD-006d](../prd-006-file-registration-protocol/prd-006d-reassociation-ladder.md). Discovery is shared; the ladder is a different mode.
+- The projection's on-disk format, validation-on-load, and atomic-write — [PRD-011](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md). This sub-PRD consumes the projection as a *read* for the pre-check; PRD-011 owns its write contract.
+- The live-watch `node:fs.watch` intake — [PRD-006a](../../completed/prd-006-file-registration-protocol/prd-006a-fswatch-intake-and-debounce.md). Discovery here is a full-scan enumeration, not the watcher's debounced event stream.
+- The re-association ladder that runs during cold-catch-up — [PRD-006d](../../completed/prd-006-file-registration-protocol/prd-006d-reassociation-ladder.md). Discovery is shared; the ladder is a different mode.
 - The `--force` flag's effect (it bypasses the "respect existing descriptions" behavior, not the pre-check semantics) — [007d](./prd-007d-cli-surface-and-dry-run.md).
 
 ---
@@ -95,7 +95,7 @@ The pre-check consults the **projection** for content-hash inheritance; `--force
 
 ## Composition with the rest of the pipeline
 
-Discovery + pre-check is steps 1–2 of the pipeline. The full order (from the index, mirroring `runGraphBuild` at [`honeycomb/src/daemon/runtime/codebase/api.ts:234-261`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts)):
+Discovery + pre-check is steps 1–2 of the pipeline. The full order (from the index, mirroring `runGraphBuild` at `honeycomb/src/daemon/runtime/codebase/api.ts:234-261`):
 
 1. **Discover** (this sub-PRD) — `git ls-files` + walk fallback → candidate set.
 2. **Pre-check** (this sub-PRD) — content-hash match → inherit, no LLM; survivors → bucket.
@@ -131,10 +131,10 @@ Resumability across this whole flow is specified in [007c](./prd-007c-resumabili
 
 ## Implementation notes
 
-- Discovery reuses the CodeGraph discovery verbatim — the same logic documented in [`knowledge/private/data/codebase-graph.md`](../../../knowledge/private/data/codebase-graph.md), as cited by [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md). Hivenectar does **not** reimplement it; it points at the shared module (the projection-not-sidecar discipline, [`knowledge/private/data/portable-registry.md`](../../../knowledge/private/data/portable-registry.md)).
-- The content-hash pre-check reads the projection's `content_hash` field; the projection format + validation-on-load is owned by [PRD-011](../prd-011-portable-projection/prd-011-portable-projection-index.md) (this sub-PRD assumes a validated projection).
-- The sha256 `content_hash` is the same field stored on `source_graph_versions.content_hash` ([PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)) — discovery computes it; the version row stores it; the pre-check compares it. One hash, three uses.
-- The discover→pre-check composition mirrors `runGraphBuild`'s step 1 ("Aggregate: discover → tree-sitter extract") at [`honeycomb/src/daemon/runtime/codebase/api.ts:247-248`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts): brooding discovers, then narrows, before any extraction/description work.
+- Discovery reuses the CodeGraph discovery verbatim — the same logic documented in `honeycomb/library/knowledge/private/data/codebase-graph.md` (the main Honeycomb corpus, not this repo's tree), as cited by [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md). Hivenectar does **not** reimplement it; it points at the shared module (the projection-not-sidecar discipline, [`knowledge/private/data/portable-registry.md`](../../../knowledge/private/data/portable-registry.md)).
+- The content-hash pre-check reads the projection's `content_hash` field; the projection format + validation-on-load is owned by [PRD-011](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md) (this sub-PRD assumes a validated projection).
+- The sha256 `content_hash` is the same field stored on `source_graph_versions.content_hash` ([PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)) — discovery computes it; the version row stores it; the pre-check compares it. One hash, three uses.
+- The discover→pre-check composition mirrors `runGraphBuild`'s step 1 ("Aggregate: discover → tree-sitter extract") at `honeycomb/src/daemon/runtime/codebase/api.ts:247-248`: brooding discovers, then narrows, before any extraction/description work.
 
 No open questions. The discovery command + pre-check are carried from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md); the only flagged default is the discovery command itself (DEFAULT — confirm before implementation).
 
@@ -144,8 +144,8 @@ No open questions. The discovery command + pre-check are carried from [`brooding
 - [PRD-007b](./prd-007b-bucketing-and-llm-call-shapes.md) — bucketing consumes the survivors of the pre-check.
 - [PRD-007c](./prd-007c-resumability-state-machine.md) — resumability of the full flow.
 - [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) — the authoritative discovery + pre-check description.
-- [`knowledge/private/data/codebase-graph.md`](../../../knowledge/private/data/codebase-graph.md) — the CodeGraph discovery reused verbatim.
+- `honeycomb/library/knowledge/private/data/codebase-graph.md` — the CodeGraph discovery reused verbatim (main Honeycomb corpus, not this repo's tree).
 - [`knowledge/private/data/portable-registry.md`](../../../knowledge/private/data/portable-registry.md) — the projection the pre-check reads + the projection-not-sidecar discipline.
-- [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `content_hash` column this stage computes.
-- [PRD-011](../prd-011-portable-projection/prd-011-portable-projection-index.md) — owns the projection the pre-check consults.
-- [`honeycomb/src/daemon/runtime/codebase/api.ts:234-261`](../../../../honeycomb/src/daemon/runtime/codebase/api.ts) — `runGraphBuild`, the discover→extract→persist composition to mirror.
+- [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `content_hash` column this stage computes.
+- [PRD-011](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md) — owns the projection the pre-check consults.
+- `honeycomb/src/daemon/runtime/codebase/api.ts:234-261` — `runGraphBuild`, the discover→extract→persist composition to mirror.
