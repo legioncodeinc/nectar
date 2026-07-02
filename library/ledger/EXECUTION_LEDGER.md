@@ -565,6 +565,19 @@ QA-009: FAIL (as audited) -> PASS after remediation (report section 10). QA-015:
 
 **Wave D exit gate: MET** (445 tests total, +41 AC-named; typecheck clean; Aikido clean on the new API code). Wave E entry gate for 015 now satisfied (008 verified, 004c host ready, 013 verified; QA-015 PASS with W-1 resolved via decision #39).
 
+#### Bridge closure (2026-07-02 PM, sync/async brood bridge)
+
+The one tracked Wave D dormancy is CLOSED. `runBrood` consumed the synchronous `HiveGraphStore`; the only durable substrate (`DeepLakeHiveGraphStore` / `AsyncHiveGraphStore`) is async, so the live build endpoint returned 501, auto-brood was dormant, the enricher's production hydration was caller-injected, and the PRD-017 pipeline counters stayed 0 in production.
+
+- **Bridge shape chosen: (a) an async-native brood pipeline.** `runBrood` was already `async` (it awaits the LLM + embed stages); only the store calls were sync. New `src/brooding/pipeline-async.ts` `runBroodAsync` / `planBroodAsync` is the async-native twin that awaits `AsyncHiveGraphStore` and reuses every pure stage verbatim (discovery / precheck / bucketing / #22 packing / describe / embed / cost / resumability) plus the shared row/identity/describe helpers now exported from `pipeline.ts` (`buildVersionRow`, `buildIdentity`, `resolveProjection`, `resolveDescribeFn`). Option (b) hydrate-then-flush was rejected: brooding is batch-shaped and hydrating a whole repo into a sync mirror is the thing to avoid. Projection regen rides the existing `rebuildProjectionAsync` (Wave B). `evaluateAutoBroodAsync` is the async twin of the trigger check.
+- **Live seams now REAL:**
+  - `POST /api/hive-graph/build` broods against the durable async store (wrapped with the telemetry metrics sink) when Deep Lake creds + a Portkey describe transport resolve (`api/daemon-api-wiring.ts` `resolveLiveBrood`). No more unconditional 501.
+  - `src/daemon.ts` auto-brood runs `runBroodAsync` against `asyncBroodStore` (counting via `telemetry.wrapAsyncStore`) when configured; the sync `broodStore` path is untouched.
+  - Enricher production hydration: `src/cli.ts` builds a `DeepLakeEnricherStore` whose `loadVersions` seeds the pending working set from the async store's `listLatestVersions` (per-nectar latest, no full-history hydrate) and write-through UPDATEs over the daemon's transport, hydrated in the background at boot.
+  - Telemetry counters: new `wrapAsyncStoreWithMetrics` + `telemetry.wrapAsyncStore` increment `nectarsMinted` / `hiveGraphVersions` / `descriptionsGenerated` / `embeddingsComputed` at the real async write; the enricher's metrics sink defaults to the daemon's own telemetry so a live enrich cycle also counts.
+- **Still honestly gated (not dormant):** the build endpoint and daemon auto-brood/enrich stay a 501 / no-op when Deep Lake creds are absent (group unmounted) OR Portkey is not configured (an LLM-less daemon genuinely cannot brood) - a truthful creds gate, reported structurally, never a silent success. Two documented residuals, unchanged by this bridge: the enricher's projection trigger #2 is not auto-fired on the live cycle (the async store has no sync projection seam; the projection is still rebuilt at brood-end / via the endpoint / CLI), and cosmetic-inherit's `priorDescribedVersion` degrades to a fresh describe on a cold boot because only latest-per-nectar is hydrated.
+- **Verification:** `npm run typecheck` clean; `npm test` = 452 tests, 449 pass / 0 fail / 3 pre-existing skips (up from 445; +7 `bridge-AC` tests covering async brood e2e with counters, the live build path + the creds-absent 501 gate, the durable auto-brood path, and durable enricher hydration). Zero new runtime dependencies; node:test harness; all SQL through the existing guards; no existing test weakened; naming stays nectar / hive_graph / HiveGraph.
+
 ### Wave E results (2026-07-02 PM)
 
 | ID | Item | Status |

@@ -13,11 +13,17 @@
  */
 import type { PipelineStatus } from "../health.js";
 import type { Timer } from "../poll-loop.js";
-import type { HiveGraphStore } from "../hive-graph/store.js";
+import type { AsyncHiveGraphStore, HiveGraphStore } from "../hive-graph/store.js";
 import { CheckinService, CheckinWriter } from "./checkin.js";
 import { defaultTelemetryDbPath, openTelemetryDb, type SqliteDatabaseLike } from "./db.js";
 import { LogWriter, type LogLevel } from "./logs.js";
-import { MetricsWriter, wrapStoreWithMetrics, type MetricsSnapshot, type PipelineMetricsSink } from "./metrics.js";
+import {
+  MetricsWriter,
+  wrapAsyncStoreWithMetrics,
+  wrapStoreWithMetrics,
+  type MetricsSnapshot,
+  type PipelineMetricsSink,
+} from "./metrics.js";
 
 export {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -46,6 +52,7 @@ export {
 export {
   MetricsWriter,
   wrapStoreWithMetrics,
+  wrapAsyncStoreWithMetrics,
   type MetricsSnapshot,
   type PipelineMetricsSink,
 } from "./metrics.js";
@@ -74,6 +81,13 @@ export interface Telemetry {
   log(level: LogLevel, message: string): void;
   /** Wrap a `HiveGraphStore` so nectar mints and version writes increment their counters at the real write (PRD-017b). */
   wrapStore<T extends HiveGraphStore>(store: T): T;
+  /**
+   * Wrap an `AsyncHiveGraphStore` (the durable Deep Lake substrate) so the same
+   * counters increment on the LIVE brood path (PRD-017b). This is what moves the
+   * `descriptionsGenerated` / `hiveGraphVersions` / `embeddingsComputed` counters
+   * off 0 once a real daemon broods against Deep Lake.
+   */
+  wrapAsyncStore<T extends AsyncHiveGraphStore>(store: T): T;
   /** Close the backing SQLite handle (idempotent, never throws). */
   close(): void;
 }
@@ -123,6 +137,7 @@ export function createNullTelemetry(dbPath: string): Telemetry {
     startCheckin: () => () => {},
     log: () => {},
     wrapStore: (store) => store,
+    wrapAsyncStore: (store) => store,
     close: () => {},
   };
 }
@@ -167,6 +182,7 @@ export function createTelemetry(opts: CreateTelemetryOptions = {}): Telemetry {
     },
     log: (level, message) => logWriter.write(level, message),
     wrapStore: (store) => wrapStoreWithMetrics(store, metricsWriter),
+    wrapAsyncStore: (store) => wrapAsyncStoreWithMetrics(store, metricsWriter),
     close: () => {
       try {
         db.close();

@@ -62,7 +62,7 @@ import {
   emptyJobSource,
 } from "./worker.js";
 import type { Tenancy } from "./hive-graph/model.js";
-import type { HiveGraphStore } from "./hive-graph/store.js";
+import type { AsyncHiveGraphStore, HiveGraphStore } from "./hive-graph/store.js";
 import { createDiskRegistrationFs } from "./registration/disk-fs.js";
 import { createOffProvider } from "./embeddings/provider.js";
 import {
@@ -75,13 +75,18 @@ import {
 } from "./enricher/index.js";
 import {
   evaluateAutoBrood,
+  evaluateAutoBroodAsync,
   runBrood,
+  runBroodAsync,
   shouldAutoBrood,
+  type AsyncBroodConfig,
+  type AsyncBroodRuntimeDeps,
   type BroodConfig,
   type BroodResult,
   type BroodRunOptions,
   type BroodRuntimeDeps,
 } from "./brooding/index.js";
+import type { PipelineMetricsSink } from "./telemetry/index.js";
 import { loadProjection, loadProjectionFromFile, type LoadIgnoreReason } from "./projection/load.js";
 import { inheritFromProjection, type DiskHashMap, type InheritRow, type InheritSummary } from "./projection/inherit.js";
 import type { PortableProjection } from "./projection/format.js";
@@ -129,14 +134,32 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
    * the sync/async bridge documented on `AsyncHiveGraphStore`.
    */
   readonly broodStore?: HiveGraphStore;
-  /** Disable the auto-brood trigger even when `broodStore` is present. Default: enabled when `broodStore` is set. */
+  /**
+   * The durable ASYNC hive-graph store the auto-brood trigger evaluates + broods
+   * against (the sync/async bridge). When set, auto-brood runs {@link runBroodAsync}
+   * against Deep Lake (wrapped with the daemon's telemetry metrics so the PRD-017
+   * counters move). Takes precedence over {@link broodStore}. When neither is set
+   * the auto-brood check is a no-op (logged nowhere - simply skipped).
+   */
+  readonly asyncBroodStore?: AsyncHiveGraphStore;
+  /** Disable the auto-brood trigger even when a brood store is present. Default: enabled when a brood store is set. */
   readonly autoBroodEnabled?: boolean;
   /** The brood runner (default: {@link runBrood}). A test injects a spy to assert the trigger fired without an LLM call. */
   readonly broodRun?: (config: BroodConfig, deps?: BroodRuntimeDeps, options?: BroodRunOptions) => Promise<BroodResult>;
+  /** The async brood runner (default: {@link runBroodAsync}). A test injects a spy to assert the durable trigger fired. */
+  readonly broodRunAsync?: (
+    config: AsyncBroodConfig,
+    deps?: AsyncBroodRuntimeDeps,
+    options?: BroodRunOptions,
+  ) => Promise<BroodResult>;
   /** Extra brood config (fs seam, gitLsFiles, pack options...). `store`/`tenancy`/`root` are always supplied by the daemon. */
   readonly broodConfig?: Partial<Omit<BroodConfig, "store" | "tenancy" | "root">>;
+  /** Extra async brood config (fs seam, gitLsFiles, pack options...) for the durable path. */
+  readonly broodConfigAsync?: Partial<Omit<AsyncBroodConfig, "store" | "tenancy" | "root">>;
   /** Brood runtime deps (describe transport, embed provider, projection regen seam). */
   readonly broodDeps?: BroodRuntimeDeps;
+  /** Async brood runtime deps (describe transport, embed provider, async projection regen seam) for the durable path. */
+  readonly broodDepsAsync?: AsyncBroodRuntimeDeps;
   /** Brood run options for the auto-trigger (default: `{}`). */
   readonly broodOptions?: BroodRunOptions;
 
@@ -384,6 +407,17 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
         }
       },
     };
+    // Default the enricher's metrics sink to the daemon's OWN telemetry (read
+    // lazily so it tracks the fresh instance opened on each start()), so a live
+    // enricher cycle that describes/embeds moves the PRD-017 counters. A caller
+    // may still override it via `enricherCycle.metrics`.
+    const enricherMetrics: PipelineMetricsSink = options.enricherCycle?.metrics ?? {
+      incrementFilesRegistered: () => telemetry.metrics.incrementFilesRegistered(),
+      incrementNectarsMinted: () => telemetry.metrics.incrementNectarsMinted(),
+      incrementDescriptionsGenerated: () => telemetry.metrics.incrementDescriptionsGenerated(),
+      incrementHiveGraphVersions: () => telemetry.metrics.incrementHiveGraphVersions(),
+      incrementEmbeddingsComputed: () => telemetry.metrics.incrementEmbeddingsComputed(),
+    };
     const cycleDeps: EnricherCycleDeps = {
       readContent: { read: () => null },
       portkey: null,
@@ -392,6 +426,7 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
       store: enricherStore,
       tenancy: waveCTenancy,
       logSink: enricherHealthSink,
+      metrics: enricherMetrics,
     };
     enricherLoop = createEnricherLoop({
       deps: cycleDeps,
@@ -404,33 +439,57 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
   /** Background boot tasks (projection load, auto-brood) from the latest start(); never blocks readiness. */
   let bootSettled: Promise<void> = Promise.resolve();
 
+  /** Record a completed brood's file/cost slices on /health (shared by both paths). */
+  function finishBrood(result: BroodResult): void {
+    health.setBroodingState({
+      active: false,
+      filesDescribed: result.describedCount,
+      filesTotal: result.discoveredCount,
+      lastEventAt: new Date().toISOString(),
+    });
+    health.addBroodCost({ tokens: result.estimate.inputTokens, usd: result.estimate.totalUsd });
+  }
+
   /**
    * PRD-007d automatic trigger: after the socket is bound, if the project has no
    * hive_graph rows OR no projection, brood in the BACKGROUND (never blocks
-   * readiness). Only runs when a sync `broodStore` is wired.
+   * readiness). Runs against the durable ASYNC store when {@link asyncBroodStore}
+   * is wired (the sync/async bridge, counting via the daemon's telemetry), else
+   * against a sync {@link broodStore}; a no-op when neither is configured.
    */
   async function triggerAutoBrood(): Promise<void> {
-    const store = options.broodStore;
-    if (store === undefined || (options.autoBroodEnabled ?? true) === false) return;
+    if ((options.autoBroodEnabled ?? true) === false) return;
+    const asyncStore = options.asyncBroodStore;
+    const syncStore = options.broodStore;
     try {
-      if (!shouldAutoBrood(evaluateAutoBrood(store, waveCTenancy, projectRoot))) return;
-      health.setBroodingState({ active: true, lastEventAt: new Date().toISOString() });
-      const broodConfig: BroodConfig = {
-        ...options.broodConfig,
-        store,
-        tenancy: waveCTenancy,
-        root: projectRoot,
-        fs: options.broodConfig?.fs ?? createDiskRegistrationFs(projectRoot),
-      };
-      const run = options.broodRun ?? runBrood;
-      const result = await run(broodConfig, options.broodDeps ?? {}, options.broodOptions ?? {});
-      health.setBroodingState({
-        active: false,
-        filesDescribed: result.describedCount,
-        filesTotal: result.discoveredCount,
-        lastEventAt: new Date().toISOString(),
-      });
-      health.addBroodCost({ tokens: result.estimate.inputTokens, usd: result.estimate.totalUsd });
+      if (asyncStore !== undefined) {
+        if (!shouldAutoBrood(await evaluateAutoBroodAsync(asyncStore, waveCTenancy, projectRoot))) return;
+        health.setBroodingState({ active: true, lastEventAt: new Date().toISOString() });
+        const config: AsyncBroodConfig = {
+          ...options.broodConfigAsync,
+          store: telemetry.wrapAsyncStore(asyncStore),
+          tenancy: waveCTenancy,
+          root: projectRoot,
+          fs: options.broodConfigAsync?.fs ?? createDiskRegistrationFs(projectRoot),
+        };
+        const run = options.broodRunAsync ?? runBroodAsync;
+        finishBrood(await run(config, options.broodDepsAsync ?? {}, options.broodOptions ?? {}));
+        return;
+      }
+      if (syncStore !== undefined) {
+        if (!shouldAutoBrood(evaluateAutoBrood(syncStore, waveCTenancy, projectRoot))) return;
+        health.setBroodingState({ active: true, lastEventAt: new Date().toISOString() });
+        const config: BroodConfig = {
+          ...options.broodConfig,
+          store: syncStore,
+          tenancy: waveCTenancy,
+          root: projectRoot,
+          fs: options.broodConfig?.fs ?? createDiskRegistrationFs(projectRoot),
+        };
+        const run = options.broodRun ?? runBrood;
+        finishBrood(await run(config, options.broodDeps ?? {}, options.broodOptions ?? {}));
+        return;
+      }
     } catch (err) {
       health.setBroodingState({ active: false });
       log({ level: "error", scope: "brood", err: String(err) });

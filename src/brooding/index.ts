@@ -107,18 +107,36 @@ export {
   BroodError,
   planBrood,
   runBrood,
+  resolveProjection,
+  buildVersionRow,
+  buildIdentity,
+  resolveDescribeFn,
+  defaultNow,
   type BroodConfig,
   type BroodRunOptions,
   type BroodRuntimeDeps,
   type BroodPlan,
   type BroodResult,
+  type BroodProjectionContext,
+  type DescribeSeams,
+  type RowFields,
+  type ToBroodItem,
 } from "./pipeline.js";
+
+// Async-native orchestrator: the sync/async store bridge (Wave D dormancy closure).
+export {
+  planBroodAsync,
+  runBroodAsync,
+  type AsyncBroodConfig,
+  type AsyncBroodRuntimeDeps,
+} from "./pipeline-async.js";
 
 // CLI verb surface + dry-run (PRD-007d).
 export {
   parseBroodArgs,
   shouldAutoBrood,
   evaluateAutoBrood,
+  evaluateAutoBroodAsync,
   formatDryRunReport,
   type ParsedBroodArgs,
   type AutoBroodCheck,

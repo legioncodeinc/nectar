@@ -16,7 +16,7 @@
  * AC-017b.4.1).
  */
 import type { HiveGraphRow, HiveGraphVersionRow } from "../hive-graph/model.js";
-import type { HiveGraphStore } from "../hive-graph/store.js";
+import type { AsyncHiveGraphStore, HiveGraphStore } from "../hive-graph/store.js";
 import type { SqliteDatabaseLike } from "./db.js";
 
 export interface MetricsSnapshot {
@@ -174,6 +174,40 @@ export function wrapStoreWithMetrics<T extends HiveGraphStore>(store: T, sink: P
       if (prop === "appendVersion") {
         return (row: HiveGraphVersionRow): void => {
           target.appendVersion(row);
+          sink.incrementHiveGraphVersions();
+          if (row.describeStatus === "described") sink.incrementDescriptionsGenerated();
+          if (row.embedding !== null) sink.incrementEmbeddingsComputed();
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as T;
+}
+
+/**
+ * The async twin of {@link wrapStoreWithMetrics}: wrap an
+ * {@link AsyncHiveGraphStore} so the same four store-level counters increment at
+ * their REAL completion point on the LIVE (durable) brood path, with ZERO
+ * changes to `runBroodAsync` or the Deep Lake adapter. The increment fires only
+ * AFTER the awaited write resolves - a rejected `insertIdentity` (the mint dedup
+ * guard) or `appendVersion` never increments, because the `await` throws before
+ * the increment line. This is what makes the PRD-017b `descriptionsGenerated` /
+ * `hiveGraphVersions` / `embeddingsComputed` / `nectarsMinted` counters move in
+ * production once the daemon actually broods against Deep Lake (the counters that
+ * previously stayed 0 because the pipeline never ran on the live boot path).
+ */
+export function wrapAsyncStoreWithMetrics<T extends AsyncHiveGraphStore>(store: T, sink: PipelineMetricsSink): T {
+  return new Proxy(store, {
+    get(target, prop, receiver) {
+      if (prop === "insertIdentity") {
+        return async (row: HiveGraphRow): Promise<void> => {
+          await target.insertIdentity(row);
+          sink.incrementNectarsMinted();
+        };
+      }
+      if (prop === "appendVersion") {
+        return async (row: HiveGraphVersionRow): Promise<void> => {
+          await target.appendVersion(row);
           sink.incrementHiveGraphVersions();
           if (row.describeStatus === "described") sink.incrementDescriptionsGenerated();
           if (row.embedding !== null) sink.incrementEmbeddingsComputed();

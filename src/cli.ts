@@ -27,7 +27,7 @@
  */
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { assembleDaemon, type BootProjectionLoad } from "./daemon.js";
+import { assembleDaemon, type AssembledDaemon, type AssembleOptions, type BootProjectionLoad } from "./daemon.js";
 import { resolveConfig } from "./config.js";
 import { mountHiveGraphApi } from "./api/hive-graph-api.js";
 import { buildHiveGraphApiOptions } from "./api/daemon-api-wiring.js";
@@ -39,12 +39,19 @@ import { emitInstalled, emitUninstalled, recordDaemonStart } from "./telemetry-u
 import type { Tenancy } from "./hive-graph/model.js";
 import { DeepLakeHiveGraphStore } from "./hive-graph/deeplake-store.js";
 import { InMemoryHiveGraphStore } from "./hive-graph/memory-store.js";
+import { HttpDeepLakeTransport } from "./hive-graph/deeplake-transport.js";
 import { loadDeepLakeCredentials } from "./hive-graph/deeplake-credentials.js";
 import { resolveProjectScope, type ProjectScopeSource } from "./hive-graph/project-scope.js";
 import { createDiskRegistrationFs } from "./registration/disk-fs.js";
 import { rebuildProjectionAsync, projectionFinalPath } from "./projection/write.js";
 import { DEFAULT_PROJECTION_REL_PATH } from "./projection/format.js";
 import type { InheritRow } from "./projection/inherit.js";
+import { resolvePortkeyConfig, type PortkeyEnabled } from "./portkey/config.js";
+import { resolveEmbeddingsConfig } from "./embeddings/config.js";
+import { resolveEmbedProvider, type EmbedProvider } from "./embeddings/provider.js";
+import { DeepLakeEnricherStore } from "./enricher/store-adapter.js";
+import type { ContentReader } from "./enricher/index.js";
+import type { PipelineMetricsSink } from "./telemetry/index.js";
 import {
   parseBroodArgs,
   planBrood,
@@ -319,9 +326,11 @@ function runBroodCommand(broodArgs: readonly string[]): number {
       return runBroodDryRun();
     case "run":
       process.stderr.write(
-        "nectar brood: a mutating brood executes daemon-side (PRD-007d). It dispatches to the " +
-          "daemon's POST /api/hive-graph/build endpoint (PRD-008), which lands in a later wave. " +
-          "Use 'nectar brood --dry-run' for a local cost preview today.\n",
+        "nectar brood: a mutating brood executes daemon-side (PRD-007d) via the live " +
+          "POST /api/hive-graph/build endpoint (PRD-008); a running 'nectar daemon' with Deep Lake + " +
+          "Portkey configured broods durably (and auto-broods a fresh project on boot). A thin CLI " +
+          "loopback dispatcher for this verb is not wired yet; use 'nectar brood --dry-run' for a " +
+          "local cost preview, or POST the build endpoint directly.\n",
       );
       return 2;
     default: {
@@ -509,7 +518,88 @@ function resolveBootProjection(): BootProjectionLoad | undefined {
   };
 }
 
+/** The resolved-and-ok shape of {@link resolveProjectionContext}. */
+type ResolvedContext = Extract<ReturnType<typeof resolveProjectionContext>, { readonly ok: true }>;
+
+/** Resolve the Deep Lake project context, swallowing a missing-creds error into `undefined`. */
+function safeResolveContext(): ResolvedContext | undefined {
+  try {
+    const result = resolveProjectionContext();
+    return result.ok ? result : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A metrics sink that delegates to the daemon's CURRENT telemetry (fresh per start()), for the live build brood path. */
+function daemonMetricsProxy(daemon: AssembledDaemon): PipelineMetricsSink {
+  return {
+    incrementFilesRegistered: () => daemon.telemetry().metrics.incrementFilesRegistered(),
+    incrementNectarsMinted: () => daemon.telemetry().metrics.incrementNectarsMinted(),
+    incrementDescriptionsGenerated: () => daemon.telemetry().metrics.incrementDescriptionsGenerated(),
+    incrementHiveGraphVersions: () => daemon.telemetry().metrics.incrementHiveGraphVersions(),
+    incrementEmbeddingsComputed: () => daemon.telemetry().metrics.incrementEmbeddingsComputed(),
+  };
+}
+
+/** The live durable brood/enrich seams built when Deep Lake creds + Portkey both resolve. */
+interface LiveDurableWiring {
+  readonly portkey: PortkeyEnabled;
+  readonly enricher: DeepLakeEnricherStore;
+  readonly readContent: ContentReader;
+}
+
+/**
+ * Build the durable enricher store (hydrated per-nectar-latest from the async
+ * store, write-through UPDATEs over the daemon's transport) and a disk content
+ * reader for the live enricher cycle. `AsyncHiveGraphStore` exposes only
+ * latest-per-nectar reads, so hydration seeds the enricher's pending-selection
+ * working set from `listLatestVersions`; per-nectar history (cosmetic-inherit's
+ * `priorDescribedVersion`) is not carried across a cold boot, so that step
+ * degrades to a fresh describe rather than an inherit (documented, honest).
+ */
+function buildLiveDurableWiring(
+  ctx: ResolvedContext,
+  portkey: PortkeyEnabled,
+): LiveDurableWiring {
+  const creds = ctx.credentials;
+  const transport = new HttpDeepLakeTransport({
+    endpoint: creds.apiUrl,
+    token: creds.token,
+    orgId: creds.orgId,
+    workspaceId: creds.workspaceId,
+  });
+  const fs = createDiskRegistrationFs(ctx.projectRoot);
+  const readContent: ContentReader = {
+    read: (path: string): string | null => {
+      const stat = fs.statPath(path);
+      if (stat === null) return null;
+      try {
+        return Buffer.from(stat.readContent()).toString("utf8");
+      } catch {
+        return null;
+      }
+    },
+  };
+  const enricher = new DeepLakeEnricherStore({
+    loadVersions: async (tenancy) => (await ctx.store.listLatestVersions(tenancy)).map((lv) => lv.version),
+    writeBack: async (sql: string) => {
+      await transport.query(sql);
+    },
+    onWriteBackError: (err: unknown) => {
+      process.stderr.write(
+        `nectar enricher: durable write-back failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    },
+  });
+  return { portkey, enricher, readContent };
+}
+
 async function runDaemon(): Promise<void> {
+  const ctx = safeResolveContext();
+  const portkey = resolvePortkeyConfig();
+  const embedProvider: EmbedProvider = resolveEmbedProvider(resolveEmbeddingsConfig({}));
+
   let bootProjection: BootProjectionLoad | undefined;
   try {
     bootProjection = resolveBootProjection();
@@ -517,23 +607,44 @@ async function runDaemon(): Promise<void> {
     // fail-soft: a boot pre-warm is best-effort and never blocks the daemon start.
     bootProjection = undefined;
   }
-  const daemon = assembleDaemon(bootProjection !== undefined ? { bootProjection } : {});
 
-  // PRD-008: attach the /api/hive-graph handlers once, after createDaemon,
-  // mirroring mountGraphApi. Wired only when a Deep Lake context resolves; on a
-  // bare machine the group stays scaffolded + protected but unfilled (a path
-  // under it answers the root 501 scaffold), and the daemon still boots.
+  // Durable brood + enrich run live only when Deep Lake creds resolve AND a
+  // Portkey describe transport is configured: an LLM-less daemon genuinely
+  // cannot brood or enrich, so it stays dormant (honest, and no false-fail
+  // marking of pending rows). This is the bridge that closes the Wave D dormancy.
+  const live: LiveDurableWiring | undefined =
+    ctx !== undefined && portkey.enabled ? buildLiveDurableWiring(ctx, portkey) : undefined;
+
+  const options: AssembleOptions = {
+    ...(bootProjection !== undefined ? { bootProjection } : {}),
+    ...(ctx !== undefined ? { tenancy: ctx.tenancy, projectRoot: ctx.projectRoot } : {}),
+    ...(live !== undefined && ctx !== undefined
+      ? {
+          asyncBroodStore: ctx.store,
+          broodDepsAsync: { portkey: live.portkey, embedProvider },
+          enricherStore: live.enricher,
+          enricherCycle: { readContent: live.readContent, portkey: live.portkey, embedProvider },
+        }
+      : {}),
+  };
+
+  const daemon = assembleDaemon(options);
+
+  // PRD-008: attach the /api/hive-graph handlers once, after assembleDaemon,
+  // mirroring mountGraphApi. When Deep Lake creds resolve the group is filled,
+  // and the LIVE build endpoint broods (when Portkey is configured); otherwise
+  // the group stays scaffolded + protected but unfilled (an honest 501 scaffold).
   try {
-    const apiCtx = resolveProjectionContext();
-    if (apiCtx.ok) {
+    if (ctx !== undefined) {
       mountHiveGraphApi(
         daemon,
         buildHiveGraphApiOptions({
-          credentials: apiCtx.credentials,
-          tenancy: apiCtx.tenancy,
-          projectRoot: apiCtx.projectRoot,
-          store: apiCtx.store,
+          credentials: ctx.credentials,
+          tenancy: ctx.tenancy,
+          projectRoot: ctx.projectRoot,
+          store: ctx.store,
           costSpentUsd: () => daemon.health.snapshot().cost.broodTotalUsd,
+          brood: { portkey, embedProvider, metrics: daemonMetricsProxy(daemon) },
         }),
       );
     }
@@ -546,6 +657,18 @@ async function runDaemon(): Promise<void> {
   process.stdout.write(
     `nectar daemon listening on http://${daemon.config.host}:${port}/health\n`,
   );
+
+  // Hydrate the durable enricher's working set from Deep Lake in the BACKGROUND
+  // (never blocks readiness; fail-soft). The enricher loop sees an empty working
+  // set until this settles, then picks up the seeded pending rows on its next cycle.
+  if (live !== undefined && ctx !== undefined) {
+    void live.enricher.hydrate(ctx.tenancy).catch((err: unknown) => {
+      process.stderr.write(
+        `nectar daemon: enricher hydrate failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    });
+  }
+
   // Usage telemetry: first_run (once per machine) + updated (on a version
   // change) fire AFTER a successful bind. Fire-and-forget: recordDaemonStart
   // never throws and the daemon does not wait on it.

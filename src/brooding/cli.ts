@@ -9,7 +9,7 @@
  */
 import { existsSync } from "node:fs";
 import type { Tenancy } from "../hive-graph/model.js";
-import type { HiveGraphStore } from "../hive-graph/store.js";
+import type { AsyncHiveGraphStore, HiveGraphStore } from "../hive-graph/store.js";
 import { DEFAULT_PROJECTION_REL_PATH } from "../projection/format.js";
 import { projectionFinalPath } from "../projection/write.js";
 import type { BroodRunOptions } from "./pipeline.js";
@@ -112,6 +112,23 @@ export function shouldAutoBrood(check: AutoBroodCheck): boolean {
 /** Build the {@link AutoBroodCheck} from the store + project root (a startup helper). */
 export function evaluateAutoBrood(store: HiveGraphStore, tenancy: Tenancy, root: string): AutoBroodCheck {
   const hasHiveGraphRows = store.listLatestVersions(tenancy).length > 0;
+  const hasProjection = existsSync(projectionFinalPath(root, DEFAULT_PROJECTION_REL_PATH));
+  return { hasHiveGraphRows, hasProjection };
+}
+
+/**
+ * The async twin of {@link evaluateAutoBrood} for the durable
+ * {@link AsyncHiveGraphStore} (Deep Lake). Reads whether the project has any
+ * hive_graph rows over the async store and whether the projection exists on
+ * disk. The daemon's durable auto-brood path uses this so a real daemon with
+ * Deep Lake credentials evaluates the trigger against the durable substrate.
+ */
+export async function evaluateAutoBroodAsync(
+  store: AsyncHiveGraphStore,
+  tenancy: Tenancy,
+  root: string,
+): Promise<AutoBroodCheck> {
+  const hasHiveGraphRows = (await store.listLatestVersions(tenancy)).length > 0;
   const hasProjection = existsSync(projectionFinalPath(root, DEFAULT_PROJECTION_REL_PATH));
   return { hasHiveGraphRows, hasProjection };
 }

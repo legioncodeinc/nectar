@@ -144,12 +144,24 @@ export interface BroodResult extends BroodPlan {
   readonly projectionPath: string | null;
 }
 
-function defaultNow(): string {
+export function defaultNow(): string {
   return new Date().toISOString();
 }
 
+/**
+ * The store-agnostic subset {@link resolveProjection} needs. Both the sync
+ * {@link BroodConfig} and the async brood config (`pipeline-async.ts`) satisfy
+ * it, so the projection-resolution + row-building helpers below are shared
+ * verbatim across the sync and async pipelines rather than duplicated.
+ */
+export interface BroodProjectionContext {
+  readonly root: string;
+  readonly tenancy: Tenancy;
+  readonly projection?: PortableProjection | null;
+}
+
 /** Resolve the projection to consult: explicit value, else a disk load, else null. */
-function resolveProjection(config: BroodConfig): PortableProjection | null {
+export function resolveProjection(config: BroodProjectionContext): PortableProjection | null {
   if (config.projection !== undefined) return config.projection;
   const path = projectionFinalPath(config.root, DEFAULT_PROJECTION_REL_PATH);
   const result: LoadProjectionResult = loadProjectionFromFile(path, { tenancy: config.tenancy });
@@ -216,7 +228,7 @@ export function planBrood(config: BroodConfig): BroodPlan {
   };
 }
 
-interface RowFields {
+export interface RowFields {
   readonly title?: string;
   readonly description?: string;
   readonly concepts?: string;
@@ -227,7 +239,7 @@ interface RowFields {
 }
 
 /** Build a version row for a prepared file at `seq` with the given describe fields. */
-function buildVersionRow(
+export function buildVersionRow(
   tenancy: Tenancy,
   now: string,
   prepared: PreparedFile,
@@ -263,7 +275,7 @@ function buildVersionRow(
 }
 
 /** Mint a fresh identity row for a brooded file (originally minted; no copy provenance). */
-function buildIdentity(tenancy: Tenancy, now: string, nectar: string): HiveGraphRow {
+export function buildIdentity(tenancy: Tenancy, now: string, nectar: string): HiveGraphRow {
   return {
     nectar,
     kind: "file",
@@ -277,7 +289,7 @@ function buildIdentity(tenancy: Tenancy, now: string, nectar: string): HiveGraph
   };
 }
 
-interface ToBroodItem {
+export interface ToBroodItem {
   readonly prepared: PreparedFile;
   readonly action: "fresh" | "re-enqueue";
   /** The existing nectar for a re-enqueue; undefined for fresh (minted in phase A). */
@@ -546,8 +558,15 @@ function persistTerminal(
   }
 }
 
+/** The describe-transport seams shared by the sync and async brood runtime deps. */
+export interface DescribeSeams {
+  readonly describe?: DescribeFn;
+  readonly portkey?: PortkeyEnabled;
+  readonly fetch?: PortkeyFetch;
+}
+
 /** Resolve the describe transport: explicit seam, else build one from Portkey creds. */
-function resolveDescribeFn(deps: BroodRuntimeDeps, describeCount: number): DescribeFn {
+export function resolveDescribeFn(deps: DescribeSeams, describeCount: number): DescribeFn {
   if (deps.describe !== undefined) return deps.describe;
   if (describeCount === 0) {
     // Nothing to describe; return a transport that is never called.
