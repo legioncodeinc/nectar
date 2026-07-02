@@ -94,6 +94,50 @@ export class HealthState {
     this.embeddings.provider = state.embeddingsProvider;
   }
 
+  /**
+   * Merge the brooding subsystem slice (PRD-007 / decision #20). Called by the
+   * daemon's auto-brood path and the CLI/API brood mechanic as a brood advances.
+   * Fail-soft: an absent subsystem never calls this and the honest zero defaults
+   * stand; a partial only overwrites the fields it carries.
+   */
+  setBroodingState(state: Partial<HealthBody["brooding"]>): void {
+    if (state.active !== undefined) this.brooding.active = state.active;
+    if (state.filesDescribed !== undefined) this.brooding.filesDescribed = state.filesDescribed;
+    if (state.filesTotal !== undefined) this.brooding.filesTotal = state.filesTotal;
+    if (state.lastEventAt !== undefined) this.brooding.lastEventAt = state.lastEventAt;
+  }
+
+  /**
+   * Merge the enricher subsystem slice (PRD-016 / decision #20). Fed by the
+   * enricher loop's per-cycle sink; absent subsystems leave the zero defaults.
+   */
+  setEnricherState(state: Partial<HealthBody["enricher"]>): void {
+    if (state.queueDepth !== undefined) this.enricher.queueDepth = state.queueDepth;
+    if (state.lastCycleAt !== undefined) this.enricher.lastCycleAt = state.lastCycleAt;
+    if (state.consecutiveFailures !== undefined) this.enricher.consecutiveFailures = state.consecutiveFailures;
+    if (state.lastFileDescribed !== undefined) this.enricher.lastFileDescribed = state.lastFileDescribed;
+  }
+
+  /** Merge the projection subsystem slice (PRD-011): last write time + content hash. */
+  setProjectionState(state: Partial<HealthBody["projection"]>): void {
+    if (state.lastWriteAt !== undefined) this.projection.lastWriteAt = state.lastWriteAt;
+    if (state.lastContentHash !== undefined) this.projection.lastContentHash = state.lastContentHash;
+  }
+
+  /**
+   * Accumulate brooding cost (PRD-007b / decision #20). Additive: each completed
+   * brood adds its estimated input tokens + USD to the running totals. Negative
+   * or non-finite deltas are ignored so a bad estimate never corrupts the total.
+   */
+  addBroodCost(delta: { tokens?: number; usd?: number }): void {
+    if (typeof delta.tokens === "number" && Number.isFinite(delta.tokens) && delta.tokens > 0) {
+      this.cost.broodTotalTokens += delta.tokens;
+    }
+    if (typeof delta.usd === "number" && Number.isFinite(delta.usd) && delta.usd > 0) {
+      this.cost.broodTotalUsd += delta.usd;
+    }
+  }
+
   setStatus(status: PipelineStatus): void {
     this.status = status;
   }

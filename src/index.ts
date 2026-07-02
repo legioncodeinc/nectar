@@ -395,3 +395,12 @@ export type {
   FetchResponseLike,
   SleepFn,
 } from "./embeddings/index.js";
+
+// PRD-007 (brooding), PRD-016 (enricher), PRD-012a (hive-graph search): the
+// Wave C module surfaces, re-exported as namespaces so the package can drive the
+// full pipeline programmatically. Namespaced to keep each module's public API
+// intact without flattening two overlapping names (e.g. both brooding and the
+// enricher export an `embeddingText`) into one ambiguous top-level binding.
+export * as brooding from "./brooding/index.js";
+export * as enricher from "./enricher/index.js";
+export * as search from "./hive-graph/search.js";

@@ -7,9 +7,11 @@
  * 127.0.0.1:3854, serves `/health`, and installs SIGINT/SIGTERM handlers.
  *
  * The operational verbs exit non-zero with a clear notice rather than a silent
- * stub, in two shapes:
- *   - `brood`: mechanics owned by a later PRD (007) and not yet implemented
- *     (the NOT_YET map).
+ * stub, in these shapes:
+ *   - `brood` (PRD-007d): `--dry-run` runs a real local cost preview; a mutating
+ *     brood dispatches daemon-side (PRD-008 build endpoint, a later wave).
+ *   - `search` (PRD-012b): a thin loopback client of the daemon search endpoint
+ *     (PRD-008b, a later wave); left unwired rather than importing the engine.
  *   - `prune` / `review-matches`: mechanics implemented and tested here
  *     (`runPrune` / `runReviewMatches`), but not yet wired to a durable,
  *     sync-capable hive-graph store (the NOT_WIRED map). They refuse to run
@@ -23,16 +25,31 @@
  * credentials the Deep Lake store already consumes and the project id + project
  * root from `NECTAR_PROJECT_ID` / `NECTAR_PROJECT_ROOT` (see USAGE).
  */
-import { assembleDaemon } from "./daemon.js";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { assembleDaemon, type BootProjectionLoad } from "./daemon.js";
 import { resolveConfig } from "./config.js";
 import { createServiceModule, serviceStatus } from "./service/index.js";
 import { registerWithDoctor } from "./doctor-registry.js";
 import { emitInstalled, emitUninstalled, recordDaemonStart } from "./telemetry-usage/emit.js";
 import type { Tenancy } from "./hive-graph/model.js";
 import { DeepLakeHiveGraphStore } from "./hive-graph/deeplake-store.js";
+import { InMemoryHiveGraphStore } from "./hive-graph/memory-store.js";
 import { loadDeepLakeCredentials } from "./hive-graph/deeplake-credentials.js";
 import { resolveProjectScope, type ProjectScopeSource } from "./hive-graph/project-scope.js";
-import { rebuildProjectionAsync } from "./projection/write.js";
+import { createDiskRegistrationFs } from "./registration/disk-fs.js";
+import { rebuildProjectionAsync, projectionFinalPath } from "./projection/write.js";
+import { DEFAULT_PROJECTION_REL_PATH } from "./projection/format.js";
+import type { InheritRow } from "./projection/inherit.js";
+import {
+  parseBroodArgs,
+  planBrood,
+  formatDryRunReport,
+  discoverFiles,
+  prepareFiles,
+  type BroodConfig,
+  type BroodRunOptions,
+} from "./brooding/index.js";
 
 const USAGE = `nectar - semantic memory layer over a source tree
 
@@ -41,7 +58,11 @@ Usage:
   nectar install                Register the OS service unit + the doctor registry entry (PRD-003)
   nectar uninstall              Deregister the OS service unit (PRD-003b)
   nectar service-status         Report the OS service unit's running state (PRD-003b)
-  nectar brood [flags]          Full-codebase brood            (owned by PRD-007)
+  nectar brood [flags]          Full-codebase brood (PRD-007). --dry-run previews cost locally;
+                                a real brood executes daemon-side (PRD-008 build endpoint, Wave D).
+                                Flags: --force, --limit N, --dry-run, --model <id>
+  nectar search <query> [flags] Manual hive-graph search (PRD-012). Thin loopback client of the
+                                daemon search endpoint (PRD-008b, Wave D). Flags: --limit N, --json
   nectar prune [--confirm]      Prune long-missing nectars     (logic implemented; durable wiring pending daemon integration)
   nectar review-matches         Review low-confidence matches  (logic implemented; durable wiring pending daemon integration)
   nectar rebuild-projection     Regenerate .honeycomb/nectars.json from Deep Lake (PRD-011)
@@ -209,10 +230,101 @@ async function runRebuildProjection(): Promise<number> {
   return 0;
 }
 
-/** Verbs whose mechanics are owned by not-yet-implemented PRDs. */
-const NOT_YET: Record<string, string> = {
-  brood: "PRD-007 (brooding pipeline)",
-};
+/**
+ * The dispatch decision for `nectar brood <args>` (PRD-007d), factored out as a
+ * pure function so the arg parsing + routing is unit-testable without the CLI's
+ * process-level side effects.
+ *
+ * - `errors`  — a malformed flag (e.g. `--limit abc`); the CLI prints and exits 2.
+ * - `dry-run` — `--dry-run`: a read-only local cost preview (no LLM call, no writes).
+ * - `run`     — a mutating brood; executes daemon-side (see {@link runBroodCommand}).
+ */
+export type BroodInvocation =
+  | { readonly kind: "errors"; readonly errors: readonly string[] }
+  | { readonly kind: "dry-run"; readonly options: BroodRunOptions }
+  | { readonly kind: "run"; readonly options: BroodRunOptions };
+
+export function classifyBroodInvocation(broodArgs: readonly string[]): BroodInvocation {
+  const parsed = parseBroodArgs(broodArgs);
+  if (parsed.errors.length > 0) return { kind: "errors", errors: parsed.errors };
+  if (parsed.options.dryRun === true) return { kind: "dry-run", options: parsed.options };
+  return { kind: "run", options: parsed.options };
+}
+
+/**
+ * `nectar brood --dry-run` (PRD-007d): a real, read-only cost preview run
+ * locally via `planBrood` (discover -> pre-check -> bucket -> estimate), which
+ * makes NO LLM call and writes NOTHING. Runs against a throwaway in-memory store
+ * because the preview is `brooding-pipeline.md`'s "recommended first step on a
+ * new project" where the durable store is empty; the projection-inherited count
+ * still reads the on-disk `.honeycomb/nectars.json` faithfully. A daemon-side
+ * dry-run reflecting live store state lands with the PRD-008 build endpoint.
+ */
+function runBroodDryRun(): number {
+  const ctx = resolveProjectionContext();
+  if (!ctx.ok) {
+    process.stderr.write(
+      `nectar brood --dry-run: ${ctx.message}.\n` +
+        "org_id/workspace_id come from ~/.deeplake/credentials.json; the project id resolves via " +
+        "NECTAR_PROJECT_ID > detected HONEYCOMB_PROJECT_ID > ~/.deeplake/projects.json binding > git remote signal > __unsorted__.\n",
+    );
+    return 1;
+  }
+  const config: BroodConfig = {
+    store: new InMemoryHiveGraphStore(),
+    tenancy: ctx.tenancy,
+    root: ctx.projectRoot,
+    fs: createDiskRegistrationFs(ctx.projectRoot),
+  };
+  const plan = planBrood(config);
+  process.stdout.write(
+    `${formatDryRunReport({
+      discoveredCount: plan.discoveredCount,
+      inheritedCount: plan.inheritedCount,
+      skipBinaryCount: plan.skipBinaryCount,
+      skipTooLargeCount: plan.skipTooLargeCount,
+      batchFileCount: plan.batchFileCount,
+      soloFileCount: plan.soloFileCount,
+      batchCalls: plan.batchCalls,
+      soloCalls: plan.soloCalls,
+      estimate: plan.estimate,
+    })}\n`,
+  );
+  return 0;
+}
+
+/**
+ * `nectar brood [flags]` (PRD-007d). `--dry-run` runs the local cost preview; a
+ * mutating brood executes daemon-side (PRD-007d "the brood mechanic executes
+ * daemon-side; the CLI dispatches to it") through the PRD-008
+ * `POST /api/hive-graph/build` endpoint, which lands in a later wave. A CLI-side
+ * durable brood is additionally blocked by the sync/async store split
+ * (`runBrood` needs the synchronous `HiveGraphStore`; the durable substrate is
+ * async — the deferral documented on `AsyncHiveGraphStore`), so it is not
+ * simulated against a throwaway store.
+ */
+function runBroodCommand(broodArgs: readonly string[]): number {
+  const invocation = classifyBroodInvocation(broodArgs);
+  switch (invocation.kind) {
+    case "errors":
+      for (const err of invocation.errors) process.stderr.write(`nectar brood: ${err}\n`);
+      return 2;
+    case "dry-run":
+      return runBroodDryRun();
+    case "run":
+      process.stderr.write(
+        "nectar brood: a mutating brood executes daemon-side (PRD-007d). It dispatches to the " +
+          "daemon's POST /api/hive-graph/build endpoint (PRD-008), which lands in a later wave. " +
+          "Use 'nectar brood --dry-run' for a local cost preview today.\n",
+      );
+      return 2;
+    default: {
+      const unreachable: never = invocation;
+      return unreachable;
+    }
+  }
+}
+
 
 /**
  * Verbs whose command logic is implemented and tested here (`runPrune` /
@@ -233,8 +345,51 @@ const NOT_WIRED: Record<string, string> = {
     "PRD-006 (review-matches mechanics implemented + tested in runReviewMatches; durable-store wiring lands with the daemon's registration-pipeline integration)",
 };
 
+/**
+ * Build the boot projection load seam for the live daemon (PRD-011b AC-6): if a
+ * project context resolves, the daemon validates `.honeycomb/nectars.json` on
+ * boot and inherits hash-matched files into the durable Deep Lake store. All
+ * work is deferred to lazy providers so nothing scans disk or hits the network
+ * until AFTER the daemon is accepting requests; fail-soft throughout (a missing
+ * credentials file just skips the pre-warm). Returns undefined when no context
+ * resolves, so `nectar daemon` still starts on a bare machine.
+ */
+function resolveBootProjection(): BootProjectionLoad | undefined {
+  const ctx = resolveProjectionContext();
+  if (!ctx.ok) return undefined;
+  const { store, tenancy, projectRoot } = ctx;
+  return {
+    tenancy,
+    filePath: projectionFinalPath(projectRoot, DEFAULT_PROJECTION_REL_PATH),
+    diskHashes: () => {
+      const discovery = discoverFiles({ root: projectRoot, fs: createDiskRegistrationFs(projectRoot) });
+      const prepared = prepareFiles(createDiskRegistrationFs(projectRoot), discovery.files);
+      return new Map(prepared.map((p) => [p.file.relPath, p.contentHash] as const));
+    },
+    existingNectars: async () => {
+      const latest = await store.listLatestVersions(tenancy);
+      return new Set(latest.map((lv) => lv.identity.nectar));
+    },
+    write: async (rows: readonly InheritRow[]) => {
+      for (const row of rows) {
+        if ((await store.getIdentity(row.identity.nectar)) === undefined) {
+          await store.insertIdentity(row.identity);
+        }
+        await store.appendVersion(row.version);
+      }
+    },
+  };
+}
+
 async function runDaemon(): Promise<void> {
-  const daemon = assembleDaemon();
+  let bootProjection: BootProjectionLoad | undefined;
+  try {
+    bootProjection = resolveBootProjection();
+  } catch {
+    // fail-soft: a boot pre-warm is best-effort and never blocks the daemon start.
+    bootProjection = undefined;
+  }
+  const daemon = assembleDaemon(bootProjection !== undefined ? { bootProjection } : {});
   daemon.installSignalHandlers();
   const port = await daemon.start();
   process.stdout.write(
@@ -276,6 +431,25 @@ async function main(argv: readonly string[]): Promise<number> {
     return runRebuildProjection();
   }
 
+  if (command === "brood") {
+    return runBroodCommand(argv.slice(1));
+  }
+
+  if (command === "search") {
+    // PRD-012b (AC-012b.3.1): `nectar search` is a THIN loopback client that
+    // reaches the daemon's POST /api/hive-graph/search endpoint and never imports
+    // the engine or any Deep Lake path directly. That endpoint is owned by
+    // PRD-008b, which lands in a later wave, so the verb is intentionally left
+    // unwired rather than violating the thin-client posture by embedding the
+    // engine in the CLI process.
+    process.stderr.write(
+      "nectar search: not yet wired. Per PRD-012b it is a thin loopback client of the daemon's " +
+        "POST /api/hive-graph/search endpoint (PRD-008b), which lands in a later wave. It deliberately " +
+        "does not import the search engine directly (AC-012b.3.1).\n",
+    );
+    return 2;
+  }
+
   // `project` currently exposes only its `--rebuild-projection` flag (PRD-011c);
   // the broader project verb surface lands with a later PRD.
   if (command === "project") {
@@ -300,25 +474,33 @@ async function main(argv: readonly string[]): Promise<number> {
     return 2;
   }
 
-  const owner = NOT_YET[command];
-  if (owner !== undefined) {
-    process.stderr.write(
-      `nectar ${command}: not yet implemented. Its mechanics are owned by ${owner}.\n` +
-        "The daemon itself ('nectar daemon') is implemented; this verb lands with its PRD.\n",
-    );
-    return 2;
-  }
-
   process.stderr.write(`nectar: unknown command '${command}'\n\n${USAGE}`);
   return 1;
 }
 
-main(process.argv.slice(2))
-  .then((code) => {
-    if (code !== 0) process.exit(code);
-    // code 0 for `daemon` keeps the event loop alive via the open socket.
-  })
-  .catch((err) => {
-    process.stderr.write(`nectar: ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
-  });
+export { main };
+
+/** True when this module is the process entry point (`node dist/cli.js ...`), not an import. */
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+// Only drive the CLI when executed directly. Importing this module (e.g. from a
+// test that exercises `classifyBroodInvocation`) must not run `main`.
+if (isDirectRun()) {
+  main(process.argv.slice(2))
+    .then((code) => {
+      if (code !== 0) process.exit(code);
+      // code 0 for `daemon` keeps the event loop alive via the open socket.
+    })
+    .catch((err) => {
+      process.stderr.write(`nectar: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    });
+}
