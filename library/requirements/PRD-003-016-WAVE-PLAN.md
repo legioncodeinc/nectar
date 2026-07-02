@@ -113,9 +113,9 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 - [x] 004b: `hivedoctor status` reports every registered daemon (PRD-004 AC-6). *2026-07-02 (later): implemented + tested on hivedoctor `main`: per-daemon status page (`StatusJson.daemons` + HTML badge rows), per-daemon CLI `status` blocks (`statusDaemons`), `logs --daemon` filter; tests `b-AC-1..b-AC-7` across `tests/status-page/server.test.ts`, `tests/cli/dispatch.test.ts`, `tests/compose/multi-daemon.test.ts`.*
 - [x] 004c: thehive serves the dashboard shell on boot without waiting for a workload daemon, and is upgradeable without restarting hivedoctor (PRD-004 AC-3, AC-4). *Implemented + independently QA'd in the-hive (26/27 ACs PASS; two non-blocking fast-follows owned there).*
 - [x] 006: `node:fs.watch` intake debounces to one cycle; classification maps to new/changed/missing; the 5-step ladder is implemented with the deliberate gaps preserved (PRD-006 ACs). *Implemented + shipped on PR #9: all 21 ACs, security + quality close-outs, CodeRabbit remediation, persisted `fingerprint` column.*
-- [ ] 010: brooding/enricher calls POST Portkey `/v1/chat/completions` with `buildPortkeyHeaders`; default model resolves to Gemini 2.5 Flash; `describe_model` is stamped (PRD-010 AC-1..AC-5).
-- [ ] 011: projection writes atomically at the three triggers; validation-on-load ignores a mismatched projection; the fresh-clone path is zero-LLM (PRD-011 AC-1..AC-7).
-- [ ] 014: local nomic default runs; Cohere-via-Portkey opt-in works; a non-768-dim vector is discarded; embeddings-off degrades to BM25 (PRD-014 AC-1..AC-4).
+- [x] 010: brooding/enricher calls POST Portkey `/v1/chat/completions` with `buildPortkeyHeaders`; default model resolves to Gemini 2.5 Flash; `describe_model` is stamped (PRD-010 AC-1..AC-5).
+- [x] 011: projection writes atomically at the three triggers; validation-on-load ignores a mismatched projection; the fresh-clone path is zero-LLM (PRD-011 AC-1..AC-7).
+- [x] 014: local nomic default runs; Cohere-via-Portkey opt-in works; a non-768-dim vector is discarded; embeddings-off degrades to BM25 (PRD-014 AC-1..AC-4).
 
 **Per-wave blockers:** none from 004d (it is authored + QA-passed); the thehive host chain (004c -> 004d -> 015) is unblocked at the file level. Its service-unit-name flags were signed off 2026-07-02 (decision #32, fleet-wide scheme), leaving a rename migration work item in the owning repos. 003b/003c reference 004d's service-unit pattern.
 
@@ -244,6 +244,7 @@ Severity: HIGH (blocks a wave gate or the program), MEDIUM (blocks a PRD or need
 | R-10 | LOW    | Two corpus/PRD disagreements remain open corpus edits in PRD-005/PRD-006 territory (the `confidence` column, the `skipped-deleted` enum).                                                                                                  | 005, 006                        | knowledge-worker-bee       | Reconcile in a corpus edit before 005/006 implementation; out of scope for this plan.                                                                                |
 | R-11 | LOW    | PRD-013 index cross-links PRD-009 with a stale folder slug; the link does not resolve.                                                                                                                                                     | 013                             | owning agent               | Correct to `prd-009-harness-exposure-via-recall` in Wave 0.                                                                                                          |
 | R-12 | LOW    | PRD-002 is marked in-flight but sits in `backlog/`, not `in-work/`.                                                                                                                                                                        | 002                             | the-smoker / driver        | Move the folder to `in-work/` if actively implemented, per lifecycle-equals-location.                                                                                |
+
 
 ### Risk register update (2026-07-02)
 
