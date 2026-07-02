@@ -1,8 +1,8 @@
 # PRD Decisions and Defaults — for review
 
-> Category: Requirements | Version: 1.0 | Date: June 2026 | Status: Draft (for review)
+> Category: Requirements | Version: 1.1 | Date: July 2026 | Status: Active
 
-The 16 Hivenectar PRDs are authored (65 files under `library/requirements/backlog/prd-001` through `prd-016`) and have passed the quality-worker-bee line-by-line audit. This doc consolidates: (A) the decisions you've already locked, (B) the defaults flagged in-PRD for your confirmation, (C) the two corpus inconsistencies the QA pass surfaced (both resolved in the PRDs, both needing a matching corpus edit), and (D) the QA audit results.
+The 16 Hivenectar PRDs are authored (65 files, originally under `library/requirements/backlog/prd-001` through `prd-016`; lifecycle locations have since moved per the program status in `MASTER-PRD-INDEX.md`) and have passed the quality-worker-bee line-by-line audit. A seventeenth PRD (PRD-017, service check-in + SQLite telemetry) was added 2026-07 and carries its own flagged defaults; see decision #27. This doc consolidates: (A) the decisions you've already locked, (B) the defaults flagged in-PRD for your confirmation, (C) the two corpus inconsistencies the QA pass surfaced (both resolved in the PRDs, both needing a matching corpus edit), and (D) the QA audit results.
 
 ---
 
@@ -38,6 +38,8 @@ These are settled — recorded here for traceability, no action needed.
 | 24 | TLSH impl: native addon (NAPI) — fastest fuzzy-match computation; same install-time native-build risk honeycomb's tree-sitter already manages | PRD-006d |
 | 25 | review-matches: interactive prompt by default (list → choose → confirm); NO flag grammar committed. Optional batch flags deferred to implementation | PRD-006d |
 | 26 | thehive is a distinct architectural component with its own ADR: ADR-0004 records the four binding decisions (always-on + boot-order, API-aggregation-not-Deep-Lake, dashboard ownership + honeycomb code reuse, independent update cadence) + a companion knowledge doc (`architecture/thehive-portal-daemon.md`) holds the full design detail | ADR-0004, knowledge doc |
+| 27 | PRD-017 added (2026-07, fleet realignment): hivenectar check-in + local telemetry via Node's built-in `node:sqlite`, sibling of honeycomb PRD-071, governed by hivedoctor ADR-0001 (pull-only telemetry transport) + ADR-0002 (static registry + runtime SQLite status). Telemetry is operational, non-durable, non-sensitive, so it does not violate FR-8. Its own DEFAULT flags: counter identifiers (fresh in-process since-restart counters), heartbeat cadence, log retention bound, status-row placement (one DB, separate tables) | PRD-017 |
+| 28 | `fingerprint TEXT` (nullable) column added to `source_graph_versions`, immediately after `confidence` (user-authorized 2026-07-01): persists the step-4 TLSH fingerprint so cold-catch-up fuzzy matching survives a daemon restart. Applied to the corpus DDL, PRD-005b, and the shipped PRD-006 code | corpus, PRD-005b, PRD-006 |
 
 ---
 
@@ -108,9 +110,9 @@ Each is marked "DEFAULT — confirm before implementation" in its PRD. None bloc
 
 The QA audit caught two places where the Hivenectar knowledge corpus (`library/knowledge/private/`) disagrees with itself. The PRDs have been written to the resolved state; the corpus docs need a matching edit to stay consistent.
 
-1. **`confidence` column.** `ai/identity-and-reassociation.md` says fuzzy-match rows "carry a confidence field," but `data/source-graph-schema.md`'s DDL never declared it. **Resolved in PRDs:** `confidence REAL` (nullable) added to PRD-005b's DDL + ColumnDef. **Corpus action needed:** add the same column to `data/source-graph-schema.md`'s `source_graph_versions` DDL + column table.
+1. **`confidence` column.** `ai/identity-and-reassociation.md` says fuzzy-match rows "carry a confidence field," but `data/source-graph-schema.md`'s DDL never declared it. **Resolved in PRDs:** `confidence REAL` (nullable) added to PRD-005b's DDL + ColumnDef. **Corpus action needed:** add the same column to `data/source-graph-schema.md`'s `source_graph_versions` DDL + column table. **STATUS: APPLIED.** The corpus DDL and column table now carry `confidence REAL` (nullable). The later `fingerprint TEXT` column (decision #28) rode the same corpus edit path.
 
-2. **`skipped-deleted` enum value.** The enricher failure-modes table (in `ai/enricher-and-llm-model.md`) uses `describe_status = 'skipped-deleted'`, but `data/source-graph-schema.md`'s enum only lists 5 values. **Resolved in PRDs:** `skipped-deleted` added to PRD-005b's enum. **Corpus action needed:** add `skipped-deleted` to the enum in `data/source-graph-schema.md`'s describe_status column description.
+2. **`skipped-deleted` enum value.** The enricher failure-modes table (in `ai/enricher-and-llm-model.md`) uses `describe_status = 'skipped-deleted'`, but `data/source-graph-schema.md`'s enum only lists 5 values. **Resolved in PRDs:** `skipped-deleted` added to PRD-005b's enum. **Corpus action needed:** add `skipped-deleted` to the enum in `data/source-graph-schema.md`'s describe_status column description. **STATUS: APPLIED.** The corpus `describe_status` description now lists all six values including `skipped-deleted`.
 
 3. **(Bonus, from earlier in this session)** The corpus says "chokidar" in many places; the code uses `node:fs.watch`. PRDs use `fs.watch` per decision #4. **Corpus action needed:** correct "chokidar" → "fs.watch" across the corpus. **STATUS: no-op.** On applying this edit, a corpus-wide grep found **zero** chokidar references — every watcher reference in the corpus already correctly says `node:fs.watch`. The QA finding that flagged "the corpus says chokidar" was itself a false positive (the auditor likely conflated the corpus with the original spec sketch). No edit needed; the corpus and PRDs already agree on `fs.watch`.
 
@@ -131,10 +133,11 @@ Two quality-worker-bee audits (armed with hivenectar-stinger) covered all 16 PRD
 
 ---
 
-## What's next
+## What's next (updated 2026-07-02)
 
-1. **Confirm the §B defaults** (esp. the model id strings — `gemini-2.5-flash`, `embed-english-v3.0` — which need verification against Portkey's actual config surface before implementation).
-2. **Apply the §C corpus edits** (3 small edits to `library/knowledge/private/`) so the corpus matches the PRDs.
-3. **Move PRDs to in-work/** as implementation begins (per library-stinger lifecycle: backlog → in-work → completed).
+1. **Confirm the §B defaults** (esp. the model id strings — `gemini-2.5-flash`, `embed-english-v3.0` — which need verification against Portkey's actual config surface before implementation, and the Cohere 1024-vs-768 dim reconciliation per PRD-014b). STILL OPEN: no recorded sign-off in the ledger or this doc.
+2. ~~**Apply the §C corpus edits**~~ DONE. Items 1 and 2 are applied to the corpus (§C status notes); item 3 was a no-op false positive.
+3. ~~**Move PRDs to in-work/**~~ IN MOTION. PRD-001 through 006 are in `completed/`; 010/011/014 are in `in-work/`; the rest remain in `backlog/`. Lifecycle-equals-location now holds.
+4. **QA PRD-017** to the 001-004 standard before its implementation begins (it is the only authored PRD with an empty `qa/` folder besides 009 and 015, which are QA-pending like the rest of the backlog).
 
-Nothing in the PRDs is deferred; every decision is either locked, flagged as a default for your confirmation, or surfaced as a corpus edit. Ready for your review.
+Nothing in the PRDs is deferred; every decision is either locked, flagged as a default for your confirmation, or surfaced as a corpus edit (now applied). Ready for your review.

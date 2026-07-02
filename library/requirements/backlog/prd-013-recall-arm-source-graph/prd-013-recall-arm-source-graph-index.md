@@ -63,11 +63,11 @@ Two values are defaults pending implementation confirmation. Each is flagged inl
 ## Related
 
 - [`knowledge/private/data/recall-integration.md`](../../../knowledge/private/data/recall-integration.md) — the authoritative integration spec (read in full).
-- [`MASTER-PRD-INDEX.md`](../../../MASTER-PRD-INDEX.md) decision #2 — the locked per-arm-not-UNION-ALL decision; "Two decisions recorded" #1 — the extend-recall-not-hooks decision.
-- [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `source_graph_versions` table this arm reads (DDL + the 768-dim nullable `embedding` column).
-- [PRD-005c](../prd-005-source-graph-catalog-tables/prd-005c-tenancy-and-project-id-filter.md) — the `project_id` soft-filter contract the arm's scoping relies on.
-- [PRD-014](../prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md) — the embeddings provider producing the 768-dim vector the semantic arm scores.
-- [PRD-009](../prd-009-harness-exposure-via-recall-extension/prd-009-harness-exposure-via-recall-extension-index.md) — the harness-exposure documentation that consumes this arm (no own hooks).
+- [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md) decision #2 — the locked per-arm-not-UNION-ALL decision; "Two decisions recorded" #1 — the extend-recall-not-hooks decision.
+- [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `source_graph_versions` table this arm reads (DDL + the 768-dim nullable `embedding` column).
+- [PRD-005c](../../completed/prd-005-source-graph-catalog-tables/prd-005c-tenancy-and-project-id-filter.md) — the `project_id` soft-filter contract the arm's scoping relies on.
+- [PRD-014](../../in-work/prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md) — the embeddings provider producing the 768-dim vector the semantic arm scores.
+- [PRD-009](../prd-009-harness-exposure-via-recall/prd-009-harness-exposure-via-recall-index.md) — the harness-exposure documentation that consumes this arm (no own hooks).
 - [`honeycomb/src/daemon/runtime/memories/recall.ts:24-35`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — the per-arm rationale.
 - [`honeycomb/src/daemon/runtime/memories/recall.ts:158-166, 169`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — `ARM_CLASS_WEIGHT` + `kindOfSource` + `RecallSource`.
 - [`honeycomb/src/daemon/runtime/memories/recall.ts:319-383`](../../../../honeycomb/src/daemon/runtime/memories/recall.ts) — the three arm builders to mirror.
