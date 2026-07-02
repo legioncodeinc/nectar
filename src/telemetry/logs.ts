@@ -2,10 +2,14 @@
  * Bounded, rotated log emission to local SQLite (PRD-017c), per hivedoctor's
  * `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md`.
  *
- * `service_logs` is append-only but capped: every write opportunistically
- * rotates the table back to {@link DEFAULT_LOG_ROW_CAP} rows (AC-017c.2), so
+ * `service_logs` is append-only but bounded: every write opportunistically
+ * rotates out rows older than {@link DEFAULT_LOG_MAX_AGE_MS} (AC-017c.2), so
  * the store never grows without limit and stays cheap for hivedoctor's ~1s
- * poll cycle.
+ * poll cycle. The retention policy is an AGE bound (decision #33, 2026-07-02,
+ * `PRD-DECISIONS-AND-DEFAULTS.md`), superseding the original 5,000-row cap:
+ * a quiet daemon keeps at most a day of history instead of an unbounded-age
+ * tail of stale lines. Consumers are unaffected (hivedoctor reads whatever
+ * rows exist).
  *
  * `createLogTap` mirrors hivenectar's EXISTING structured daemon log sink
  * (`daemon.ts`'s `(line: Record<string, unknown>) => void`) into this table,
@@ -21,8 +25,8 @@ import type { SqliteDatabaseLike } from "./db.js";
 export type LogLevel = "error" | "warn" | "info" | "debug";
 export const LOG_LEVELS: readonly LogLevel[] = ["error", "warn", "info", "debug"];
 
-/** The row cap the log table rotates back to on every write (Contract B: "cap ~5,000 rows"). */
-export const DEFAULT_LOG_ROW_CAP = 5_000;
+/** The maximum age a log row is retained (decision #33: 24h age bound, superseding Contract B's 5,000-row cap). */
+export const DEFAULT_LOG_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 
 /**
  * A message longer than this is dropped rather than written (PRD-017c: "if a
@@ -55,19 +59,20 @@ export function redactLogMessage(message: string): string | null {
 
 export interface LogWriterOptions {
   readonly db: SqliteDatabaseLike;
-  readonly rowCap?: number;
+  /** Retention age bound in milliseconds (default: {@link DEFAULT_LOG_MAX_AGE_MS}). */
+  readonly maxAgeMs?: number;
   /** ISO 8601 "now"; injectable for deterministic tests. */
   now?(): string;
 }
 
 export class LogWriter {
   private readonly db: SqliteDatabaseLike;
-  private readonly rowCap: number;
+  private readonly maxAgeMs: number;
   private readonly nowFn: () => string;
 
   constructor(opts: LogWriterOptions) {
     this.db = opts.db;
-    this.rowCap = Math.max(1, opts.rowCap ?? DEFAULT_LOG_ROW_CAP);
+    this.maxAgeMs = Math.max(1, opts.maxAgeMs ?? DEFAULT_LOG_MAX_AGE_MS);
     this.nowFn = opts.now ?? (() => new Date().toISOString());
   }
 
@@ -83,12 +88,18 @@ export class LogWriter {
     }
   }
 
-  /** Keep only the newest `rowCap` rows (AC-017c.2.1/2.2). Fail-soft. */
+  /**
+   * Delete rows older than the `maxAgeMs` bound (AC-017c.2.1/2.2). ISO-8601 UTC
+   * timestamps compare correctly as strings, so the cutoff is a plain `<`.
+   * Fail-soft, including against a non-parseable injected "now" (no cutoff can
+   * be computed, so nothing is deleted rather than everything).
+   */
   private rotate(): void {
     try {
-      this.db
-        .prepare("DELETE FROM service_logs WHERE id <= (SELECT id FROM service_logs ORDER BY id DESC LIMIT 1 OFFSET ?)")
-        .run(this.rowCap);
+      const nowMs = Date.parse(this.nowFn());
+      if (!Number.isFinite(nowMs)) return;
+      const cutoff = new Date(nowMs - this.maxAgeMs).toISOString();
+      this.db.prepare("DELETE FROM service_logs WHERE ts < ?").run(cutoff);
     } catch {
       // fail-soft: a rotation error never surfaces into the pipeline.
     }

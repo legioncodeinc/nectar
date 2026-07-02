@@ -58,10 +58,13 @@ test("install writes the unit file then runs the manager's install argv", async 
   assert.equal(result.ok, true);
   assert.match(result.message, /registered as a systemd service/);
 
-  const unitPath = "/home/op/.config/systemd/user/hivenectar.service";
+  const unitPath = "/home/op/.config/systemd/user/nectar.service";
   assert.ok(fs.written.has(unitPath));
   assert.match(fs.written.get(unitPath) ?? "", /ExecStart=/);
-  assert.equal(calls[0]?.command, "systemctl");
+  // Decision #32 migration: the legacy unit is deregistered (and its file removed) FIRST.
+  assert.deepEqual(calls[0]?.args, ["--user", "disable", "--now", "hivenectar.service"]);
+  assert.deepEqual(fs.removed, ["/home/op/.config/systemd/user/hivenectar.service"]);
+  assert.deepEqual(calls[1]?.args, ["--user", "enable", "--now", "nectar.service"]);
 });
 
 test("install reports ok:false when a manager command fails, but the unit file is still written", async () => {
@@ -132,7 +135,7 @@ test("uninstall runs the manager's uninstall argv then deletes the unit file", a
   const result = await svc.uninstall();
   assert.equal(result.ok, true);
   assert.equal(calls[0]?.command, "systemctl");
-  assert.deepEqual(fs.removed, ["/home/op/.config/systemd/user/hivenectar.service"]);
+  assert.deepEqual(fs.removed, ["/home/op/.config/systemd/user/nectar.service"]);
 });
 
 test("uninstall tolerates a manager command failure (already-gone unit) and still removes the file", async () => {
@@ -162,12 +165,16 @@ test("install on darwin writes the launchd plist to ~/Library/LaunchAgents and b
   assert.equal(result.ok, true);
   assert.match(result.message, /registered as a launchd service/);
 
-  const unitPath = "/Users/op/Library/LaunchAgents/com.hivenectar.daemon.plist";
+  const unitPath = "/Users/op/Library/LaunchAgents/com.legioncode.nectar.plist";
   assert.ok(fs.written.has(unitPath));
   assert.match(fs.written.get(unitPath) ?? "", /<key>KeepAlive<\/key>/);
+  // Decision #32 migration: the legacy label is booted out and its plist removed first.
   assert.equal(calls[0]?.command, "launchctl");
-  assert.equal(calls[0]?.args[0], "bootstrap");
-  assert.equal(calls[1]?.args[0], "kickstart");
+  assert.equal(calls[0]?.args[0], "bootout");
+  assert.ok(calls[0]?.args[1]?.endsWith("/com.hivenectar.daemon"));
+  assert.deepEqual(fs.removed, ["/Users/op/Library/LaunchAgents/com.hivenectar.daemon.plist"]);
+  assert.equal(calls[1]?.args[0], "bootstrap");
+  assert.equal(calls[2]?.args[0], "kickstart");
 });
 
 test("uninstall on darwin bootouts the launchd target and removes the plist", async () => {
@@ -182,7 +189,7 @@ test("uninstall on darwin bootouts the launchd target and removes the plist", as
   const result = await svc.uninstall();
   assert.equal(result.ok, true);
   assert.equal(calls[0]?.args[0], "bootout");
-  assert.deepEqual(fs.removed, ["/Users/op/Library/LaunchAgents/com.hivenectar.daemon.plist"]);
+  assert.deepEqual(fs.removed, ["/Users/op/Library/LaunchAgents/com.legioncode.nectar.plist"]);
 });
 
 test("install on win32 stages the schtasks XML beside the workspace, then Creates and Runs it", async () => {
@@ -201,9 +208,11 @@ test("install on win32 stages the schtasks XML beside the workspace, then Create
   const stagedXml = "C:/Users/op/.honeycomb/hivenectar/hivenectar-task.xml";
   assert.ok(fs.written.has(stagedXml), "the schtasks XML is staged beside the workspace (unitPath is empty for schtasks)");
   assert.match(fs.written.get(stagedXml) ?? "", /<Task /);
+  // Decision #32 migration: the legacy task name is deleted first.
   assert.equal(calls[0]?.command, "schtasks");
-  assert.deepEqual(calls[0]?.args, ["/Create", "/XML", stagedXml, "/TN", "HivenectarDaemon", "/F"]);
-  assert.deepEqual(calls[1]?.args, ["/Run", "/TN", "HivenectarDaemon"]);
+  assert.deepEqual(calls[0]?.args, ["/Delete", "/TN", "HivenectarDaemon", "/F"]);
+  assert.deepEqual(calls[1]?.args, ["/Create", "/XML", stagedXml, "/TN", "nectar", "/F"]);
+  assert.deepEqual(calls[2]?.args, ["/Run", "/TN", "nectar"]);
 });
 
 test("uninstall on win32 deletes the task and removes the staged XML", async () => {
@@ -217,7 +226,7 @@ test("uninstall on win32 deletes the task and removes the staged XML", async () 
   });
   const result = await svc.uninstall();
   assert.equal(result.ok, true);
-  assert.deepEqual(calls[0]?.args, ["/Delete", "/TN", "HivenectarDaemon", "/F"]);
+  assert.deepEqual(calls[0]?.args, ["/Delete", "/TN", "nectar", "/F"]);
   assert.deepEqual(fs.removed, ["C:/Users/op/.honeycomb/hivenectar/hivenectar-task.xml"]);
 });
 

@@ -28,14 +28,15 @@ import { realTimer, type Timer } from "../poll-loop.js";
 import type { SqliteDatabaseLike } from "./db.js";
 
 /**
- * DEFAULT - confirm before implementation. hivedoctor polls each service's
- * SQLite roughly every 1s (ADR-0001); hivenectar's own heartbeat cadence is a
- * separate, slower write interval (last-seen only needs to look "fresh enough"
- * relative to hivedoctor's staleness threshold, not to match its poll rate 1:1)
- * that keeps a quiet-but-healthy daemon's last_seen advancing without churning
- * a write on every single poll.
+ * SIGNED OFF 2026-07-02 (decision #33, `PRD-DECISIONS-AND-DEFAULTS.md`),
+ * amended from the original 10s. hivedoctor polls each service's SQLite
+ * roughly every 1s (ADR-0001); hivenectar's own heartbeat is a separate,
+ * slower write interval (last-seen only needs to look "fresh enough" relative
+ * to hivedoctor's staleness threshold, not to match its poll rate 1:1). 5s
+ * halves the worst-case delay before a stale last_seen reveals a dead daemon
+ * while still avoiding a write per poll tick.
  */
-export const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
+export const DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000;
 
 export interface CheckinWriterOptions {
   readonly db: SqliteDatabaseLike;

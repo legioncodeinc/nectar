@@ -69,8 +69,8 @@ None. The projection is generated and loaded internally. The two CLI commands (`
 
 ## Flagged defaults
 
-- **[DEFAULT — confirm before implementation]** Projection path: `.honeycomb/nectars.json` at the project root (`data/portable-registry.md` § The file format, § The commit discipline).
-- **[DEFAULT — confirm before implementation]** Projection write debounce: 30s, carried from the enricher cycle cadence (`data/portable-registry.md` § The commit discipline — "at most once per enricher cycle (default 30 seconds)"). Confirm the debounce window before implementation.
+- **[SIGNED OFF 2026-07-02, decision #31 in `PRD-DECISIONS-AND-DEFAULTS.md`:** projection path `.honeycomb/nectars.json` at the project root (`data/portable-registry.md` § The file format, § The commit discipline).]
+- **[SIGNED OFF 2026-07-02, decision #31:** projection write debounce 30s, carried from the enricher cycle cadence (`data/portable-registry.md` § The commit discipline: "at most once per enricher cycle (default 30 seconds)").]
 
 ---
 

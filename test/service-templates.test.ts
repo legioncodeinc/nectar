@@ -32,7 +32,7 @@ test("launchd plist encodes RunAtLoad + KeepAlive + the daemon run command", () 
   assert.match(xml, /<key>RunAtLoad<\/key>\s*<true\/>/);
   assert.match(xml, /<key>KeepAlive<\/key>\s*<true\/>/);
   assert.match(xml, new RegExp(`<integer>${RESTART_SEC}</integer>`));
-  assert.match(xml, /<string>com\.hivenectar\.daemon<\/string>/);
+  assert.match(xml, /<string>com\.legioncode\.nectar<\/string>/);
   assert.match(xml, /<string>daemon<\/string>/);
 });
 
@@ -55,7 +55,7 @@ test("Windows Scheduled Task XML encodes LogonTrigger + RestartOnFailure at the 
   assert.match(xml, /<LogonTrigger>/);
   assert.match(xml, new RegExp(`<Interval>${WINDOWS_RESTART_INTERVAL}</Interval>`));
   assert.match(xml, /<MultipleInstancesPolicy>IgnoreNew<\/MultipleInstancesPolicy>/);
-  assert.match(xml, /HivenectarDaemon/);
+  assert.match(xml, /<URI>\\nectar<\/URI>/);
   assert.match(xml, /Arguments>".*hivenectar" daemon</);
 });
 

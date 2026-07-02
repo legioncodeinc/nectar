@@ -67,7 +67,7 @@ The new embeddings transport for the Cohere-via-Portkey provider. It is modeled 
 
 ## Flagged defaults
 
-- **[DEFAULT — confirm before implementation]** Cohere embed model: `embed-english-v3.0`. Flag — confirm the exact model id string (Cohere's `embed-english-v3.0` vs `embed-multilingual-v3.0` vs the v4 line) and that Portkey advertises it at `/v1/embeddings` before implementation.
+- **[SIGNED OFF 2026-07-02, decision #30 in `PRD-DECISIONS-AND-DEFAULTS.md` (supersedes the `embed-english-v3.0` default):** Cohere embed model is **embed-v4.0 with `output_dimension: 768`** (Matryoshka-native), so the opt-in produces contract-valid 768-dim vectors instead of guard-discarded 1024-dim ones. Model id and output dimension are config values, not hardcoded; recall's `embed.dim_rejected` guard stays as the backstop. Mechanical check at implementation: confirm the exact v4 id string Portkey's `/v1/embeddings` surface expects.]
 - **[DEFAULT — confirm before implementation]** Cohere endpoint via Portkey: `/v1/embeddings` (i.e. `https://api.portkey.ai/v1/embeddings`, hanging off `PORTKEY_BASE_URL`). Confirm the gateway still advertises this embeddings path before implementation.
 
 ---

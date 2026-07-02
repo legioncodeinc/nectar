@@ -18,17 +18,17 @@ function env(overrides: Partial<Parameters<typeof resolveServicePlan>[0]> = {}) 
   };
 }
 
-test("hivenectar's service constants are distinct from hivedoctor's and thehive's", () => {
-  assert.equal(SERVICE_LABEL, "com.hivenectar.daemon");
-  assert.equal(SYSTEMD_UNIT_NAME, "hivenectar.service");
-  assert.equal(WINDOWS_TASK_NAME, "HivenectarDaemon");
+test("hivenectar's service constants follow the decision-#32 fleet scheme (short name `nectar`)", () => {
+  assert.equal(SERVICE_LABEL, "com.legioncode.nectar");
+  assert.equal(SYSTEMD_UNIT_NAME, "nectar.service");
+  assert.equal(WINDOWS_TASK_NAME, "nectar");
 });
 
 test("darwin resolves to launchd, user scope, LaunchAgents path", () => {
   const plan = resolveServicePlan(env({ platform: "darwin", home: "/Users/op" }));
   assert.equal(plan.manager, "launchd");
   assert.equal(plan.scope, "user");
-  assert.equal(plan.unitPath, "/Users/op/Library/LaunchAgents/com.hivenectar.daemon.plist");
+  assert.equal(plan.unitPath, "/Users/op/Library/LaunchAgents/com.legioncode.nectar.plist");
   assert.equal(plan.fellBackToUser, false);
 });
 
@@ -36,7 +36,7 @@ test("linux resolves to systemd, user scope, systemd --user path", () => {
   const plan = resolveServicePlan(env({ platform: "linux", home: "/home/op" }));
   assert.equal(plan.manager, "systemd");
   assert.equal(plan.scope, "user");
-  assert.equal(plan.unitPath, "/home/op/.config/systemd/user/hivenectar.service");
+  assert.equal(plan.unitPath, "/home/op/.config/systemd/user/nectar.service");
 });
 
 test("win32 defaults to schtasks (per-user), never sc, unless system scope is requested+privileged", () => {
@@ -56,7 +56,7 @@ test("system scope requested and privileged is honored", () => {
   const plan = resolveServicePlan(env({ platform: "linux", privileged: true, preferSystemScope: true }));
   assert.equal(plan.scope, "system");
   assert.equal(plan.fellBackToUser, false);
-  assert.equal(plan.unitPath, "/etc/systemd/system/hivenectar.service");
+  assert.equal(plan.unitPath, "/etc/systemd/system/nectar.service");
 });
 
 test("win32 system scope (privileged + requested) uses sc, not schtasks", () => {

@@ -175,8 +175,8 @@ Per `data/portable-registry.md` § The commit discipline, the daemon debounces p
 
 ## Flagged defaults
 
-- **[DEFAULT — confirm before implementation]** Projection path: `.honeycomb/nectars.json` at the project root (`data/portable-registry.md` § The file format).
-- **[DEFAULT — confirm before implementation]** Projection write debounce: 30s (carried from the enricher cycle cadence, `data/portable-registry.md` § The commit discipline). Confirm the window before implementation.
+- **[SIGNED OFF 2026-07-02, decision #31 in `PRD-DECISIONS-AND-DEFAULTS.md`:** projection path `.honeycomb/nectars.json` at the project root (`data/portable-registry.md` § The file format).]
+- **[SIGNED OFF 2026-07-02, decision #31:** projection write debounce 30s (carried from the enricher cycle cadence, `data/portable-registry.md` § The commit discipline).]
 
 ---
 

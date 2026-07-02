@@ -81,7 +81,7 @@ The 2000-file brood cost comparison, verbatim from `ai/enricher-and-llm-model.md
 
 ## Flagged defaults
 
-- **[DEFAULT — confirm before implementation]** Gemini model id: `gemini-2.5-flash`. This is the `activeModel` default Hivenectar ships. Confirm the exact model id string the Portkey config expects before implementation.
+- **[SIGNED OFF 2026-07-02, decision #29 in `PRD-DECISIONS-AND-DEFAULTS.md`:** Gemini model id `gemini-2.5-flash` is the `activeModel` default Hivenectar ships, overridable per-run via `brood --force --model <new>`. Mechanical check at implementation: verify the literal id string against Portkey's config surface.]
 
 ---
 

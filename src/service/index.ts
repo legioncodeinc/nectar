@@ -23,8 +23,15 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { createExecFileRunner, type CommandResult, type CommandRunner } from "./command-runner.js";
-import { installCommands, statusCommand, uninstallCommands, type ServiceCommand } from "./argv.js";
 import {
+  installCommands,
+  legacyUninstallCommands,
+  statusCommand,
+  uninstallCommands,
+  type ServiceCommand,
+} from "./argv.js";
+import {
+  legacyUnitPath,
   resolveServiceContext,
   resolveServicePlan,
   type ServiceEnvironment,
@@ -190,6 +197,19 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
         };
       }
 
+      // 0) Migrate away from the pre-decision-#32 unit names: best-effort deregister the
+      //    legacy unit (`com.hivenectar.daemon` / `hivenectar.service` / `HivenectarDaemon`)
+      //    and remove its unit file, so a re-run never leaves two units racing over one
+      //    daemon. Expected to fail harmlessly when no legacy unit exists; never blocks
+      //    the install.
+      await runAll(runner, legacyUninstallCommands(p, uid));
+      try {
+        const legacyPath = legacyUnitPath(p);
+        if (legacyPath !== "") fs.removeFile(legacyPath);
+      } catch {
+        // Best-effort migration cleanup only; a remove failure never blocks the install.
+      }
+
       // 1) Write the unit file FIRST (when this manager is file-based). schtasks consumes the
       //    XML file too, so a non-empty unitPath OR the schtasks manager means we lay down text.
       const needsFile = p.unitPath !== "" || p.manager === "schtasks";
@@ -312,9 +332,17 @@ export async function serviceStatus(deps: ServiceModuleDeps): Promise<ServiceSta
 
 export { resolveServicePlan, resolveServiceContext } from "./platform.js";
 export type { ServicePlan, ServiceEnvironment } from "./platform.js";
-export { SERVICE_LABEL, SYSTEMD_UNIT_NAME, WINDOWS_TASK_NAME } from "./platform.js";
+export {
+  SERVICE_LABEL,
+  SYSTEMD_UNIT_NAME,
+  WINDOWS_TASK_NAME,
+  LEGACY_SERVICE_LABEL,
+  LEGACY_SYSTEMD_UNIT_NAME,
+  LEGACY_WINDOWS_TASK_NAME,
+  legacyUnitPath,
+} from "./platform.js";
 export { HIVENECTAR_RUN_COMMAND, RESTART_SEC, WINDOWS_RESTART_INTERVAL, renderUnit } from "./templates.js";
-export { installCommands, uninstallCommands, statusCommand } from "./argv.js";
+export { installCommands, uninstallCommands, legacyUninstallCommands, statusCommand } from "./argv.js";
 export type { ServiceCommand } from "./argv.js";
 export { createExecFileRunner } from "./command-runner.js";
 export type { CommandRunner, CommandResult, CommandRunOptions } from "./command-runner.js";

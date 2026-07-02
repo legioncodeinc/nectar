@@ -32,7 +32,7 @@ export {
   type SqliteDatabaseLike,
 } from "./db.js";
 export {
-  DEFAULT_LOG_ROW_CAP,
+  DEFAULT_LOG_MAX_AGE_MS,
   MAX_LOG_MESSAGE_LENGTH,
   LOG_LEVELS,
   LogWriter,

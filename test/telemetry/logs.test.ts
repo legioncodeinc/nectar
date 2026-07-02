@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DEFAULT_LOG_ROW_CAP,
+  DEFAULT_LOG_MAX_AGE_MS,
   LogWriter,
   createLogTap,
   levelFromLine,
@@ -39,25 +39,50 @@ test("write appends a row carrying a timestamp and a verbosity level (AC-017c.1.
   }
 });
 
-test("rotation keeps the store within its bound under sustained writes (AC-017c.2.1/2.2)", () => {
+test("rotation keeps the store within its age bound under sustained writes (AC-017c.2.1/2.2, decision #33)", () => {
   const dir = tmpDir();
   try {
     const db = openTelemetryDb(join(dir, "t.sqlite"));
-    const writer = new LogWriter({ db, rowCap: 10, now: () => "t" });
-    for (let i = 0; i < 250; i++) writer.write("debug", `line ${i}`);
+    // One write per simulated second, with a 10-second retention bound: after
+    // 250 writes only the rows younger than the bound survive, regardless of
+    // how many lines were ever emitted.
+    const base = Date.parse("2026-07-02T00:00:00.000Z");
+    let tick = 0;
+    const writer = new LogWriter({
+      db,
+      maxAgeMs: 10_000,
+      now: () => new Date(base + tick * 1_000).toISOString(),
+    });
+    for (let i = 0; i < 250; i++) {
+      tick = i;
+      writer.write("debug", `line ${i}`);
+    }
 
     const rows = allLogs(db);
-    assert.equal(rows.length, 10, "bounded by the retention policy, not by total lines ever emitted");
+    assert.equal(rows.length, 11, "bounded by the retention age, not by total lines ever emitted");
     assert.equal(rows[rows.length - 1]["message"], "line 249", "the newest rows survive rotation");
-    assert.equal(rows[0]["message"], "line 240", "only the newest `rowCap` rows remain");
+    assert.equal(rows[0]["message"], "line 239", "rows older than maxAgeMs are rotated out");
     db.close();
   } finally {
     rmDirWithRetry(dir);
   }
 });
 
-test("the default row cap matches Contract B's ~5,000-row bound", () => {
-  assert.equal(DEFAULT_LOG_ROW_CAP, 5000);
+test("a non-parseable injected now disables rotation (fail-soft) instead of deleting everything", () => {
+  const dir = tmpDir();
+  try {
+    const db = openTelemetryDb(join(dir, "t.sqlite"));
+    const writer = new LogWriter({ db, maxAgeMs: 1, now: () => "t" });
+    for (let i = 0; i < 5; i++) writer.write("debug", `line ${i}`);
+    assert.equal(allLogs(db).length, 5, "no cutoff can be computed, so nothing is deleted");
+    db.close();
+  } finally {
+    rmDirWithRetry(dir);
+  }
+});
+
+test("the default retention bound is the decision-#33 24h age bound", () => {
+  assert.equal(DEFAULT_LOG_MAX_AGE_MS, 24 * 60 * 60 * 1000);
 });
 
 test("redactLogMessage strips a bearer token and an apikey=... field, leaving the rest of the line intact", () => {

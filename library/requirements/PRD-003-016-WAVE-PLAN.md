@@ -4,6 +4,8 @@
 
 **Status update (2026-07-02).** Ground truth moved under this plan since it was drawn: Wave A's exit gate is MET (ledger); Wave B's spec-QA track is MET, and two of its PRDs additionally shipped as code (003 implemented + verified; 006 implemented + shipped on PR #9), with 010/011/014 now in `in-work/` for implementation; hivedoctor's 004a registry was found implemented (superseding the Wave B BLOCKED reading, dependency map D-10); and **PRD-017** was added to the program (dependency map D-9) and is sequenced below as a parallel item alongside Wave C. Wave 0's QA gate remains open for 007/008/009/012/013/015/016 and 017. The filename keeps its `PRD-003-016` name for link stability.
 
+**Second status update (2026-07-02, later).** Verified against the sibling repos' `main` branches and the apiary execution ledger: **PRD-004 is complete across all four sub-PRDs** (004b's multi-daemon status page + CLI implemented and tested in hivedoctor, `b-AC-1..b-AC-7`; 004d's service module + registry writer implemented and tested in the-hive, `d-AC-6..d-AC-8`), and its folder sits in `completed/`, checking off Wave B's last non-implementation box. **PRD-017 is implemented and merged on hivenectar `main`** (`src/telemetry/`, 10/10 module ACs verified per the apiary ledger), with its poll-side consumers (hivedoctor PRD-001/002, the-hive PRD-004/005) also merged; its folder moved `backlog/` -> `in-work/` because its on-disk `qa/` report is outstanding and its 007/016 counter touchpoints stay dormant until those PRDs land. The live frontier is unchanged: implement 010/011/014 (in `in-work/`), then Wave C behind its Wave-0 QA gate.
+
 The ordered, gated execution plan that turns the `[PRD-003-016-DEPENDENCY-MAP.md](./PRD-003-016-DEPENDENCY-MAP.md)` into waves. Each wave groups PRDs that can run in parallel once its entry gate is satisfied; a wave gate is the set of verifiable exit criteria that must pass before the next wave starts. The authoritative brief is `[MASTER-PRD-INDEX.md](./MASTER-PRD-INDEX.md)`; status ground truth is `[reports/2026-07-01-prd-001-004-corpus-conformance-qa.md](./reports/2026-07-01-prd-001-004-corpus-conformance-qa.md)` and `[EXECUTION_LEDGER.md](../ledger/EXECUTION_LEDGER.md)`.
 
 ---
@@ -63,10 +65,10 @@ Wave 0 is the gate before any 005-016 implementation. It has four workstreams, a
 **Wave 0 exit gate (all must pass), corrected to disk reality 2026-07-02:**
 
 - [x] PRD-002 in-flight work closed; lifecycle location reconciled (moved to `completed/`, user-approved).
-- [ ] All twelve of PRD-005 to PRD-016 carry a QA report with a PASS at medium-and-above. **PARTIAL:** on-disk QA reports exist and PASS for 005, 006, 010, 011, 014 (Waves A/B). Still QA-pending: 007, 008, 009, 012, 013, 015, 016, plus the post-scan PRD-017. The earlier all-checked state overstated coverage; Wave 0 remains the gate for those eight before their implementation.
+- [ ] All twelve of PRD-005 to PRD-016 carry a QA report with a PASS at medium-and-above. **PARTIAL:** on-disk QA reports exist and PASS for 005, 006, 010, 011, 014 (Waves A/B). Still QA-pending: 007, 008, 009, 012, 013, 015, 016, plus the post-scan PRD-017 (which is already implemented; its QA report is retrospective, see the parallel-item section). The earlier all-checked state overstated coverage; Wave 0 remains the gate for the seven unimplemented PRDs before their implementation.
 - [x] W-1 closed in PRD-003 (link-form honeycomb refs = 0; remediated in Wave B, 105 refs).
-- [ ] PRD-004d confirmed authored + QA-passed (TRUE); its DEFAULT service-unit-name flags signed off (**OUTSTANDING**, no recorded sign-off; tracked under R-7).
-- [ ] Every DEFAULT-confirm flag is signed off or its deferral is user-authorized. **OUTSTANDING:** no recorded sign-off in the ledger or `PRD-DECISIONS-AND-DEFAULTS.md`; highest-value items are the model id strings and the Cohere dim reconciliation (R-7).
+- [x] PRD-004d confirmed authored + QA-passed (TRUE); its DEFAULT service-unit-name flags signed off (**2026-07-02, decision #32** in `PRD-DECISIONS-AND-DEFAULTS.md`: fleet-wide short-name + reverse-DNS scheme, `com.legioncode.hive` / `hive.service` / `hive` for thehive). Note: the signed-off names differ from the-hive's shipped `thehive`/`thehive.service`/`thehive`, so a rename + uninstall-reinstall migration is an open work item in the-hive (and in all four repos, per #32).
+- [ ] Every DEFAULT-confirm flag is signed off or its deferral is user-authorized. **PARTIAL (2026-07-02, decisions #29-#33):** signed off: default model id `gemini-2.5-flash` (#29), Cohere embed-v4.0 at `output_dimension: 768` superseding embed-english-v3.0 (#30, closes the 1024-vs-768 reconciliation), projection path + 30s debounce (#31), fleet service naming (#32), PRD-017's four flags with two amendments, heartbeat 10s -> 5s and log retention 5,000 rows -> 24h age bound (#33). Still awaiting sign-off: the per-PRD defaults of unimplemented PRDs (007, 008, 012, 013, 015, 016), collected before each enters implementation.
 - [x] Every deliberate spec gap is confirmed unresolved by design (re-confirmed through the PRD-006 implementation: TLSH threshold injected/unpinned, review-matches grammar uninvented).
 
 **Model routing (Wave 0):** QA passes on `claude-4.6-sonnet-medium-thinking` (balanced daily-driver, independent of any authoring bee), with a cross-model second pass on `gpt-5.5-medium` for high-risk PRDs (005, 006, 013) to avoid correlated blind spots, mirroring the PRD-002 double-pass pattern in the ledger. The W-1 doc conversion and any 004d authoring go to `claude-opus-4-8-thinking-high` (deep, nuanced multi-file doc work). **Watchdog:** the twelve QA passes run in parallel; a QA pass stalled beyond its timer is terminated and redistributed.
@@ -108,39 +110,42 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 **Exit gate (tied to ACs):**
 
 - [x] 003: hivedoctor probes `/health`, the installer appends hivenectar's registry entry, and the lock-held-and-healthy guard skips a redundant restart (PRD-003 AC-1..AC-5).
-- [ ] 004b: `hivedoctor status` reports every registered daemon (PRD-004 AC-6). *2026-07-02: 004a's registry IS implemented in the hivedoctor repo (dependency map D-10); 004b's multi-daemon status page + CLI remain unverified.*
+- [x] 004b: `hivedoctor status` reports every registered daemon (PRD-004 AC-6). *2026-07-02 (later): implemented + tested on hivedoctor `main`: per-daemon status page (`StatusJson.daemons` + HTML badge rows), per-daemon CLI `status` blocks (`statusDaemons`), `logs --daemon` filter; tests `b-AC-1..b-AC-7` across `tests/status-page/server.test.ts`, `tests/cli/dispatch.test.ts`, `tests/compose/multi-daemon.test.ts`.*
 - [x] 004c: thehive serves the dashboard shell on boot without waiting for a workload daemon, and is upgradeable without restarting hivedoctor (PRD-004 AC-3, AC-4). *Implemented + independently QA'd in the-hive (26/27 ACs PASS; two non-blocking fast-follows owned there).*
 - [x] 006: `node:fs.watch` intake debounces to one cycle; classification maps to new/changed/missing; the 5-step ladder is implemented with the deliberate gaps preserved (PRD-006 ACs). *Implemented + shipped on PR #9: all 21 ACs, security + quality close-outs, CodeRabbit remediation, persisted `fingerprint` column.*
 - [ ] 010: brooding/enricher calls POST Portkey `/v1/chat/completions` with `buildPortkeyHeaders`; default model resolves to Gemini 2.5 Flash; `describe_model` is stamped (PRD-010 AC-1..AC-5).
 - [ ] 011: projection writes atomically at the three triggers; validation-on-load ignores a mismatched projection; the fresh-clone path is zero-LLM (PRD-011 AC-1..AC-7).
 - [ ] 014: local nomic default runs; Cohere-via-Portkey opt-in works; a non-768-dim vector is discarded; embeddings-off degrades to BM25 (PRD-014 AC-1..AC-4).
 
-**Per-wave blockers:** none from 004d (it is authored + QA-passed); the thehive host chain (004c -> 004d -> 015) is unblocked at the file level, with only 004d's service-unit-name DEFAULT flags awaiting sign-off (B-2 / R-2, subsumed by B-7/R-7). 003b/003c reference 004d's service-unit pattern.
+**Per-wave blockers:** none from 004d (it is authored + QA-passed); the thehive host chain (004c -> 004d -> 015) is unblocked at the file level. Its service-unit-name flags were signed off 2026-07-02 (decision #32, fleet-wide scheme), leaving a rename migration work item in the owning repos. 003b/003c reference 004d's service-unit pattern.
 
 **Model routing:** 003b/004b/004c service-and-supervision wiring and 003's OS service units on `gpt-5.3-codex-high` (launchd/systemd/schtasks, installers, CLI). 006 (the hardest algorithm) and 014 (the provider strategy switch) on `claude-opus-4-8-thinking-high` (deep reasoning; 006's ladder + move reconstruction and 014's dim-contract guard are subtle). 010 and 011 on `composer-2.5` (transport reuse + atomic-write are tractable IDE coding). 004c's React dashboard shell on `composer-2.5`. **Watchdog:** seven parallel tasks; 006 is the likeliest to stall (algorithmic depth), split its four sub-PRDs.
 
-**Wave B status (2026-07-02): spec-QA track MET** (003/006/010/011/014 QA-VERIFIED and moved out of backlog; 004c verified in the-hive). Implementation track: 003 and 006 are DONE as code (see the ledger's PRD-003 and PRD-006 implementation runs); 010/011/014 sit in `in-work/` with implementation open, so their exit-gate boxes above stay unchecked until the code lands. 004b is the wave's only unverified box.
+**Wave B status (2026-07-02, updated later same day): spec-QA track MET** (003/006/010/011/014 QA-VERIFIED and moved out of backlog; 004c verified in the-hive). Implementation track: 003 and 006 are DONE as code (see the ledger's PRD-003 and PRD-006 implementation runs); 004b is now DONE as code in the hivedoctor repo (box checked above), which with 004a/004c/004d completes PRD-004 (folder in `completed/`). The wave's only remaining open items are the 010/011/014 implementations, sitting in `in-work/`; their exit-gate boxes stay unchecked until the code lands.
 
 ### Parallel item - PRD-017 service check-in + SQLite telemetry (added 2026-07-02)
 
-**PRD:** 017 (in-band; index + 017a/b/c under `backlog/prd-017-service-checkin-and-sqlite-telemetry/`). Postdates this plan's commissioning; profiled in the dependency map Section 4.
+**PRD:** 017 (in-band; index + 017a/b/c under `in-work/prd-017-service-checkin-and-sqlite-telemetry/`, moved from `backlog/` 2026-07-02 when the implementation landed). Postdates this plan's commissioning; profiled in the dependency map Section 4. **Status: IMPLEMENTED + merged on hivenectar `main`** (`src/telemetry/{db,checkin,metrics,logs,index}.ts`, `src/hivedoctor-registry.ts` `telemetryDbPath`, `src/daemon.ts` wiring; 10/10 module ACs verified per the apiary execution ledger). Held in `in-work/`, not `completed/`, until its on-disk QA report lands.
 
 **Placement rationale:** its hard in-set gates (002 daemon + health source, 003 registry writer + install path, 004a registry schema) are all complete, so it does not belong to any pending wave's entry gate. It runs in parallel with Wave C. Its counter wiring into the 007/016 pipeline paths is additive and fail-soft; those touchpoints land whenever 007/016 land, without gating either direction.
 
-**Entry gate:** Wave-0-standard QA pass on PRD-017 itself (it currently has an empty `qa/`); 002/003/004a verified (met).
+**Entry gate:** 002/003/004a verified (met). The Wave-0-standard QA pass did not precede implementation (the work shipped on the fleet-realignment initiative ahead of this plan's gate); it is now a **retrospective** QA report into the PRD's empty `qa/`, and is the folder's remaining exit condition.
 
 **Exit gate (tied to ACs):**
 
-- [ ] 017a: the registry entry records the runtime telemetry SQLite DB path; check-in records binding time + health from the same `PipelineStatus` source `/health` reads; the heartbeat advances last-seen (AC-1..AC-3); since-restart reset holds across restart (AC-6).
-- [ ] 017b: a hivedoctor-style read-only WAL poll observes live since-restart metrics with no push channel and no lock stalls (AC-4, AC-9).
-- [ ] 017c: logs carry verbosity levels and the store rotates at its bound (AC-5, AC-8).
-- [ ] Cross-cutting: telemetry failure is fail-soft, never blocking boot or the nectar pipeline (AC-7); no metric or log row carries sensitive data (AC-10).
+- [x] 017a: the registry entry records the runtime telemetry SQLite DB path; check-in records binding time + health from the same `PipelineStatus` source `/health` reads; the heartbeat advances last-seen (AC-1..AC-3); since-restart reset holds across restart (AC-6). *Verified per the apiary ledger 017a rows: `src/hivedoctor-registry.ts` `telemetryDbPath`, `src/telemetry/checkin.ts`, `test/telemetry/checkin.test.ts` + `test/daemon.test.ts` restart cases.*
+- [x] 017b: a hivedoctor-style read-only WAL poll observes live since-restart metrics with no push channel and no lock stalls (AC-4, AC-9). *Verified: `test/telemetry/integration.test.ts` "a hivedoctor-style read-only reader"; 5-counter `service_metrics` snapshot per the pinned Contract B.*
+- [x] 017c: logs carry verbosity levels and the store rotates at its bound (AC-5, AC-8). *Verified: `src/telemetry/logs.ts` (`DEFAULT_LOG_ROW_CAP=5000`, redaction + drop-unredactable), `test/telemetry/logs.test.ts`.*
+- [x] Cross-cutting: telemetry failure is fail-soft, never blocking boot or the nectar pipeline (AC-7); no metric or log row carries sensitive data (AC-10). *Verified: fail-soft tests across `checkin/metrics/logs` suites + `createNullTelemetry`; no-sensitive-data tests in `metrics.test.ts`/`logs.test.ts`.*
+- [ ] Retrospective Wave-0-standard QA report written into `in-work/prd-017-.../qa/`; on PASS, move the folder to `completed/`.
 
-**Cross-repo caveat:** the poll/merge/SSE side is hivedoctor PRD-001/002 and the read surface is the-hive PRD-005; end-to-end verification depends on them (R-3 / B-12). The hivenectar side ships independently because transport is pull-only.
+**Known dormancy (documented, not a defect):** the `descriptionsGenerated`/`embeddingsComputed` counters and the registration-pipeline live wiring read 0 in production until PRD-007/016 land and write described/embedded rows through the same `appendVersion` seam; no further 017 wiring is needed then (apiary ledger QA addendum, `src/telemetry/metrics.ts`).
+
+**Cross-repo caveat (resolved):** the poll/merge/SSE side (hivedoctor PRD-001/002) and the read surface (the-hive PRD-004/005 buzzing screen + health rail) are merged on their `main` branches, so end-to-end verification is unblocked (R-3 / B-12 narrowed).
 
 **Model routing:** `composer-2.5` (IDE-bound TypeScript extending an existing module surface with `node:sqlite`), with the AC-10 no-sensitive-data denylist tests cross-checked on `gpt-5.5-medium` given the security surface. **Watchdog:** single task; split 017a/b/c only if it stalls.
 
-**DEFAULT flags to sign off before implementation (R-7):** counter identifiers, heartbeat cadence, log retention bound, status-row placement.
+**DEFAULT flags (R-7): SIGNED OFF 2026-07-02 (decision #33), two amendments, IMPLEMENTED same day.** Counter identifiers (5 shipped counters) and status-row placement (one DB, three tables) retro-confirmed as shipped. Amended and applied: heartbeat cadence 10s -> **5s** (`src/telemetry/checkin.ts` `DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000`) and log retention 5,000-row cap -> **24h age bound** (`src/telemetry/logs.ts` `DEFAULT_LOG_MAX_AGE_MS`, ts-cutoff rotation, fail-soft against a non-parseable clock); tests updated and green. Consumers unaffected (hivedoctor reads whatever rows exist).
 
 ### Wave C - Pipeline and recall integration
 
@@ -192,7 +197,7 @@ Each wave below assumes Wave 0 has passed for the PRDs it touches. "In-band" / "
 - [ ] 015: `/source-graph` is a new route added by one `RouteEntry`; the page hydrates via `wire` + `usePoll`; the file graph renders nectars + `derived_from_nectar` edges; the search box calls PRD-012's endpoint; status/queue/cost widgets read PRD-008; hivenectar-down degrades gracefully; the page is not a third graph on `/graph` (PRD-015 AC-1..AC-7).
 - [ ] 009: the decision record, the per-harness recall-call-site mapping (Claude Code, Codex, Cursor), and the deploy-time tenancy invariant are documented; it ships no code and invents no value for a deliberate gap (PRD-009 AC-1..AC-5).
 
-**Per-wave blockers:** none from 004d (it is authored + QA-passed, so the boot-on-start thehive host chain is unblocked at the file level). 015's boot-on-start posture (PRD-004 AC-3) depends on 004d's service-unit-name DEFAULT flags being signed off (B-2 / R-2, subsumed by B-7/R-7).
+**Per-wave blockers:** none from 004d (it is authored + QA-passed, so the boot-on-start thehive host chain is unblocked at the file level). 015's boot-on-start posture (PRD-004 AC-3) is unblocked: the service-unit names were signed off 2026-07-02 (decision #32); the residual is the rename migration to the new fleet-wide names in the-hive.
 
 **Model routing:** 015 on `composer-2.5` (React dashboard page mirroring `GraphPage`, IDE-bound). 009 on `claude-4.6-sonnet-medium-thinking` (documentation with citation verification; no code). **Watchdog:** two tasks; 015 is the long pole, 009 is XS.
 
@@ -211,12 +216,12 @@ This chain funnels through two chokepoints:
 
 Two chains run in parallel and must converge at 015:
 
-- **thehive host chain:** PRD-001 -> PRD-004a -> PRD-004c -> PRD-004d -> PRD-015. Every PRD on this chain is authored (004d is authored + QA-passed); the only residual is 004d's service-unit-name DEFAULT sign-off (Risk R-2, subsumed by R-7).
+- **thehive host chain:** PRD-001 -> PRD-004a -> PRD-004c -> PRD-004d -> PRD-015. Every PRD on this chain is authored (004d is authored + QA-passed); the service-unit names were signed off 2026-07-02 (decision #32), leaving only the rename migration to the fleet-wide names (R-2, closed as a decision).
 - **search chain:** PRD-001 -> PRD-005 -> PRD-014 -> PRD-012 -> PRD-008 -> PRD-015.
 
 Separately, the **load-bearing agent-facing integration** is a shorter path: PRD-001 -> PRD-005 -> PRD-014 -> PRD-013 (-> PRD-009 documentation). This is not the 015 long pole. The commissioning brief proposed the critical path as 001 -> 005 -> 013/014 -> 008/012 -> 015; the correction is that PRD-013 feeds the agent recall path (and PRD-009), not the dashboard: the 015 long pole runs through 014 -> {007, 012} -> 008, with 013 on a parallel branch. Shortening the program end-to-end means protecting the 005 -> 014 root and the 007/008 funnel, and signing off 004d's service-unit DEFAULT flags early so the thehive host chain does not become the binding constraint at the very end.
 
-**2026-07-02 addendum:** PRD-017 sits entirely off the critical path (a leaf whose hard gates 002/003/004a are already complete); it neither lengthens nor blocks any chain above. With Waves A and B's QA tracks closed and 003/006 implemented, the live frontier is Wave C (007, 016, 013, 012a), whose entry gate now turns on the 010/011/014 implementations landing and on Wave 0 QA passes for 007/016/013/012.
+**2026-07-02 addendum (updated later same day):** PRD-017 sits entirely off the critical path and is now implemented + merged (only its retrospective QA report + the two #33 amendments remain). PRD-004 is complete across all four sub-PRDs, so the thehive host chain (001 -> 004a -> 004c -> 004d -> 015) is fully built up to 015 itself; the 004d naming sign-off landed as decision #32, whose fleet-wide rename is a follow-on work item, not a chain blocker. With Waves A and B's QA tracks closed and 003/006 implemented, the live frontier is the 010/011/014 implementations (in `in-work/`), then Wave C (007, 016, 013, 012a) behind its Wave 0 QA passes for 007/016/013/012.
 
 ---
 
@@ -244,19 +249,19 @@ Severity: HIGH (blocks a wave gate or the program), MEDIUM (blocks a PRD or need
 
 The table above is preserved as the scan-time record; current disposition:
 
-- **R-1: PARTIALLY CLOSED.** QA PASS on disk for 005/006/010/011/014. Open for 007/008/009/012/013/015/016 and the new 017.
-- **R-2: OPEN.** 004d's thehive service-unit-name DEFAULT sign-off still outstanding (under R-7).
-- **R-3: PARTIALLY CLOSED.** 004a implemented in the hivedoctor repo (dependency map D-10); 004c implemented + QA'd in the-hive. Still live: 004b, the 005/013 honeycomb merges, 015, 010/014 straddle placement, and PRD-017's poll-side consumers (hivedoctor PRD-001/002, the-hive PRD-005).
+- **R-1: PARTIALLY CLOSED.** QA PASS on disk for 005/006/010/011/014. Open for 007/008/009/012/013/015/016; 017's pass is retrospective (implementation already merged).
+- **R-2: CLOSED 2026-07-02 (decision #32, implemented same day).** The fleet-wide naming scheme (short names `honeycomb`/`doctor`/`hive`/`nectar` + reverse-DNS `com.legioncode.<name>` labels) supersedes the shipped per-repo names. Implemented in all four repos: new constants plus a best-effort legacy deregister (old unit name + old unit file) at the start of every install/register, with per-platform tests.
+- **R-3: PARTIALLY CLOSED (further narrowed 2026-07-02, later).** 004a + 004b implemented in the hivedoctor repo (dependency map D-10, updated); 004c + 004d implemented in the-hive; PRD-017's poll-side consumers (hivedoctor PRD-001/002, the-hive PRD-004/005) merged on their `main` branches. Still live: the 005/013 honeycomb merges, 015, and 010/014 straddle placement.
 - **R-4: OPEN.** Unchanged; 009 stays last.
 - **R-5: ADOPTED.** The corrected order held; 010/014 cleared Wave B QA ahead of the Wave C pipeline.
 - **R-6: CLOSED.** W-1 remediated in PRD-003 during Wave B (105 refs, grep-verified 0).
-- **R-7: OPEN.** No recorded DEFAULT sign-off. Sharpest items: `gemini-2.5-flash` and `embed-english-v3.0` id strings vs Portkey's config surface, the Cohere 1024-vs-768 dim reconciliation (PRD-014b), and PRD-017's four new flags.
+- **R-7: PARTIALLY CLOSED (2026-07-02, decisions #29-#33 in `PRD-DECISIONS-AND-DEFAULTS.md`).** Signed off: `gemini-2.5-flash` (#29); the Cohere dim reconciliation, resolved as embed-v4.0 with `output_dimension: 768` (#30, supersedes `embed-english-v3.0`); projection path + 30s debounce (#31); fleet-wide service naming (#32); PRD-017's four flags, two amended (heartbeat 5s, log retention 24h age bound; #33). Still open: the per-PRD defaults of unimplemented PRDs (007, 008, 012, 013, 015, 016), to be collected before each enters implementation.
 - **R-8: HOLDING.** All deliberate gaps confirmed unfilled through the PRD-006 implementation.
 - **R-9: HOLDING.** Billing flakiness remains a process risk for the remaining Wave 0 QA passes; retry-with-backoff stands.
 - **R-10: CLOSED.** Corpus carries `confidence`, `skipped-deleted`, and the user-authorized `fingerprint` column.
 - **R-11: CLOSED.** PRD-013 index slug corrected 2026-07-02.
 - **R-12: CLOSED.** PRD-001/002 moved to `completed/` (user-approved); lifecycle-equals-location holds across the tree.
-- **R-13 (NEW): MEDIUM.** PRD-017 is QA-pending and its end-to-end verification depends on hivedoctor's unbuilt poll/merge side. Mitigation: pull-only transport means the hivenectar side ships and unit-verifies independently (WAL read-only integration test stands in for the live poller); track the cross-repo landing under R-3.
+- **R-13 (NEW; downgraded to LOW 2026-07-02, later).** PRD-017 is implemented + merged on hivenectar `main` and the hivedoctor poll/merge side is built, so the original risk (unbuilt consumers) is closed. The two #33 amendments (heartbeat 5s, 24h age-bound log rotation) are applied in `src/telemetry/` with tests green. Residual: the retrospective on-disk QA report (the folder's `in-work/` -> `completed/` condition).
 
 ---
 
@@ -264,8 +269,8 @@ The table above is preserved as the scan-time record; current disposition:
 
 The program is complete only when all of the following hold, across all three repositories:
 
-1. **Every PRD 001 to 017 is authored, QA-passed at medium-and-above, and implemented**, with every module acceptance criterion and every sub-PRD user story verified. As of 2026-07-02: 001-006 complete (003/006 as code), 010/011/014 in-work, 007/008/009/012/013/015/016/017 QA-pending; QA is a hard gate (R-1).
-2. **The out-of-band PRDs are merged in their owning repos:** 004a/004b in `hivedoctor` (004a landed); 004c/004d/015 in `honeycomb`/`thehive` (004c landed); 005 and 013 in the `honeycomb` data/recall layer; 010/014 straddle placement resolved (R-3). PRD-017's poll-side partners (hivedoctor PRD-001/002, the-hive PRD-005) land in their owning repos.
+1. **Every PRD 001 to 017 is authored, QA-passed at medium-and-above, and implemented**, with every module acceptance criterion and every sub-PRD user story verified. As of 2026-07-02 (later update): 001-006 complete (003/006 as code; 004 across all four sub-PRDs in the owning repos); 017 implemented + merged, in `in-work/` pending its retrospective QA report; 010/011/014 in `in-work/` (spec-QA'd, implementation open); 007/008/009/012/013/015/016 QA-pending; QA is a hard gate (R-1).
+2. **The out-of-band PRDs are merged in their owning repos:** 004a/004b in `hivedoctor` (both landed); 004c/004d in `honeycomb`/`thehive` (both landed); 015 in `thehive` (open); 005 and 013 in the `honeycomb` data/recall layer (open); 010/014 straddle placement resolved (R-3). PRD-017's poll-side partners (hivedoctor PRD-001/002, the-hive PRD-004/005) have landed in their owning repos.
 3. **No deferrals remain unless explicitly authorized.** The "no deferrals unless explicitly authorized" mandate means each of the following must be either resolved or carry a recorded user authorization to defer:
   - PRD-009's after-013 deferral (R-4).
   - The W-1 PRD-003 code-reference Warning (R-6).

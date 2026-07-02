@@ -26,20 +26,25 @@ These are settled — recorded here for traceability, no action needed.
 | 12 | Ports: honeycomb=3850, embeddings=3851, hivedoctor-status=3852, thehive=3853, hivenectar=3854 | PRD-001b, 004, all |
 | 13 | confidence column: durable, added to source_graph_versions | PRD-005b, 006d |
 | 14 | skipped-deleted: added to describe_status enum | PRD-005b, 016c |
-| 15 | Default model id: `gemini-2.5-flash` (canonical id; confirm against Portkey registry before first brood) | PRD-010b |
-| 16 | Cohere embed model: `embed-english-v3.0` (English-only; reconcile the 1024→768 dim mismatch per PRD-014b's dim contract) | PRD-014b |
+| 15 | Default model id: `gemini-2.5-flash` (canonical id; confirm against Portkey registry before first brood). SIGNED OFF 2026-07-02, see #29 | PRD-010b |
+| 16 | Cohere embed model: `embed-english-v3.0` (English-only; reconcile the 1024→768 dim mismatch per PRD-014b's dim contract). SUPERSEDED by #30 (embed-v4.0 at `output_dimension: 768`) | PRD-014b |
 | 17 | Recall arm weight: `ARM_CLASS_WEIGHT` for source_graph_versions = 1.0 (peer with distilled memory); operator-tunable via `hivenectar_rrf_multiplier` at runtime | PRD-013a |
 | 18 | CodeGraph access: re-implement `git ls-files` discovery locally in hivenectar (no honeycomb module import, no HTTP service) — keeps hivenectar self-contained across the process boundary | PRD-001c, 002, 007 |
 | 19 | Registry hot-add: next-boot supervision (no SIGHUP/reload, no file-watch) — a newly-registered daemon is supervised at hivedoctor's next boot | PRD-004a/d |
 | 20 | /health shape: **PURPOSE-BUILT for hivenectar** (REVISED — originally "full parity"; reversed after review). hivenectar's `/health` carries the coarse `ok`/`degraded` bit hivedoctor classifies on (the non-negotiable minimum) PLUS hivenectar-native subsystem fields honeycomb's `/health` does not have: brooding status + progress (`active`, `filesDescribed`, `filesTotal`, `lastEventAt`), enricher queue + last file (`queueDepth`, `lastCycleAt`, `consecutiveFailures`, `lastFileDescribed`), projection last-write (`lastWriteAt`, `lastContentHash`), cost telemetry (`broodTotalTokens`, `broodTotalUsd`), provider state (`embeddings.provider`, `portkey.enabled`). Rejected: full honeycomb parity (would ship inert fields for hivenectar's nonexistent local/team/hybrid auth modes while omitting the signal an operator actually needs) AND coarse-only (too thin). Full body shape in PRD-001b. | PRD-001b, 003a |
 | 21 | Tenancy enforcement: hivedoctor-mediated assertion — hivedoctor gains a Deep Lake scope-comparison capability and refuses to supervise a daemon whose org/workspace scope mismatches another registered daemon's. Centralizes the invariant in the supervisor (heavier lift than a bootstrap check, but architecturally cleaner). PRD-004 must document hivedoctor's new scope-awareness | PRD-001c, 004, 009a |
 | 22 | Batch size: DYNAMIC — pack files until estimated context (input tokens) approaches the batch budget, capped by the 100KB cumulative (`BATCH_TOTAL_SIZE`) + a max-files safety ceiling (the corpus's 30-50 band). Adapts to actual file sizes rather than counting files; preserves the cost math. Replaces the fixed-40 default | PRD-007b |
-| 23 | OS service names: mirror honeycomb's convention — launchd `com.hivenectar.daemon`, systemd `hivenectar`, schtasks `HivenectarDaemon` | PRD-003b |
+| 23 | OS service names: mirror honeycomb's convention — launchd `com.hivenectar.daemon`, systemd `hivenectar`, schtasks `HivenectarDaemon`. SUPERSEDED by #32 (fleet-wide short-name + reverse-DNS scheme) | PRD-003b |
 | 24 | TLSH impl: native addon (NAPI) — fastest fuzzy-match computation; same install-time native-build risk honeycomb's tree-sitter already manages | PRD-006d |
 | 25 | review-matches: interactive prompt by default (list → choose → confirm); NO flag grammar committed. Optional batch flags deferred to implementation | PRD-006d |
 | 26 | thehive is a distinct architectural component with its own ADR: ADR-0004 records the four binding decisions (always-on + boot-order, API-aggregation-not-Deep-Lake, dashboard ownership + honeycomb code reuse, independent update cadence) + a companion knowledge doc (`architecture/thehive-portal-daemon.md`) holds the full design detail | ADR-0004, knowledge doc |
 | 27 | PRD-017 added (2026-07, fleet realignment): hivenectar check-in + local telemetry via Node's built-in `node:sqlite`, sibling of honeycomb PRD-071, governed by hivedoctor ADR-0001 (pull-only telemetry transport) + ADR-0002 (static registry + runtime SQLite status). Telemetry is operational, non-durable, non-sensitive, so it does not violate FR-8. Its own DEFAULT flags: counter identifiers (fresh in-process since-restart counters), heartbeat cadence, log retention bound, status-row placement (one DB, separate tables) | PRD-017 |
 | 28 | `fingerprint TEXT` (nullable) column added to `source_graph_versions`, immediately after `confidence` (user-authorized 2026-07-01): persists the step-4 TLSH fingerprint so cold-catch-up fuzzy matching survives a daemon restart. Applied to the corpus DDL, PRD-005b, and the shipped PRD-006 code | corpus, PRD-005b, PRD-006 |
+| 29 | **SIGNED OFF 2026-07-02:** default description model id is `gemini-2.5-flash`, resolved client-side via the `activeModel` vault setting, overridable per-run with `brood --force --model <new>` | PRD-010b |
+| 30 | **SIGNED OFF 2026-07-02 (supersedes #16):** the Cohere-via-Portkey embeddings opt-in targets **Cohere embed-v4.0 with `output_dimension: 768`** (Matryoshka-native), so the opt-in genuinely produces contract-valid 768-dim vectors. Model id and output dimension are config values, not hardcoded; recall's `embed.dim_rejected` guard stays as the backstop. `embed-english-v3.0` (1024-dim, non-Matryoshka) is rejected as the target | PRD-014b |
+| 31 | **SIGNED OFF 2026-07-02:** projection path `.honeycomb/nectars.json` at the project root + 30s write debounce (carried from the enricher cycle cadence) | PRD-011 |
+| 32 | **SIGNED OFF 2026-07-02 (supersedes #23 and the shipped per-repo names):** fleet-wide OS service naming uses the product short names `honeycomb` / `doctor` / `hive` / `nectar` AND reverse-DNS labels: launchd `com.legioncode.<name>`, systemd `<name>.service`, schtasks `<name>`. Replaces the shipped `ai.honeycomb.daemon` (honeycomb), `com.legioncode.hivedoctor`/`hivedoctor.service`/`HiveDoctor` (doctor), `thehive`/`thehive.service`/`thehive` (the-hive), and `com.hivenectar.daemon`/`hivenectar.service`/`HivenectarDaemon` (nectar). Migration: uninstall/reinstall is acceptable; each installer deregisters the old unit name when re-run. **IMPLEMENTED 2026-07-02 in all four repos:** new constants + a best-effort legacy deregister (old unit name + old unit file) at the start of every install/register (`nectar/src/service/`, `doctor/src/service/`, `hive/src/service/`, `honeycomb/src/cli/daemon-service.ts`), each with per-platform tests | PRD-003b, PRD-004d; honeycomb/doctor/hive/nectar service modules |
+| 33 | **SIGNED OFF 2026-07-02 (PRD-017 retro flags, two amendments):** counter identifiers (the 5 shipped counters: filesRegistered, nectarsMinted, descriptionsGenerated, sourceGraphVersions, embeddingsComputed) and status-row placement (one DB, `service_status`/`service_metrics`/`service_logs` tables) are RETRO-CONFIRMED as shipped. Heartbeat cadence is AMENDED 10s -> **5s** (faster last-seen staleness detection against hivedoctor's ~1s poll). Log retention is AMENDED from the 5,000-row cap to an **age bound (24h)** so quiet daemons keep less stale history. **IMPLEMENTED 2026-07-02:** `checkin.ts` `DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000`; `logs.ts` `DEFAULT_LOG_MAX_AGE_MS = 24h` with ts-cutoff rotation (replacing the row-cap delete), fail-soft against a non-parseable clock; tests updated. Consumers unaffected (hivedoctor reads whatever rows exist) | PRD-017a/017c |
 
 ---
 
@@ -78,10 +83,10 @@ Each is marked "DEFAULT — confirm before implementation" in its PRD. None bloc
 - review-matches sub-flag syntax: interactive prompt by default; flag grammar unspecified
 
 ### Portkey + models (PRD-010, 014)
-- Default model id: `gemini-2.5-flash` — **confirm exact string Portkey expects**
+- Default model id: `gemini-2.5-flash`: **SIGNED OFF 2026-07-02 (decision #29)**; verify the literal string against Portkey's registry at implementation as a mechanical check, not a decision
 - Portkey chat endpoint: `https://api.portkey.ai/v1/chat/completions`
-- Cohere embed model: `embed-english-v3.0` — **confirm exact id** (vs multilingual-v3.0, vs v4 line)
-- Cohere endpoint via Portkey: `/v1/embeddings` — **confirm gateway advertises this path**
+- Cohere embed model: **SIGNED OFF 2026-07-02 as embed-v4.0 with `output_dimension: 768` (decision #30, supersedes the `embed-english-v3.0` default)**; model id + output dim are config values
+- Cohere endpoint via Portkey: `/v1/embeddings`: **confirm gateway advertises this path** (mechanical check at implementation)
 
 ### Recall arm (PRD-013)
 - ARM_CLASS_WEIGHT for source_graph_versions: 1.0 (same as distilled memory)
@@ -89,7 +94,7 @@ Each is marked "DEFAULT — confirm before implementation" in its PRD. None bloc
 
 ### Supervision (PRD-003)
 - /health response shape: `{ status, uptimeMs, checks: {...} }`
-- OS service unit names: `com.hivenectar.daemon` (launchd) / `hivenectar` (systemd) / `HivenectarDaemon` (schtasks)
+- OS service unit names: **SIGNED OFF 2026-07-02 as the fleet-wide scheme (decision #32)**: launchd `com.legioncode.nectar`, systemd `nectar.service`, schtasks `nectar` (supersedes the shipped `com.hivenectar.daemon`/`hivenectar.service`/`HivenectarDaemon`; migration via uninstall/reinstall)
 - startupGraceMs: 60000
 
 ### Topology (PRD-001)
@@ -135,7 +140,7 @@ Two quality-worker-bee audits (armed with hivenectar-stinger) covered all 16 PRD
 
 ## What's next (updated 2026-07-02)
 
-1. **Confirm the §B defaults** (esp. the model id strings — `gemini-2.5-flash`, `embed-english-v3.0` — which need verification against Portkey's actual config surface before implementation, and the Cohere 1024-vs-768 dim reconciliation per PRD-014b). STILL OPEN: no recorded sign-off in the ledger or this doc.
+1. **Confirm the §B defaults.** PARTIALLY DONE 2026-07-02 (decisions #29-#33): model id (`gemini-2.5-flash`), the Cohere dim reconciliation (embed-v4.0 at 768), projection path + debounce, PRD-017's four flags (two amended: heartbeat 5s, log retention 24h age bound), and the fleet-wide service naming scheme (short names + reverse-DNS, all four repos). STILL OPEN: the remaining per-PRD defaults for unimplemented PRDs (007 discovery command + batch cap, 016 cadences/threshold/alert count, 012 search LIMIT + CLI name, 013 arm weight + LIMIT, 015 route/label/icon, 008 route group path), to be signed off before each enters implementation.
 2. ~~**Apply the §C corpus edits**~~ DONE. Items 1 and 2 are applied to the corpus (§C status notes); item 3 was a no-op false positive.
 3. ~~**Move PRDs to in-work/**~~ IN MOTION. PRD-001 through 006 are in `completed/`; 010/011/014 are in `in-work/`; the rest remain in `backlog/`. Lifecycle-equals-location now holds.
 4. **QA PRD-017** to the 001-004 standard before its implementation begins (it is the only authored PRD with an empty `qa/` folder besides 009 and 015, which are QA-pending like the rest of the backlog).
