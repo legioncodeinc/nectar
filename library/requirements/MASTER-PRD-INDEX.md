@@ -1,8 +1,10 @@
 # Master PRD Index — Hivenectar Implementation
 
-> Category: Requirements | Version: 1.0 | Date: June 2026 | Status: Draft (for review)
+> Category: Requirements | Version: 1.1 | Date: July 2026 | Status: Active
 
-The ordered list of PRDs required to take Hivenectar from spec to a shipped, supervised, hivedoctor-watched daemon that composes with Honeycomb's recall, renders a Source Graph page on the dashboard, and supports swappable embeddings + model providers. **This is an index for review, not a PRD itself.** Each entry has a title, an AI-legible description for the next-step PRD-authoring pass, the spec source(s) it derives from, and the Honeycomb code it must conform to.
+The ordered list of PRDs required to take Hivenectar from spec to a shipped, supervised, hivedoctor-watched daemon that composes with Honeycomb's recall, renders a Source Graph page on the dashboard, and supports swappable embeddings + model providers. **This is an index for review, not a PRD itself.**
+
+**Program status (updated 2026-07-02).** Status ground truth is `../ledger/EXECUTION_LEDGER.md` plus the per-PRD `qa/` reports; this block is the index-level summary. PRD-001 through PRD-006 are in `completed/` (001-005 spec-verified to the corpus-conformance bar; 003 and 006 additionally carry implemented, tested code, with 006 shipped on PR #9 including the persisted `fingerprint` column). PRD-010, 011, and 014 are in `in-work/` (spec QA-PASS, implementation in progress). PRD-007, 008, 009, 012, 013, 015, and 016 remain in `backlog/`, QA-pending. **PRD-017** (service check-in + SQLite telemetry, the fleet-realignment sibling of honeycomb's PRD-071) was added 2026-07 after this index's original sixteen; its entry is below and it is profiled in `PRD-003-016-DEPENDENCY-MAP.md` and sequenced in `PRD-003-016-WAVE-PLAN.md`. hivedoctor's multi-daemon registry (004a) is implemented in the hivedoctor repo; thehive (004c) is implemented and QA'd in the-hive repo, refining ADR-0004 via the-hive ADR-0001 (copy-and-own) and ADR-0002 (server-side BFF proxy). Each entry has a title, an AI-legible description for the next-step PRD-authoring pass, the spec source(s) it derives from, and the Honeycomb code it must conform to.
 
 **Read this first — six decisions locked after research against the actual Honeycomb code.** Each was a place where the Hivenectar spec diverged from reality, or an open fork; all six are now resolved. Every PRD below is written to these decisions, not to the original spec phrasing. The corpus (ADR-0002 + prose) must be updated to match before PRD authoring begins.
 
@@ -186,6 +188,16 @@ Each PRD lists: **Spec source** (Hivenectar corpus doc(s)), **Conforms to** (Hon
 
 ---
 
+### PRD-017 - Service check-in and SQLite telemetry emission (added 2026-07, fleet realignment)
+
+**Description for next step:** Added after the original sixteen were authored, so it appears in no scan-time analysis prior to 2026-07-02. The fleet realignment makes hivedoctor the single source of truth for fleet telemetry: services write non-sensitive telemetry to their own local SQLite, hivedoctor polls read-only on roughly a one-second interval plus the `/health` probe and relays one SSE to the-hive, with no service-to-hivedoctor push (hivedoctor `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md`); registration is a static installer registry plus a runtime SQLite status row (hivedoctor `ADR-0002-service-registration-static-registry-plus-runtime-sqlite.md`). This PRD is hivenectar's side of that contract, mirroring honeycomb's PRD-071: (a) extend the shipped registry writer (`src/hivedoctor-registry.ts`, from the PRD-003/004 work) so hivenectar's entry also records the on-disk path to its runtime telemetry SQLite database; (b) write runtime check-in status (binding time, last-seen heartbeat, current health sourced from the same `PipelineStatus` signal `/health` reports, so probe and poll never disagree); (c) emit non-sensitive since-restart metrics (files registered, nectars minted, descriptions generated, source-graph versions written, embeddings computed) and bounded, rotated, verbosity-leveled logs to local SQLite via Node's built-in `node:sqlite` (Node >=22.5, no external dependency, preserving the built-ins-only ethos). The write path is fail-soft: a telemetry failure never blocks daemon boot or the nectar pipeline. Telemetry is operational, non-durable, and non-sensitive, so it does not violate FR-8; it follows the local-queue precedent, not the Deep Lake durable-state rule. No Deep Lake schema change.
+
+**Spec source:** hivedoctor `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md` + `ADR-0002-service-registration-static-registry-plus-runtime-sqlite.md`, honeycomb `prd-071-service-checkin-and-sqlite-telemetry` (the sibling contract), `ADR-0003` (the topology that makes hivenectar a supervised workload daemon).
+**Conforms to:** `src/hivedoctor-registry.ts` (`registerWithHivedoctor()` / `buildHivenectarRegistryEntry()`, the writer to extend), `src/health.ts` + `src/server.ts` (the `PipelineStatus` / `/health` source), the PRD-006/007/016 pipeline paths (counter wiring is DEFAULT, confirm before implementation).
+**Sub-PRDs:** 017a (registry DB-path extension + runtime check-in and heartbeat), 017b (metrics emission), 017c (log emission, bounded + rotated).
+
+---
+
 ## Spec'd CLI surface (must all ship; allocated across PRDs above)
 
 | Command | Owner PRD | Notes |
@@ -223,6 +235,10 @@ PRD-001 (three-daemon topology + ADR-0003) → **PRD-004 (out-of-band: hivedocto
 1. **Hivenectar extends Honeycomb's recall (PRD-013), not its own harness hooks.** PRD-009 collapses from a 4-sub-PRD implementation effort to a single documentation sub-PRD (009a). PRD-013 is the sole agent-facing integration point.
 
 2. **The topology expands to three daemons (decision #1): hivedoctor (minimal supervisor + registry), thehive (always-on portal), hivenectar + honeycomb (workloads).** This promotes PRD-004 to a foundational, early-building PRD (it now owns both the hivedoctor registry AND the new thehive daemon) and moves PRD-015's dashboard target from the honeycomb daemon to thehive. PRD-001 triggers an **ADR-0003** recording the three-daemon topology, superseding the two-daemon framing in ADR-0002. The net effect: more foundational infra work (a whole new daemon + a registry), but it buys the single-always-on-dashboard-truth the user asked for and a clean stability/velocity split between supervisor and portal.
+
+**One addition recorded 2026-07-02:**
+
+3. **PRD-017 joins the program (fleet realignment).** Its entry gate is PRD-002 + PRD-003 (both complete), because it extends the shipped registration surface and reads the shipped health source. Its counter wiring touches the PRD-006/007/016 pipeline paths but is additive and fail-soft, so PRD-017 runs in parallel with the Wave C pipeline work rather than joining its gate; the 007/016 counter touchpoints land whenever those PRDs do. The poll/merge/SSE side belongs to hivedoctor (its PRD-001/002) and the read surface to the-hive (its PRD-005), both out of band.
 
 ---
 
