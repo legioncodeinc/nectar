@@ -98,7 +98,7 @@ None. The page consumes nectar's existing/new endpoints; it reads `derived_from_
 
 ## API changes
 
-None in nectar. The page consumes PRD-008's `/api/hive-graph/*` endpoints through hive's aggregation `wire`. The new `wire` methods the page needs (`hiveGraphFileGraph`, `hiveGraphSearch`, `hiveGraphStatus`, `hiveGraphBuild`) are specified in the sub-PRDs below as consumers of PRD-008 endpoints; they are additions to hive's aggregation client (PRD-004c's `wire`), not new nectar routes. In particular, `hiveGraphFileGraph` consumes PRD-008c's existing projection read (`GET /api/hive-graph/projection`) and transforms the projection payload into the `GraphWire` shape client-side — no file-graph route is added to nectar, PRD-008's scope stays as authored (decision #39).
+None in nectar. The page consumes PRD-008's `/api/hive-graph/*` endpoints through hive's aggregation `wire`. The new `wire` methods the page needs (`hiveGraphFileGraph`, `hiveGraphSearch`, `hiveGraphStatus`, `hiveGraphBuild`) are specified in the sub-PRDs below as consumers of PRD-008 endpoints; they are additions to hive's aggregation client (PRD-004c's `wire`), not new nectar routes. In particular, `hiveGraphFileGraph` consumes PRD-008c's existing projection read (`GET /api/hive-graph/projection`) and transforms the projection payload into the `GraphWire` shape client-side. No file-graph route is added to nectar; PRD-008's scope stays as authored (decision #39).
 
 ---
 
