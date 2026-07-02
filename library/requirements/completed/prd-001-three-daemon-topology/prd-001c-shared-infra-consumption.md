@@ -84,7 +84,7 @@ The composition above works only if nectar's rows are readable by honeycomb's re
 
 Concretely, nectar's Deep Lake client (PRD-001b) and honeycomb's Deep Lake client must resolve to the **same `org`** and operate in the **same `workspace`**, with `project_id` as the shared column filter. nectar's installer/bootstrap must verify the resolved org matches honeycomb's at first run; a mismatch is a configuration error, not a runtime failure to swallow silently.
 
-> **DEFAULT — confirm before implementation.** The exact verification mechanism (a bootstrap-time org-equality check, a shared config file, a doctor-mediated assertion) is a PRD-002/PRD-003 operations decision. The contract here is only: the invariant exists, and a violation silently breaks recall — it must be enforced, not assumed.
+> **[2026-07-02: aligned to decision #21]** The enforcement mechanism is locked (decision #21, [`PRD-DECISIONS-AND-DEFAULTS.md`](../../PRD-DECISIONS-AND-DEFAULTS.md)): a **doctor-mediated assertion** whereby doctor gains a Deep Lake scope-comparison capability and refuses to supervise a daemon whose org/workspace scope mismatches another registered daemon's (application sites: PRD-001c, 004, 009a; PRD-004 documents doctor's new scope-awareness). The contract here is only: the invariant exists, and a violation silently breaks recall; it must be enforced, not assumed.
 
 ---
 
