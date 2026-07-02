@@ -538,3 +538,17 @@ Shared-file wiring (cli/daemon/index/worker/server) reserved to the orchestrator
 | INT-C | Wave C integration: brood CLI verb (+classifyBroodInvocation, dry-run local), daemon boot enricher loop start/stop + health sink, background auto-brood, PRD-011b AC-6 boot projection load + inheritance, decision-#20 health slices, index re-exports, DeepLakeEnricherStore adapter | VERIFIED (9 integration tests; suite 401/0/3; `nectar search` verb correctly DEFERRED to Wave D per 012b's thin-loopback AC, exits 2 with notice) |
 
 **Wave C exit gate: MET** (007/016/012a/013 module ACs verified; 013 end-to-end hits pending brooded data by design). Wave D entry gate satisfied (QA-008 PASS on disk). QA-009 returned FAIL (C-1 false transport chain, W-1 stale tenancy prose) -> remediation worker dispatched; QA-015 in flight.
+
+### PRD-009 disposition (2026-07-02 PM)
+
+PRD-009 is a DOC PRD: its deliverable (decision record + per-harness recall-call-site mapping + deploy-time tenancy invariant) IS the PRD-009/009a text. Status: all five ACs VERIFIED via the QA + remediation pair.
+
+| ID | Item | Status |
+|---|---|---|
+| 009-AC-1 | Present-tense decision record: no nectar hooks, exposure solely via the PRD-013 arm, grounded rationale | VERIFIED (QA traced; remediation preserved; index Overview + 009a decision record) |
+| 009-AC-2 | Three-harness mapping (Claude Code, Codex, Cursor): connector + hook-seam + the single `recallMemories` production call site, file:line cited | VERIFIED (QA verified citations line-exact; C-1 remediation corrected column (c) to `POST /api/memories/recall` `api.ts:537`) |
+| 009-AC-3 | Exact insertion point (`recall.ts` `arms` array) + true funnel chain (`server.ts:72` -> `api.ts:537`; MCP tools + CLI consumers) | VERIFIED (post-remediation greps 0 false-linkage; NOTE: line ranges cite honeycomb main pre-013; refresh to post-merge anchors at close-out) |
+| 009-AC-4 | Deploy-time tenancy invariant (same org/workspace, project_id soft filter), PRD-001c cited as owner, failure mode named | VERIFIED (W-1 remediation aligned all sites to locked decision #21; prd-001c mirror corrected under dated note) |
+| 009-AC-5 | Ships no code, changes no table, zero TODO/OPEN QUESTION, no invented gap values | VERIFIED (orchestrator grep: only AC-5's self-referential mention; zero naming residue) |
+
+QA-009: FAIL (as audited) -> PASS after remediation (report section 10). QA-015: PASS-with-warnings; W-1 (unowned nodes/edges endpoint) remediation in flight (decision #39 pending). Wave 0 QA gate: ALL TWELVE of 005-016 now carry on-disk QA passes.
