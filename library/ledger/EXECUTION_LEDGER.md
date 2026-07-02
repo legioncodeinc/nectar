@@ -508,3 +508,21 @@ The CodeRabbit Major "Step-4 fingerprints disappear across restarts" is now CLOS
 - **Close-out complete. Ship:** code committed as `5f1a5da` on `feature/smoker-wave-b-impl-and-wave0-qa`, pushed, PR #14 opened (https://github.com/legioncodeinc/nectar/pull/14) with the AC ledger + wave plan + close-out results. **CI GREEN:** secret gate + nectar gate on ubuntu/macos/windows all pass; CodeRabbit review completed; the nightly live Deep Lake canary skipped by design on PRs. Docs/QA/lifecycle delta committed on nectar `main` as `e905d8f` (local, not pushed).
 - **Run close.** Everything dispatchable without user input is VERIFIED and shipped. Remaining items are parked BLOCKED on four user asks (recorded above): the Wave C DEFAULT sign-offs (007/012/013/016), PRD-013 W-1 (`nectar_rrf_multiplier` scope-or-defer), PRD-012 W-4 (CLI name), and the decision #30 Cohere-768 amendment. Wave C (007/016/012a in nectar, 013 in honeycomb), Wave D (008 + 012b), and Wave E (015 in hive, 009 doc) dispatch as those answers land. Watchdog log: zero stalls, zero terminations across 13 sub-agents.
 - **FLAG on decision #30 (verified against Cohere docs 2026-07-02): embed-v4.0's `output_dimension` accepts ONLY [256, 512, 1024, 1536]; 768 is not a valid value.** The decision's "Matryoshka-native 768" premise is wrong: as configured, the live gateway would reject (or mis-dim) the request and the guard would discard, leaving the Cohere opt-in inert. The transport sends config-driven model + output_dimension, so the remedy is a one-line config/default amendment. USER ASK (amend #30), options: (a) request 1024 and truncate+renormalize to 768 client-side (Matryoshka prefixes degrade gracefully), (b) switch the hosted opt-in default to a natively-768 model via the same gateway (e.g. OpenAI text-embedding-3-small with `dimensions: 768`, or Gemini text-embedding-004), (c) keep as-is and document the opt-in as inert until an operator supplies a 768-capable config. Local nomic (the default) is unaffected.
+
+## Wave C/D/E run (2026-07-02 PM, the-smoker, full remaining program)
+
+**Branch topology:** nectar `feature/smoker-wave-c-d-e` (worktree smoker-wave-cde), honeycomb `feature/prd-013-hive-graph-recall-arm` (worktree hive-graph-recall-arm), hive `feature/prd-015-hive-graph-page` (worktree hive-graph-page). All cut from post-rename mains (decision #35 applied).
+
+**Entry-gate check (passed):** 010/011/014 VERIFIED (Wave B ledger) + implementations merged to main via PR #14/#15; QA-007/012/013/016 PASS on disk; R-7 Wave C DEFAULTs signed off (#34), 013 W-1 multiplier scoped (#17 amended), 012 W-4 CLI name signed (#36), #30 amended to hosted text-embedding-3-small 768 (#37). Lifecycle moves committed: 010/011/014 -> completed/, 007/012/013/016 -> in-work/.
+
+**Wave C dispatch (4 implementers, parallel):**
+| Worker | Scope | Ownership | Model |
+|---|---|---|---|
+| Impl-007 | PRD-007 brooding pipeline | nectar src/brooding/** | opus-thinking (plan routing) |
+| Impl-016 | PRD-016 enricher loop | nectar src/enricher/** | composer (plan routing) |
+| Impl-012a | PRD-012a search engine | nectar src/hive-graph/search.ts | composer (plan routing) |
+| Impl-013 | PRD-013 recall arm + #17 multiplier | honeycomb recall.ts + scope surfaces | opus-thinking (plan routing) |
+
+**Wave-0 QA completion (2 quality-worker-bees, parallel):** QA-009 (backlog/prd-009), QA-015 (backlog/prd-015); closes the last two open Wave-0 QA slots.
+
+Shared-file wiring (cli/daemon/index/worker/server) reserved to the orchestrator after workers land.
