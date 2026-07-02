@@ -2,7 +2,7 @@
 
 > Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
 
-The conceptual essay behind Hivenectar's re-association ladder — why cold catch-up is the hardest problem, why the algorithm refuses to guess, why copy-paste is an asset rather than a failure mode, and how the portable projection collapses the hardest case to nothing.
+The conceptual essay behind Nectar's re-association ladder — why cold catch-up is the hardest problem, why the algorithm refuses to guess, why copy-paste is an asset rather than a failure mode, and how the portable projection collapses the hardest case to nothing.
 
 **Related:**
 - [`../identity-and-reassociation.md`](../identity-and-reassociation.md)
@@ -25,7 +25,7 @@ Read this before arguing with the ladder's design, and before proposing a "smart
 
 ## The hardest problem is cold catch-up
 
-A daemon that watches disk continuously has more evidence than a cold boot, but the watcher is not the authority for identity. Hivenectar mirrors Honeycomb's `node:fs.watch` pattern: the watcher emits uncorrelated `rename`/`change` observations with filenames, then the daemon debounces, refreshes the missing-files set, hashes changed paths, and lets the re-association ladder decide. Ordinary moves still resolve exactly through step 3 when the new path's content hash matches a missing file's latest hash; no richer move-correlation API is required.
+A daemon that watches disk continuously has more evidence than a cold boot, but the watcher is not the authority for identity. Nectar mirrors Honeycomb's `node:fs.watch` pattern: the watcher emits uncorrelated `rename`/`change` observations with filenames, then the daemon debounces, refreshes the missing-files set, hashes changed paths, and lets the re-association ladder decide. Ordinary moves still resolve exactly through step 3 when the new path's content hash matches a missing file's latest hash; no richer move-correlation API is required.
 
 The hard problem arrives the moment the laptop was closed.
 
@@ -90,7 +90,7 @@ The full predicate-by-predicate contract for each step is in [`reassociation-tec
 
 The re-association ladder's most counterintuitive property is how it treats copy-paste. In most identity systems, copy-paste is a failure mode: two files end up with identical content, the system cannot tell them apart, and when one is later edited the relationship is lost. In source-embedded serial schemes (the rejected Option A in [`ADR-0001`](../../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md)), copy-paste is worse than a failure — it produces two files claiming the *same serial*, an ambiguity the system cannot resolve.
 
-Hivenectar inverts this. Copy-paste is not a failure; it is a signal the daemon captures as a permanent, queryable edge.
+Nectar inverts this. Copy-paste is not a failure; it is a signal the daemon captures as a permanent, queryable edge.
 
 The mechanism: when a new path's content matches an existing file's *current* content, the daemon does not carry the source's nectar (that would be the move path, and it would make the two files indistinguishable). Instead it mints a **fresh nectar** for the copy and sets `derived_from_nectar` pointing back at the source. The copy gets its own identity, its own version chain, and a permanent link to its origin.
 

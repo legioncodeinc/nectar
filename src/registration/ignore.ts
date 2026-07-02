@@ -1,7 +1,7 @@
 /**
  * The workspace ignore contract for the file-registration intake (PRD-006a).
  *
- * Hivenectar does not maintain its own bespoke ignore list. Per PRD-006a
+ * Nectar does not maintain its own bespoke ignore list. Per PRD-006a
  * ("Workspace scope and the ignore contract") and brooding-pipeline.md, the
  * live-watch intake honors the SAME ignore contract the CodeGraph discovery
  * uses: git-tracked-set semantics plus a per-repo ignore file. The daemon can
@@ -14,7 +14,7 @@
  *     (`.honeycomb/`) so the projection/lock/pid churn never triggers a cycle,
  *   - honors a `.honeycomb/graph-ignore.json`-style per-repo ignore file if one
  *     is present at the workspace root, matching the CodeGraph's own ignore-file
- *     convention (no hivenectar-specific list is invented).
+ *     convention (no nectar-specific list is invented).
  *
  * `isIgnored` takes a repo-relative, forward-slashed path.
  */

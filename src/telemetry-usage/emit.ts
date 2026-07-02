@@ -1,7 +1,7 @@
 /**
- * The SINGLE PostHog usage-telemetry chokepoint for hivenectar.
+ * The SINGLE PostHog usage-telemetry chokepoint for nectar.
  *
- * NOT src/telemetry/: that module is the hivedoctor SQLite fleet-telemetry
+ * NOT src/telemetry/: that module is the doctor SQLite fleet-telemetry
  * store (check-ins, heartbeats, logs). THIS module is the only place in the
  * codebase that posts anonymous lifecycle events (installed, uninstalled,
  * first_run, updated) to the PostHog capture endpoint. It mirrors honeycomb's
@@ -10,11 +10,12 @@
  *   - body is exactly { api_key, event, properties, distinct_id }, POSTed to
  *     {host}/i/v0/e/ with a 2 second AbortController timeout;
  *   - the payload is built from a CLOSED allow-list, never from caller input:
- *     { package: "hivenectar", version, os, arch, node } and nothing else;
+ *     { package: "nectar", version, os, arch, node } and nothing else;
  *   - gates, in order: (1) empty baked key means hard-disabled (every dev or
- *     source build), (2) HONEYCOMB_TELEMETRY=0 or DO_NOT_TRACK truthy means
- *     opted out, (3) the dedupe ledger means at most once per machine (per
- *     version for hivenectar_updated);
+ *     source build), (2) NECTAR_TELEMETRY=0 (nectar's own switch), the
+ *     DETECTED HONEYCOMB_TELEMETRY=0 family opt-out, or DO_NOT_TRACK truthy
+ *     means opted out, (3) the dedupe ledger means at most once per machine
+ *     (per version for nectar_updated);
  *   - fail-soft everywhere: emit never throws, never blocks past the bounded
  *     timeout, and never changes a host flow's exit code. A network error, a
  *     timeout, a 4xx, a 5xx, or a ledger IO failure all resolve to a skipped
@@ -26,7 +27,7 @@
  *
  * distinct_id is anonymous: the honeycomb installer's ~/.honeycomb/install-id
  * when present (so the funnel correlates across the product family), else a
- * random UUID minted once and persisted in the ledger file under hivenectar's
+ * random UUID minted once and persisted in the ledger file under nectar's
  * runtime dir (~/.honeycomb by default, resolveConfig's RUNTIME_DIR_NAME).
  * Never an email, an account id, a hostname, or a path.
  */
@@ -48,8 +49,17 @@ export const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 /** The bounded POST timeout: a telemetry POST never delays a CLI verb longer than this. */
 export const DEFAULT_EMIT_TIMEOUT_MS = 2000;
 
-/** The hivenectar-family opt-out env var. `HONEYCOMB_TELEMETRY=0` silences all usage telemetry. */
-export const ENV_TELEMETRY = "HONEYCOMB_TELEMETRY";
+/** nectar's OWN opt-out env var. `NECTAR_TELEMETRY=0` silences all usage telemetry (ADR-0002: nectar depends on no honeycomb env). */
+export const ENV_TELEMETRY = "NECTAR_TELEMETRY";
+
+/**
+ * Honeycomb's family opt-out, DETECTED and honored when present (never
+ * required): an operator who silenced the honeycomb install with
+ * `HONEYCOMB_TELEMETRY=0` should not have to discover a second switch for a
+ * co-installed nectar. Detection-only per ADR-0002; nectar functions
+ * identically when honeycomb is absent.
+ */
+export const DETECTED_FAMILY_TELEMETRY = "HONEYCOMB_TELEMETRY";
 
 /** The cross-tool opt-out standard. Any value other than empty or "0" silences all usage telemetry. */
 export const ENV_DO_NOT_TRACK = "DO_NOT_TRACK";
@@ -58,18 +68,18 @@ export const ENV_DO_NOT_TRACK = "DO_NOT_TRACK";
 export const INSTALL_ID_FILE_NAME = "install-id";
 
 /** The dedupe ledger + fallback distinct id file, namespaced so it coexists in the shared runtime dir. */
-export const USAGE_LEDGER_FILE_NAME = "hivenectar-usage-telemetry.json";
+export const USAGE_LEDGER_FILE_NAME = "nectar-usage-telemetry.json";
 
 /** The four lifecycle events this chokepoint may ever emit. */
 export type UsageEventName =
-  | "hivenectar_installed"
-  | "hivenectar_uninstalled"
-  | "hivenectar_first_run"
-  | "hivenectar_updated";
+  | "nectar_installed"
+  | "nectar_uninstalled"
+  | "nectar_first_run"
+  | "nectar_updated";
 
 /** The CLOSED payload shape. Nothing outside these five keys ever leaves the machine. */
 export interface UsageProperties {
-  readonly package: "hivenectar";
+  readonly package: "nectar";
   readonly version: string;
   readonly os: string;
   readonly arch: string;
@@ -124,9 +134,13 @@ interface UsageLedger {
   lastSeenVersion?: string;
 }
 
-/** True when the user opted out via either env var (consoledonottrack.com convention for DNT). */
+/**
+ * True when the user opted out via nectar's own env var, the detected
+ * honeycomb family opt-out, or DO_NOT_TRACK (consoledonottrack.com convention).
+ */
 export function isOptedOut(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env[ENV_TELEMETRY] === "0") return true;
+  if (env[DETECTED_FAMILY_TELEMETRY] === "0") return true;
   const dnt = env[ENV_DO_NOT_TRACK];
   return dnt !== undefined && dnt !== "" && dnt !== "0";
 }
@@ -136,13 +150,13 @@ export function captureUrl(host: string): string {
   return `${host.replace(/\/+$/, "")}${POSTHOG_CAPTURE_PATH}`;
 }
 
-/** The default state dir: hivenectar's runtime dir convention (shared `~/.honeycomb`). */
+/** The default state dir: nectar's runtime dir convention (shared `~/.honeycomb`). */
 function defaultStateDir(): string {
   return join(homedir(), RUNTIME_DIR_NAME);
 }
 
 /**
- * The hivenectar version, read from the package.json two levels above this
+ * The nectar version, read from the package.json two levels above this
  * module (src/telemetry-usage/ and dist/telemetry-usage/ both sit two levels
  * below the package root). Fail-soft to "0.0.0" so a packaging anomaly never
  * breaks a CLI verb.
@@ -191,12 +205,12 @@ function readInstallId(dir: string): string | undefined {
 
 /** The dedupe ledger key: plain event name, except updated which dedupes per version. */
 function dedupeKey(event: UsageEventName, version: string): string {
-  return event === "hivenectar_updated" ? `${event}@${version}` : event;
+  return event === "nectar_updated" ? `${event}@${version}` : event;
 }
 
 /** Assemble the closed allow-list payload. This is the only payload builder; no caller input flows in. */
 function buildProperties(version: string): UsageProperties {
-  return { package: "hivenectar", version, os: platform(), arch: arch(), node: process.version };
+  return { package: "nectar", version, os: platform(), arch: arch(), node: process.version };
 }
 
 /**
@@ -282,14 +296,14 @@ async function postCapture(
   }
 }
 
-/** Fired by `hivenectar install` after the installer succeeds. Once per machine. */
+/** Fired by `nectar install` after the installer succeeds. Once per machine. */
 export async function emitInstalled(deps: UsageEmitDeps = {}): Promise<UsageEmitOutcome> {
-  return emitUsageEvent("hivenectar_installed", deps);
+  return emitUsageEvent("nectar_installed", deps);
 }
 
-/** Fired by `hivenectar uninstall` before teardown. Fire-and-forget. */
+/** Fired by `nectar uninstall` before teardown. Fire-and-forget. */
 export function emitUninstalled(deps: UsageEmitDeps = {}): Promise<UsageEmitOutcome> {
-  return emitUsageEvent("hivenectar_uninstalled", deps);
+  return emitUsageEvent("nectar_uninstalled", deps);
 }
 
 /** The outcome of the daemon-start hook: which of the two events were attempted. */
@@ -299,9 +313,9 @@ export interface DaemonStartTelemetry {
 }
 
 /**
- * The daemon-start hook: fires `hivenectar_first_run` (once per machine) and,
+ * The daemon-start hook: fires `nectar_first_run` (once per machine) and,
  * when the persisted last-seen version differs from the current one, fires
- * `hivenectar_updated` (deduped per version), then persists the new version.
+ * `nectar_updated` (deduped per version), then persists the new version.
  * The version bookkeeping is a local file write and happens regardless of the
  * emit gates, so a later opt-in never replays a stale backlog. Never throws.
  */
@@ -311,11 +325,11 @@ export async function recordDaemonStart(deps: UsageEmitDeps = {}): Promise<Daemo
     const version = deps.version ?? readPackageVersion();
     const lastSeen = loadLedger(dir).lastSeenVersion;
 
-    const firstRun = await emitUsageEvent("hivenectar_first_run", deps);
+    const firstRun = await emitUsageEvent("nectar_first_run", deps);
 
     let updated: UsageEmitOutcome | null = null;
     if (lastSeen !== undefined && lastSeen !== version) {
-      updated = await emitUsageEvent("hivenectar_updated", deps);
+      updated = await emitUsageEvent("nectar_updated", deps);
     }
 
     if (lastSeen !== version) {

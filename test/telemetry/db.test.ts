@@ -14,23 +14,23 @@ import {
 import { rmDirWithRetry } from "./test-helpers.ts";
 
 function tmpDir() {
-  return mkdtempSync(join(tmpdir(), "hivenectar-telemetry-db-"));
+  return mkdtempSync(join(tmpdir(), "nectar-telemetry-db-"));
 }
 
-test("telemetryDbPathForRuntimeDir nests the db under telemetry/hivenectar.sqlite", () => {
+test("telemetryDbPathForRuntimeDir nests the db under telemetry/nectar.sqlite", () => {
   const p = telemetryDbPathForRuntimeDir("/home/op/.honeycomb");
   assert.equal(p, join("/home/op/.honeycomb", TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME));
 });
 
-test("defaultTelemetryDbPath nests under <home>/.honeycomb/telemetry/hivenectar.sqlite", () => {
+test("defaultTelemetryDbPath nests under <home>/.honeycomb/telemetry/nectar.sqlite", () => {
   const p = defaultTelemetryDbPath("/home/op");
-  assert.equal(p, join("/home/op", ".honeycomb", "telemetry", "hivenectar.sqlite"));
+  assert.equal(p, join("/home/op", ".honeycomb", "telemetry", "nectar.sqlite"));
 });
 
 test("openTelemetryDb creates the directory and the file, and is idempotent to re-open", () => {
   const dir = tmpDir();
   try {
-    const dbPath = join(dir, "nested", "hivenectar.sqlite");
+    const dbPath = join(dir, "nested", "nectar.sqlite");
     const db1 = openTelemetryDb(dbPath);
     assert.ok(existsSync(dbPath), "the db file was created");
     db1.close();
@@ -51,7 +51,7 @@ test("security: openTelemetryDb creates its directory owner-only (0o700), not wo
   // the exact threat model the security-review finding (medium) targeted.
   const dir = tmpDir();
   try {
-    const dbPath = join(dir, "nested", "hivenectar.sqlite");
+    const dbPath = join(dir, "nested", "nectar.sqlite");
     const db = openTelemetryDb(dbPath);
     db.close();
 
@@ -72,7 +72,7 @@ test("security: openTelemetryDb tightens a PRE-EXISTING telemetry directory to 0
     chmodSync(telemetryDir, 0o755); // explicit chmod: mkdirSync's mode is umask-subject, chmod is not
     assert.equal(statSync(telemetryDir).mode & 0o777, 0o755, "precondition: the dir pre-exists with broad bits");
 
-    const db = openTelemetryDb(join(telemetryDir, "hivenectar.sqlite"));
+    const db = openTelemetryDb(join(telemetryDir, "nectar.sqlite"));
     db.close();
 
     const mode = statSync(telemetryDir).mode & 0o777;
@@ -85,7 +85,7 @@ test("security: openTelemetryDb tightens a PRE-EXISTING telemetry directory to 0
 test("openTelemetryDb creates all three telemetry tables with the pinned Contract B column shape", () => {
   const dir = tmpDir();
   try {
-    const dbPath = join(dir, "hivenectar.sqlite");
+    const dbPath = join(dir, "nectar.sqlite");
     const db = openTelemetryDb(dbPath);
     try {
       const tableNames = db
@@ -98,7 +98,7 @@ test("openTelemetryDb creates all three telemetry tables with the pinned Contrac
 
       // service_status: single-row (id=1) latest-wins, per the pinned schema.
       db.exec(
-        "INSERT INTO service_status (id, name, binding_time, last_seen, health) VALUES (1, 'hivenectar', 't', 't', 'ok')",
+        "INSERT INTO service_status (id, name, binding_time, last_seen, health) VALUES (1, 'nectar', 't', 't', 'ok')",
       );
       assert.throws(() => db.exec("INSERT INTO service_status (id, name, binding_time, last_seen, health) VALUES (2, 'x', 't', 't', 'ok')"));
 
@@ -108,7 +108,7 @@ test("openTelemetryDb creates all three telemetry tables with the pinned Contrac
       assert.equal(Number(metricsRow?.["files_registered"]), 0);
       assert.equal(Number(metricsRow?.["nectars_minted"]), 0);
       assert.equal(Number(metricsRow?.["descriptions_generated"]), 0);
-      assert.equal(Number(metricsRow?.["source_graph_versions"]), 0);
+      assert.equal(Number(metricsRow?.["hive_graph_versions"]), 0);
       assert.equal(Number(metricsRow?.["embeddings_computed"]), 0);
 
       // service_logs: level is constrained to the four declared verbosities.
@@ -125,7 +125,7 @@ test("openTelemetryDb creates all three telemetry tables with the pinned Contrac
 test("openTelemetryDb sets WAL journal mode so a concurrent read-only handle never contends with writes (AC-9)", () => {
   const dir = tmpDir();
   try {
-    const dbPath = join(dir, "hivenectar.sqlite");
+    const dbPath = join(dir, "nectar.sqlite");
     const writer = openTelemetryDb(dbPath);
     try {
       const mode = writer.prepare("PRAGMA journal_mode").get();

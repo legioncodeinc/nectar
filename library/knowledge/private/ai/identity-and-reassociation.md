@@ -2,11 +2,11 @@
 
 > Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
 
-The core algorithm of Hivenectar: how a ULID nectar is minted, how it survives edits and renames and moves, how the daemon re-associates a nectar to a file on disk after offline changes, and how copy-paste becomes a first-class provenance edge instead of a history-loss event.
+The core algorithm of Nectar: how a ULID nectar is minted, how it survives edits and renames and moves, how the daemon re-associates a nectar to a file on disk after offline changes, and how copy-paste becomes a first-class provenance edge instead of a history-loss event.
 
 **Related:**
 - [`../overview.md`](../overview.md)
-- [`../data/source-graph-schema.md`](../data/source-graph-schema.md)
+- [`../data/hive-graph-schema.md`](../data/hive-graph-schema.md)
 - [`brooding-pipeline.md`](brooding-pipeline.md)
 - [`enricher-and-llm-model.md`](enricher-and-llm-model.md)
 - [`../data/portable-registry.md`](../data/portable-registry.md)
@@ -21,7 +21,7 @@ A file on disk has no stable identity of its own. Its path can change (rename, m
 
 The nectar is stable because it is **not derived from anything about the file**. It is not a hash of the content (that changes per edit). It is not a function of the path (that changes per move). It is not embedded in the source (that collides with the license header and breaks on copy-paste, see `ADR-0001`). It is a pure minted identifier, created once, associated to the file by the daemon's ongoing observation of disk.
 
-This is the same pattern every IDE uses to track "this is the same file I had open" across a rename, and the same pattern rsync and Dropbox use to detect moves without re-transferring. It is not novel; it is correct. The novelty in Hivenectar is combining minted identity with LLM-minted description and Deep Lake persistence — the identity layer alone is well-trodden ground (see `../reference/prior-art-crosswalk.md`, particularly Aura's "identity anchor" and Mimir's `SymbolId`).
+This is the same pattern every IDE uses to track "this is the same file I had open" across a rename, and the same pattern rsync and Dropbox use to detect moves without re-transferring. It is not novel; it is correct. The novelty in Nectar is combining minted identity with LLM-minted description and Deep Lake persistence — the identity layer alone is well-trodden ground (see `../reference/prior-art-crosswalk.md`, particularly Aura's "identity anchor" and Mimir's `SymbolId`).
 
 ```mermaid
 flowchart LR
@@ -64,13 +64,13 @@ function mintNectar(): string {
 }
 ```
 
-The nectar is written to `source_graph.nectar` as the primary key. The `created_at` column is set to the decoded ULID timestamp in ISO 8601 (so `nectars.json` and dashboards have a human-readable creation time without ULID parsing). The nectar is **never re-derived and never recomputed** — if the minting logic changes, old nectars keep their values; new nectars use the new logic. This is what makes identity stable across daemon upgrades.
+The nectar is written to `hive_graph.nectar` as the primary key. The `created_at` column is set to the decoded ULID timestamp in ISO 8601 (so `nectars.json` and dashboards have a human-readable creation time without ULID parsing). The nectar is **never re-derived and never recomputed** — if the minting logic changes, old nectars keep their values; new nectars use the new logic. This is what makes identity stable across daemon upgrades.
 
 ---
 
 ## The re-association ladder
 
-The hardest problem in Hivenectar is cold catch-up: the daemon boots after the laptop was closed, the user moved and edited a dozen files offline, and now disk does not match Deep Lake. The daemon must look at each file on disk and decide *which existing nectar (if any) it is*, or mint a new one. This is the re-association ladder, evaluated top-down per file — first match wins.
+The hardest problem in Nectar is cold catch-up: the daemon boots after the laptop was closed, the user moved and edited a dozen files offline, and now disk does not match Deep Lake. The daemon must look at each file on disk and decide *which existing nectar (if any) it is*, or mint a new one. This is the re-association ladder, evaluated top-down per file — first match wins.
 
 ```mermaid
 flowchart TD
@@ -89,15 +89,15 @@ flowchart TD
 
 The fast path. If a file at a known path has the same mtime and size as the last time hiveantennae observed it, the daemon treats it as unchanged without reading or hashing the content. This is the same optimization rsync uses (`--size-only` is the degenerate form). It covers the vast majority of files on a typical boot — most files were not touched.
 
-The mtime/size pair is stored in `source_graph_versions.mtime_observed` and `source_graph_versions.size_bytes` for the latest version of each nectar. The check is a single SELECT against the latest-version index, scoped by tenancy and path.
+The mtime/size pair is stored in `hive_graph_versions.mtime_observed` and `hive_graph_versions.size_bytes` for the latest version of each nectar. The check is a single SELECT against the latest-version index, scoped by tenancy and path.
 
 ### Step 2: path match, content changed
 
 The path exists in Deep Lake under some nectar, but the content hash differs. This is a normal edit. The daemon:
 
 1. Reads the file, computes `sha256(content)`.
-2. Appends a new `source_graph_versions` row with `(nectar, content_hash, seq = prev_seq + 1)`, the new path/metadata, and `title/description/embedding = NULL` (`describe_status = 'pending'`).
-3. Updates `source_graph.last_update_date`.
+2. Appends a new `hive_graph_versions` row with `(nectar, content_hash, seq = prev_seq + 1)`, the new path/metadata, and `title/description/embedding = NULL` (`describe_status = 'pending'`).
+3. Updates `hive_graph.last_update_date`.
 4. Enqueues a lazy enrich job for the new version.
 
 The nectar is unchanged. The previous version row stays in place — the history chain is append-only.
@@ -108,7 +108,7 @@ This is the move detector. The daemon keeps a map of "files that used to exist b
 
 The action:
 
-1. Append a new `source_graph_versions` row for the existing nectar with the new path and the same `content_hash` (composite key `(nectar, content_hash)` is unique, but `seq` increments and `path` differs, so the row is new).
+1. Append a new `hive_graph_versions` row for the existing nectar with the new path and the same `content_hash` (composite key `(nectar, content_hash)` is unique, but `seq` increments and `path` differs, so the row is new).
 2. The previous version row's path is now stale but retained as history.
 3. Enqueue no enrich job — the content is unchanged, so the existing description still applies.
 
@@ -135,13 +135,13 @@ function bestFuzzyMatch(
 }
 ```
 
-The match is **scored, not binary**. The `source_graph_versions` row appended for a fuzzy match carries a `confidence` field (1 − normalized distance). If confidence is below a "high" band (configurable, default tuned during brooding), the daemon does **not** silently claim the nectar — instead it surfaces the candidate match to the dashboard (or to an interactive `honeycomb hivenectar review-matches` command) for human confirmation. Low-confidence matches mint a new nectar instead.
+The match is **scored, not binary**. The `hive_graph_versions` row appended for a fuzzy match carries a `confidence` field (1 − normalized distance). If confidence is below a "high" band (configurable, default tuned during brooding), the daemon does **not** silently claim the nectar — instead it surfaces the candidate match to the dashboard (or to an interactive `honeycomb nectar review-matches` command) for human confirmation. Low-confidence matches mint a new nectar instead.
 
-This step primarily fires after cold restart with offline changes, but it is not limited to that mode. Hivenectar mirrors Honeycomb's `node:fs.watch` pattern, which reports uncorrelated `(eventType, filename)` observations rather than a rich move object. During live operation the debounced event stream updates the missing-files and new/changed-files sets; step 3 reconstructs ordinary moves by exact hash, and step 4 handles move-and-edit cases when exact hash evidence is not enough.
+This step primarily fires after cold restart with offline changes, but it is not limited to that mode. Nectar mirrors Honeycomb's `node:fs.watch` pattern, which reports uncorrelated `(eventType, filename)` observations rather than a rich move object. During live operation the debounced event stream updates the missing-files and new/changed-files sets; step 3 reconstructs ordinary moves by exact hash, and step 4 handles move-and-edit cases when exact hash evidence is not enough.
 
 ### Step 5: nothing matches
 
-The file is genuinely new. Mint a fresh nectar, write the `source_graph` row, append the initial `source_graph_versions` row, enqueue enrichment.
+The file is genuinely new. Mint a fresh nectar, write the `hive_graph` row, append the initial `hive_graph_versions` row, enqueue enrichment.
 
 ---
 
@@ -171,7 +171,7 @@ function classifyNewFile(
 }
 ```
 
-The daemon mints B a **fresh nectar N2** and sets `source_graph`:
+The daemon mints B a **fresh nectar N2** and sets `hive_graph`:
 
 ```
 nectar: N2
@@ -211,7 +211,7 @@ Cold catch-up is the hard case because all the daemon has is the final state of 
 
 A nectar, once minted, is never deleted by the re-association ladder. If a file on disk has no re-association candidate (step 5), the daemon mints a new nectar — it does not scan for "orphaned" nectars whose paths are missing and reuse them. Orphaned nectars (the file was deleted, not moved) remain in Deep Lake as history.
 
-Deletion of nectar records is a separate, explicit operation: `honeycomb hivenectar prune --confirm` removes nectars whose latest version's path has been missing for longer than a configurable grace period (default 30 days). The grace period exists because a file that is "missing" might be on a branch that is currently checked out elsewhere, or might come back after a merge. Pruning is conservative and human-triggered.
+Deletion of nectar records is a separate, explicit operation: `honeycomb nectar prune --confirm` removes nectars whose latest version's path has been missing for longer than a configurable grace period (default 30 days). The grace period exists because a file that is "missing" might be on a branch that is currently checked out elsewhere, or might come back after a merge. Pruning is conservative and human-triggered.
 
 This append-only-ish behavior (nectars are minted freely, pruned rarely, never reused) is what makes the history chain trustworthy. A nectar's version chain is a complete record of every observed state of the logical file it represents, from minting to (eventually) archival.
 

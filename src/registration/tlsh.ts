@@ -2,7 +2,7 @@
  * Step-4 fuzzy fingerprint + distance, pure TypeScript, zero runtime deps (PRD-006d AC-14/AC-17).
  *
  * PRD-006d flags the TLSH implementation as "native addon OR WASM build -
- * DEFAULT - confirm before implementation" and Hivenectar's ethos is zero
+ * DEFAULT - confirm before implementation" and Nectar's ethos is zero
  * runtime dependencies (Node built-ins only). The native-addon / WASM options
  * therefore remain a flagged DEFAULT for later; this module ships the in-repo,
  * pure-TS DEFAULT so step 4 works today with no new dependency.

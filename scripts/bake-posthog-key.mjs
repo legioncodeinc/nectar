@@ -2,19 +2,24 @@
 /**
  * Bake the PostHog ingest key into the COMPILED output at release time.
  *
- * hivenectar builds with plain tsc (no esbuild), so there is no `define`
+ * nectar builds with plain tsc (no esbuild), so there is no `define`
  * mechanism to inject constants at build time. Instead, the source stub
  * src/telemetry-usage/posthog-key.ts is committed with empty strings, and this
  * script rewrites the compiled dist/telemetry-usage/posthog-key.js in place
  * with the values from the environment:
  *
- *   HONEYCOMB_POSTHOG_KEY   the public write-only PostHog ingest key (phc_...)
- *   HONEYCOMB_POSTHOG_HOST  the ingest host (optional; runtime defaults to
- *                           the PostHog US cloud when left empty)
+ *   NECTAR_POSTHOG_KEY   the public write-only PostHog ingest key (phc_...)
+ *   NECTAR_POSTHOG_HOST  the ingest host (optional; runtime defaults to
+ *                        the PostHog US cloud when left empty)
+ *
+ * ADR-0002 decoupling: nectar's own NECTAR_* names are primary. The
+ * HONEYCOMB_POSTHOG_KEY/HOST names are accepted as a DETECTED fallback only
+ * (the org shares one PostHog ingest project across the family), never
+ * required.
  *
  * Behavior:
- *   - HONEYCOMB_POSTHOG_KEY unset or empty: log a line and exit 0 (a no-op,
- *     so forks and rehearsals without the secret stay green and unkeyed).
+ *   - both key envs unset or empty: log a line and exit 0 (a no-op, so forks
+ *     and rehearsals without the secret stay green and unkeyed).
  *   - target file missing: exit 1 loudly (catches a moved or renamed module).
  *   - after writing, the script re-loads the emitted module and verifies the
  *     baked values round-trip, so a format drift fails the release gate here
@@ -57,12 +62,12 @@ if (!existsSync(target)) {
   );
 }
 
-const key = (process.env.HONEYCOMB_POSTHOG_KEY ?? "").trim();
-const host = (process.env.HONEYCOMB_POSTHOG_HOST ?? "").trim();
+const key = (process.env.NECTAR_POSTHOG_KEY ?? process.env.HONEYCOMB_POSTHOG_KEY ?? "").trim();
+const host = (process.env.NECTAR_POSTHOG_HOST ?? process.env.HONEYCOMB_POSTHOG_HOST ?? "").trim();
 
 if (key.length === 0) {
   process.stdout.write(
-    "bake-posthog-key: HONEYCOMB_POSTHOG_KEY is unset or empty; leaving the stub as-is (telemetry stays disabled in this build).\n",
+    "bake-posthog-key: NECTAR_POSTHOG_KEY (and the detected HONEYCOMB_POSTHOG_KEY fallback) is unset or empty; leaving the stub as-is (telemetry stays disabled in this build).\n",
   );
   process.exit(0);
 }

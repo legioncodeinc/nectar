@@ -48,7 +48,7 @@ This repo's domain folders and their contents (9 core documents, each expanded i
 | `overview/` | (root) `overview.md` | `overview/` — 5 expanded docs |
 | `architecture/` | `ADR-0001-minted-nectar-over-source-embedded-serial.md` | `architecture/identity-model/` — 5 expanded docs |
 | `ai/` | `identity-and-reassociation.md`, `brooding-pipeline.md`, `enricher-and-llm-model.md` | `ai/identity-deep-dive/`, `ai/brooding-deep-dive/`, `ai/enricher-deep-dive/` — 5 each |
-| `data/` | `source-graph-schema.md`, `portable-registry.md`, `recall-integration.md` | `data/source-graph-deep-dive/`, `data/portable-registry-deep-dive/`, `data/recall-integration-deep-dive/` — 5 each |
+| `data/` | `hive-graph-schema.md`, `portable-registry.md`, `recall-integration.md` | `data/hive-graph-deep-dive/`, `data/portable-registry-deep-dive/`, `data/recall-integration-deep-dive/` — 5 each |
 | `reference/` | `prior-art-crosswalk.md` | `reference/prior-art-deep-dive/` — 5 expanded docs |
 | `standards/` | `documentation-framework.md` | (canonical standard; not expanded) |
 

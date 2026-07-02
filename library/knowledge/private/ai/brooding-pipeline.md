@@ -8,7 +8,7 @@ The initial full-codebase scan that mints nectars and produces the first descrip
 - [`../overview.md`](../overview.md)
 - [`identity-and-reassociation.md`](identity-and-reassociation.md)
 - [`enricher-and-llm-model.md`](enricher-and-llm-model.md)
-- [`../data/source-graph-schema.md`](../data/source-graph-schema.md)
+- [`../data/hive-graph-schema.md`](../data/hive-graph-schema.md)
 - [`../data/portable-registry.md`](../data/portable-registry.md)
 - [`../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md)
 
@@ -34,7 +34,7 @@ flowchart TD
     bucket -->|binary, >MAX_SIZE| skip["mint nectar, describe_status=skipped-*"]
     bucket -->|small text, <=BATCH_THRESHOLD| batchPool["group into batches of ~40 files"]
     bucket -->|large text, >BATCH_THRESHOLD| soloPool["one file per LLM call"]
-    skip --> writeRows["append source_graph + versions rows"]
+    skip --> writeRows["append hive_graph + versions rows"]
     batchPool --> batchCall["single Gemini call: describe 40 files"]
     soloPool --> soloCall["single Gemini call: describe 1 file"]
     batchCall --> writeRows
@@ -46,7 +46,7 @@ flowchart TD
 
 ### File discovery
 
-Discovery reuses the existing CodeGraph discovery logic verbatim (documented in the main corpus's `data/codebase-graph.md`): `git ls-files --cached --others --exclude-standard -z` to honor `.gitignore` exactly, with a manual recursive walk fallback when git is unavailable. The same per-repo ignore file (`~/.honeycomb/graph-ignore.json`) applies. Hivenectar does not maintain its own ignore list — that would be a drift source. If a file is in the CodeGraph's discovery set, it is in Hivenectar's; if it is not, it is not.
+Discovery reuses the existing CodeGraph discovery logic verbatim (documented in the main corpus's `data/codebase-graph.md`): `git ls-files --cached --others --exclude-standard -z` to honor `.gitignore` exactly, with a manual recursive walk fallback when git is unavailable. The same per-repo ignore file (`~/.honeycomb/graph-ignore.json`) applies. Nectar does not maintain its own ignore list — that would be a drift source. If a file is in the CodeGraph's discovery set, it is in Nectar's; if it is not, it is not.
 
 The one addition is a content-hash pre-check against the portable projection (if one exists from a prior brood or a teammate's commit). A file whose `(content_hash)` matches a projection entry inherits that nectar and description without re-brooding — this is how a fresh clone skips the LLM cost. Only files with no projection match enter the bucketing flow below.
 
@@ -57,7 +57,7 @@ Files are bucketed by size and parsability before any LLM call is made. The buck
 | Bucket | Criteria | LLM call shape |
 |---|---|---|
 | **Skip-binary** | First 8KB contains NUL bytes, or extension is in a known-binary list (`.png`, `.jpg`, `.pdf`, `.woff2`, …) | No LLM call. Mint nectar, set `describe_status = 'skipped-binary'`, leave `title = filename`, `description = ''`. |
-| **Skip-too-large** | `size_bytes > MAX_DESCRIBE_SIZE` (default 256 KB) | No LLM call. Mint nectar, set `describe_status = 'skipped-too-large'`, leave `title = filename`. The structural CodeGraph still extracts symbols; Hivenectar just does not describe it semantically. |
+| **Skip-too-large** | `size_bytes > MAX_DESCRIBE_SIZE` (default 256 KB) | No LLM call. Mint nectar, set `describe_status = 'skipped-too-large'`, leave `title = filename`. The structural CodeGraph still extracts symbols; Nectar just does not describe it semantically. |
 | **Batch** | Text, `size_bytes <= BATCH_FILE_SIZE` (default 4 KB), and the cumulative batch size is under `BATCH_TOTAL_SIZE` (default 100 KB) | 30–50 files per LLM call. |
 | **Solo** | Text, `size_bytes > BATCH_FILE_SIZE` but `<= MAX_DESCRIBE_SIZE` | One file per LLM call. |
 
@@ -76,7 +76,7 @@ For each file, return:
 Respond as a JSON array, one object per input file, in input order.
 ```
 
-The response is parsed, validated against the expected shape (malformed entries are re-tried solo or marked `describe_status = 'failed'`), and written to the corresponding `source_graph_versions` rows.
+The response is parsed, validated against the expected shape (malformed entries are re-tried solo or marked `describe_status = 'failed'`), and written to the corresponding `hive_graph_versions` rows.
 
 ### The solo call
 
@@ -129,19 +129,19 @@ Brooding is resumable. Every nectar mint and every description write is a commit
 2. Files minted but not yet described have `describe_status = 'pending'` and are re-enqueued.
 3. Files not yet minted are discovered fresh and enter the bucketing flow.
 
-There is no "brood in progress" lockfile or partial-state marker. The state of the brood is fully derivable from `source_graph_versions.describe_status`. This is the same append-only/resumable pattern Honeycomb uses for the pollinating loop and the skillify miner.
+There is no "brood in progress" lockfile or partial-state marker. The state of the brood is fully derivable from `hive_graph_versions.describe_status`. This is the same append-only/resumable pattern Honeycomb uses for the pollinating loop and the skillify miner.
 
 ---
 
 ## Triggering brooding
 
-Brooding triggers automatically the first time hiveantennae runs against a project with no `source_graph` rows (or no `.honeycomb/nectars.json`). It can also be triggered explicitly:
+Brooding triggers automatically the first time hiveantennae runs against a project with no `hive_graph` rows (or no `.honeycomb/nectars.json`). It can also be triggered explicitly:
 
 ```bash
-honeycomb hivenectar brood                  # full brood, respects existing descriptions
-honeycomb hivenectar brood --force          # re-describe every file, ignore existing
-honeycomb hivenectar brood --limit 100      # brood at most 100 pending files (cost cap)
-honeycomb hivenectar brood --dry-run        # show buckets and cost estimate, no LLM calls
+honeycomb nectar brood                  # full brood, respects existing descriptions
+honeycomb nectar brood --force          # re-describe every file, ignore existing
+honeycomb nectar brood --limit 100      # brood at most 100 pending files (cost cap)
+honeycomb nectar brood --dry-run        # show buckets and cost estimate, no LLM calls
 ```
 
 The `--dry-run` flag runs discovery and bucketing, prints the estimated call count and cost, and exits without making any LLM calls. It is the recommended first step on any new project to sanity-check the cost before committing to it.
@@ -152,4 +152,4 @@ The `--dry-run` flag runs discovery and bucketing, prints the estimated call cou
 
 - **It does not run on every daemon boot.** Only the first time, or when explicitly invoked, or when the projection is missing and the daemon cannot re-derive identity from it.
 - **It does not block daemon readiness.** Per ADR-0007 in the main corpus ("daemon readiness over boot-time DeepLake and graph work"), brooding runs in the background after the daemon is accepting requests. Recall queries during a brood see whatever has been described so far; undescribed files are simply absent from semantic results until the brood reaches them.
-- **It does not describe files that the structural CodeGraph already describes structurally.** Wait — actually it does. The two layers are independent. The CodeGraph extracts symbols (structural); Hivenectar describes files (semantic). Both ship. A file is in both. This is stated explicitly because it is a common source of confusion.
+- **It does not describe files that the structural CodeGraph already describes structurally.** Wait — actually it does. The two layers are independent. The CodeGraph extracts symbols (structural); Nectar describes files (semantic). Both ship. A file is in both. This is stated explicitly because it is a common source of confusion.

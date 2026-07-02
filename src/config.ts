@@ -1,5 +1,5 @@
 /**
- * Runtime configuration resolution for the hivenectar daemon.
+ * Runtime configuration resolution for the nectar daemon.
  *
  * Resolution precedence (mirrors honeycomb's `resolveRuntimeConfig`,
  * honeycomb/src/daemon/runtime/config.ts:143): explicit overrides -> environment
@@ -10,10 +10,10 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** The `~/.honeycomb` runtime dir convention shared with honeycomb + hivedoctor. */
+/** The `~/.honeycomb` runtime dir convention shared with honeycomb + doctor. */
 export const RUNTIME_DIR_NAME = ".honeycomb";
 
-/** hivenectar's loopback port. 3850 honeycomb, 3851 embeddings, 3852 hivedoctor status, 3853 thehive are occupied (PRD-001b). */
+/** nectar's loopback port. 3850 honeycomb, 3851 embeddings, 3852 doctor status, 3853 hive are occupied (PRD-001b). */
 export const DEFAULT_PORT = 3854;
 
 /** Loopback-only, mirroring honeycomb's posture (honeycomb/embeddings/src/index.ts EMBED_HOST). */
@@ -23,8 +23,8 @@ export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
 /** Distinct from honeycomb's `daemon.pid`/`daemon.lock` so both daemons coexist in ~/.honeycomb (PRD-002d). */
-export const DEFAULT_PID_FILE_NAME = "hivenectar.pid";
-export const DEFAULT_LOCK_FILE_NAME = "hivenectar.lock";
+export const DEFAULT_PID_FILE_NAME = "nectar.pid";
+export const DEFAULT_LOCK_FILE_NAME = "nectar.lock";
 
 export interface RuntimeConfig {
   readonly host: string;
@@ -66,14 +66,14 @@ function envStr(name: string): string | undefined {
 export function resolveConfig(overrides: RuntimeConfigOverrides = {}): RuntimeConfig {
   const runtimeDir =
     overrides.runtimeDir ??
-    envStr("HIVENECTAR_RUNTIME_DIR") ??
+    envStr("NECTAR_RUNTIME_DIR") ??
     join(homedir(), RUNTIME_DIR_NAME);
 
-  const host = overrides.host ?? envStr("HIVENECTAR_HOST") ?? DEFAULT_HOST;
-  const port = overrides.port ?? envInt("HIVENECTAR_PORT") ?? DEFAULT_PORT;
+  const host = overrides.host ?? envStr("NECTAR_HOST") ?? DEFAULT_HOST;
+  const port = overrides.port ?? envInt("NECTAR_PORT") ?? DEFAULT_PORT;
   const pollIntervalMs =
     overrides.pollIntervalMs ??
-    envInt("HIVENECTAR_POLL_INTERVAL_MS") ??
+    envInt("NECTAR_POLL_INTERVAL_MS") ??
     DEFAULT_POLL_INTERVAL_MS;
 
   const pidFilePath = join(runtimeDir, overrides.pidFileName ?? DEFAULT_PID_FILE_NAME);

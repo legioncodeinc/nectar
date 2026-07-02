@@ -12,7 +12,7 @@ How the enricher composes with the watcher, the meaningful-change heuristic, the
 - [`enricher-conclusion-and-deliverables.md`](enricher-conclusion-and-deliverables.md)
 - [`../identity-and-reassociation.md`](../identity-and-reassociation.md)
 - [`../../data/recall-integration.md`](../../data/recall-integration.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 
 ---
 
@@ -24,7 +24,7 @@ The enricher is not a standalone component. It is one stage in a pipeline that b
 
 ## The lazy loop, end to end
 
-The diagram below is the steady-state loop in one frame. Each node is an observable state transition on `source_graph_versions` or a side effect on a sibling system. Read it top to bottom: a change is detected, debounced, judged, optionally described, embedded, and finally made recallable.
+The diagram below is the steady-state loop in one frame. Each node is an observable state transition on `hive_graph_versions` or a side effect on a sibling system. Read it top to bottom: a change is detected, debounced, judged, optionally described, embedded, and finally made recallable.
 
 ```mermaid
 flowchart TD
@@ -55,7 +55,7 @@ Consider a developer who edits `src/middleware/session-refresh.ts` to change the
 
 1. **Watcher detects change.** `node:fs.watch` reports an observation for the path. The event enters the per-path debounce window. If the developer saves again within the window, the events collapse to one signal.
 
-2. **Re-association runs.** The debounced signal enters the re-association ladder. The path matches an existing nectar; the content hash differs from the latest version. The ladder appends a new `source_graph_versions` row with `(nectar, new_content_hash, seq = prev_seq + 1)`, `describe_status = 'pending'`, and `title`/`description`/`embedding` left empty.
+2. **Re-association runs.** The debounced signal enters the re-association ladder. The path matches an existing nectar; the content hash differs from the latest version. The ladder appends a new `hive_graph_versions` row with `(nectar, new_content_hash, seq = prev_seq + 1)`, `describe_status = 'pending'`, and `title`/`description`/`embedding` left empty.
 
 3. **Meaningful-change heuristic judges the delta.** The heuristic tokenizes the old and new content and computes Jaccard similarity. Changing a numeric constant from 5 to 10 is a small token delta; whether it crosses the 0.85 threshold depends on file size and structure. For a typical middleware file, a one-constant edit stays above threshold and the change is judged cosmetic — the row inherits the previous description and is marked `described` with `describe_model = inherited-from:<prev_content_hash>`. If the edit were larger (a renamed function, a new branch), similarity would drop below threshold and the row would queue for a real description.
 
@@ -83,9 +83,9 @@ A model swap follows the same row lifecycle but changes what the `describe_model
 
 2. **Existing rows keep their descriptions.** Rows already marked `described` keep their existing `title`, `description`, `concepts`, `embedding`, and `describe_model` values. Recall continues to surface them unchanged. Existing descriptions are valid until proven otherwise.
 
-3. **New pending rows get the new model.** The next file whose content meaningfully changes enters the queue as `pending`; the enricher describes it under the new model and writes `describe_model = claude-haiku-4.5`. From this point forward, the project's `source_graph_versions` table carries a mix of old-model and new-model rows, distinguishable by `describe_model`.
+3. **New pending rows get the new model.** The next file whose content meaningfully changes enters the queue as `pending`; the enricher describes it under the new model and writes `describe_model = claude-haiku-4.5`. From this point forward, the project's `hive_graph_versions` table carries a mix of old-model and new-model rows, distinguishable by `describe_model`.
 
-4. **(Optional) Selective re-description of old-model rows.** If the operator decides the old-model descriptions are no longer good enough, they run `honeycomb hivenectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`. The enricher re-describes them on subsequent cycles, overwriting the old descriptions and updating `describe_model` to the new value. Skipped rows (`skipped-binary`, `skipped-too-large`) are not reset. A middle path — re-describe only rows where `describe_model` matches the old model identifier — is supported by filtering on that column.
+4. **(Optional) Selective re-description of old-model rows.** If the operator decides the old-model descriptions are no longer good enough, they run `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`. The enricher re-describes them on subsequent cycles, overwriting the old descriptions and updating `describe_model` to the new value. Skipped rows (`skipped-binary`, `skipped-too-large`) are not reset. A middle path — re-describe only rows where `describe_model` matches the old model identifier — is supported by filtering on that column.
 
 ```mermaid
 flowchart TD
@@ -96,7 +96,7 @@ flowchart TD
     enrichNew --> mix["project now has mixed describe_model values"]
     mix --> audit{"reviewer audits per row"}
     audit -->|"quality acceptable"| leave["leave old-model rows as-is"]
-    audit -->|"quality demands it"| force["honeycomb hivenectar brood --force --model new"]
+    audit -->|"quality demands it"| force["honeycomb nectar brood --force --model new"]
     force --> reset["non-skipped rows set back to pending"]
     reset --> redescribe["enricher re-describes under new model"]
     redescribe --> converge["describe_model converges to new value"]
@@ -127,8 +127,8 @@ Reading the two arcs together is what makes the enricher's behavior legible. The
 
 The enricher's arc terminates at two handoffs, both of which are documented elsewhere but worth naming here so the arc is complete.
 
-The **recall handoff** happens at `describe_status = 'described'`. From that point, the row participates in the guarded Hivenectar recall arm, filtered to the latest described version per nectar. The recall layer does not know or care whether the description came from brooding, from an enricher LLM call, or from inheritance — it only checks the status and the tenancy scope.
+The **recall handoff** happens at `describe_status = 'described'`. From that point, the row participates in the guarded Nectar recall arm, filtered to the latest described version per nectar. The recall layer does not know or care whether the description came from brooding, from an enricher LLM call, or from inheritance — it only checks the status and the tenancy scope.
 
 The **projection handoff** happens at the projection-sync step. The refreshed description flows into `.honeycomb/nectars.json`, the portable lockfile that makes a fresh clone inherit descriptions without re-brooding. The projection is regenerable from Deep Lake, so this handoff is a cache update, not a state change.
 
-Both handoffs are one-way from the enricher's perspective: the enricher writes to Deep Lake and lets recall and the projection read from it. There is no feedback path from recall or the projection back into the enricher. This is what makes the loop composable — the enricher can be stopped, restarted, or reconfigured without coordinating with the systems that consume its output, because they communicate only through the shared `source_graph_versions` table and its `describe_status` gate.
+Both handoffs are one-way from the enricher's perspective: the enricher writes to Deep Lake and lets recall and the projection read from it. There is no feedback path from recall or the projection back into the enricher. This is what makes the loop composable — the enricher can be stopped, restarted, or reconfigured without coordinating with the systems that consume its output, because they communicate only through the shared `hive_graph_versions` table and its `describe_status` gate.

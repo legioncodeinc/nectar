@@ -1,8 +1,8 @@
-# Technical Specification of Hivenectar
+# Technical Specification of Nectar
 
 > Category: Overview | Version: 1.0 | Date: June 2026 | Status: Draft
 
-The technical contract for Hivenectar: the four hiveantennae operating modes as trigger→action→post-condition tables, the data-model component contract, the guarded recall arm, the three-daemon topology obligations, and the non-goals stated as hard exclusions.
+The technical contract for Nectar: the four hiveantennae operating modes as trigger→action→post-condition tables, the data-model component contract, the guarded recall arm, the three-daemon topology obligations, and the non-goals stated as hard exclusions.
 
 **Related:**
 - [`../overview.md`](../overview.md)
@@ -11,9 +11,9 @@ The technical contract for Hivenectar: the four hiveantennae operating modes as 
 - [`../ai/brooding-pipeline.md`](../ai/brooding-pipeline.md)
 - [`../ai/enricher-and-llm-model.md`](../ai/enricher-and-llm-model.md)
 - [`../ai/identity-and-reassociation.md`](../ai/identity-and-reassociation.md)
-- [`../data/source-graph-schema.md`](../data/source-graph-schema.md)
+- [`../data/hive-graph-schema.md`](../data/hive-graph-schema.md)
 - [`../data/recall-integration.md`](../data/recall-integration.md)
-- [`../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](../architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md)
+- [`../architecture/ADR-0003-three-daemon-topology-and-hive-portal.md`](../architecture/ADR-0003-three-daemon-topology-and-hive-portal.md)
 
 ---
 
@@ -25,20 +25,20 @@ This document is the engineering contract: it states what the hiveantennae daemo
 
 ## The hiveantennae daemon pipeline
 
-hiveantennae is the **Hivenectar daemon** — an independent OS process registered with and supervised by **hivedoctor**, not a worker inside the Honeycomb daemon (per ADR-0002 and ADR-0003). It owns its own Deep Lake client, auth context, scoping, and observability within hivedoctor's supervised lifecycle. It is parallel to (not a phase of) the Honeycomb daemon's codebase-graph worker: the graph worker is build-triggered and on-demand; hiveantennae is watch-driven and continuous. The two write to disjoint Deep Lake tables and run without coordination. thehive, not Hivenectar or hivedoctor, hosts the unified dashboard and Source Graph page.
+hiveantennae is the **Nectar daemon** — an independent OS process registered with and supervised by **doctor**, not a worker inside the Honeycomb daemon (per ADR-0002 and ADR-0003). It owns its own Deep Lake client, auth context, scoping, and observability within doctor's supervised lifecycle. It is parallel to (not a phase of) the Honeycomb daemon's codebase-graph worker: the graph worker is build-triggered and on-demand; hiveantennae is watch-driven and continuous. The two write to disjoint Deep Lake tables and run without coordination. hive, not Nectar or doctor, hosts the unified dashboard and Hive Graph page.
 
 ```mermaid
 flowchart TD
     watcher["node:fs.watch + debounce"] -->|"rename/change event + filename"| intake["event intake - debounced"]
     intake --> assoc["re-association ladder"]
-    assoc -->|existing nectar| versionAppend["append source_graph_versions row"]
-    assoc -->|new file| mintNectar["mint ULID - write source_graph row"]
+    assoc -->|existing nectar| versionAppend["append hive_graph_versions row"]
+    assoc -->|new file| mintNectar["mint ULID - write hive_graph row"]
     mintNectar --> versionAppend
     versionAppend --> queueEnrich["enqueue lazy enrich if meaning changed"]
     queueEnrich --> enricher["enricher worker - Gemini 2.5 Flash via Portkey"]
     enricher --> descMint["title + description + concepts"]
     descMint --> embed["768-dim embedding"]
-    versionAppend --> deeplake[("Deep Lake - source_graph + source_graph_versions")]
+    versionAppend --> deeplake[("Deep Lake - hive_graph + hive_graph_versions")]
     descMint --> deeplake
     embed --> deeplake
     deeplake --> projection["regenerate .honeycomb/nectars.json"]
@@ -56,7 +56,7 @@ The one-time-per-project full scan that takes a codebase from "no nectars exist"
 
 | | |
 |---|---|
-| **Trigger** | First run against a project with no `source_graph` rows, or a fresh checkout with no `.honeycomb/nectars.json`. Also invokable explicitly via `honeycomb hivenectar brood`. |
+| **Trigger** | First run against a project with no `hive_graph` rows, or a fresh checkout with no `.honeycomb/nectars.json`. Also invokable explicitly via `honeycomb nectar brood`. |
 | **Action** | Discover files via `git ls-files` (CodeGraph discovery reused verbatim). Pre-check each file's content hash against the portable projection; inherit on match. Bucket the rest by size/type (skip-binary, skip-too-large, batch ≤4KB, solo). Describe batches of ~40 small files per Gemini call, large files one-per-call. Embed each description at 768 dims. |
 | **Post-condition** | Every non-skipped file has a nectar with `describe_status ∈ {described, skipped-*}`. `.honeycomb/nectars.json` is regenerated. Daemon switches to live-watch mode. |
 
@@ -92,8 +92,8 @@ The lockfile regeneration step that runs at the end of the other three modes.
 
 | | |
 |---|---|
-| **Trigger** | End of a brood, end of an enricher cycle that wrote new descriptions, or explicit `honeycomb hivenectar rebuild-projection`. |
-| **Action** | Scan `source_graph_versions` (latest described version per nectar, scoped to the project), denormalize into the projection format, write atomically (temp file + rename). |
+| **Trigger** | End of a brood, end of an enricher cycle that wrote new descriptions, or explicit `honeycomb nectar rebuild-projection`. |
+| **Action** | Scan `hive_graph_versions` (latest described version per nectar, scoped to the project), denormalize into the projection format, write atomically (temp file + rename). |
 | **Post-condition** | `.honeycomb/nectars.json` reflects current Deep Lake state. The write is atomic so a crashed regeneration leaves the prior projection, not a partial one. |
 
 Projection writes are debounced the same way enricher calls are, so a rapid edit session produces one projection write at the end of a cycle, not one per save. See [`../data/portable-registry.md`](../data/portable-registry.md).
@@ -102,11 +102,11 @@ Projection writes are debounced the same way enricher calls are, so a rapid edit
 
 ## The data-model component contract
 
-The full DDL lives in [`../data/source-graph-schema.md`](../data/source-graph-schema.md); this is the one-paragraph contract expanded into component obligations.
+The full DDL lives in [`../data/hive-graph-schema.md`](../data/hive-graph-schema.md); this is the one-paragraph contract expanded into component obligations.
 
-**`source_graph`** — one row per logical file, keyed by nectar (ULID primary key, immutable, never derived). Carries `created_at`, optional provenance (`derived_from_nectar`, `fork_content_hash` set at minting, write-once), a `kind` discriminator (`'file'` in v1, namespace reserved for `'directory'`), and tenancy (`org_id`, `workspace_id`, `project_id`). It is identity and provenance only — no content, no description.
+**`hive_graph`** — one row per logical file, keyed by nectar (ULID primary key, immutable, never derived). Carries `created_at`, optional provenance (`derived_from_nectar`, `fork_content_hash` set at minting, write-once), a `kind` discriminator (`'file'` in v1, namespace reserved for `'directory'`), and tenancy (`org_id`, `workspace_id`, `project_id`). It is identity and provenance only — no content, no description.
 
-**`source_graph_versions`** — append-only, one row per observed state of a file, keyed by the composite `(nectar, content_hash)`. Carries `seq` (monotonic per-nectar counter so "latest" is `ORDER BY seq DESC LIMIT 1`), the observed `path` (mutable across rows for the same nectar — this is how moves are recorded), metadata (`filename`, `ext`, `size_bytes`, `mtime_observed`), and the lazily-filled semantic fields (`title`, `description`, `concepts`, `embedding`, `described_at`, `describe_model`, `describe_status`). Tenancy is denormalized so the versions table is queryable in isolation for recall.
+**`hive_graph_versions`** — append-only, one row per observed state of a file, keyed by the composite `(nectar, content_hash)`. Carries `seq` (monotonic per-nectar counter so "latest" is `ORDER BY seq DESC LIMIT 1`), the observed `path` (mutable across rows for the same nectar — this is how moves are recorded), metadata (`filename`, `ext`, `size_bytes`, `mtime_observed`), and the lazily-filled semantic fields (`title`, `description`, `concepts`, `embedding`, `described_at`, `describe_model`, `describe_status`). Tenancy is denormalized so the versions table is queryable in isolation for recall.
 
 The contract invariants:
 
@@ -117,21 +117,21 @@ The contract invariants:
 | "Current state of file X" | Latest version row for X's nectar (`MAX(seq)`). |
 | "History of file X" | All version rows for X's nectar. |
 | Description is nullable until enriched | `describe_status` drives recall filtering; undescribed rows are excluded from semantic recall but not from identity. |
-| Nectars are never deleted by re-association | Deletion is a separate, explicit `honeycomb hivenectar prune --confirm` with a configurable grace period (default 30 days). |
+| Nectars are never deleted by re-association | Deletion is a separate, explicit `honeycomb nectar prune --confirm` with a configurable grace period (default 30 days). |
 
 ---
 
 ## The guarded recall arm contract
 
-Hivenectar adds a fourth guarded arm to the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank fusion). The arm queries `source_graph_versions` filtered to the latest described version per nectar, scoped by tenancy. If the Hivenectar table is missing, the arm returns empty and the other recall arms still answer. The full query and fusion rationale are in [`../data/recall-integration.md`](../data/recall-integration.md).
+Nectar adds a fourth guarded arm to the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank fusion). The arm queries `hive_graph_versions` filtered to the latest described version per nectar, scoped by tenancy. If the Nectar table is missing, the arm returns empty and the other recall arms still answer. The full query and fusion rationale are in [`../data/recall-integration.md`](../data/recall-integration.md).
 
 The contract the arm must uphold:
 
 - **One row per current file.** The latest-per-nectar subquery ensures a file edited 50 times does not dominate recall with 50 near-duplicate rows.
 - **Described rows only.** The `describe_status = 'described'` filter excludes pending, failed, and skipped rows. A never-described file is absent from semantic recall but may still appear in the structural CodeGraph's `find/` results.
-- **Equal RRF weight by default.** The arm ships with a multiplier of 1.0 — a Hivenectar rank-1 hit contributes the same RRF weight as a sessions rank-1 hit. Operators can tune the multiplier via `~/.honeycomb/hivenectar.json` if descriptions dominate recall.
+- **Equal RRF weight by default.** The arm ships with a multiplier of 1.0 — a Nectar rank-1 hit contributes the same RRF weight as a sessions rank-1 hit. Operators can tune the multiplier via `~/.honeycomb/nectar.json` if descriptions dominate recall.
 - **Silent fallback to BM25.** When embeddings are off (optional dependency absent), only the lexical arm runs over `title + description`. No error, no quality cliff — the same degradation every other recall arm uses.
-- **No dedup against CodeGraph hits.** If `src/auth/login.ts` appears in both a Hivenectar hit and a `find/login` structural hit, both are returned. Each carries information the other lacks.
+- **No dedup against CodeGraph hits.** If `src/auth/login.ts` appears in both a Nectar hit and a `find/login` structural hit, both are returned. Each carries information the other lacks.
 
 ---
 
@@ -145,7 +145,7 @@ flowchart TD
         s1[tree-sitter AST] --> s2["symbols: function, class, method"]
         s2 --> s3["edges: calls, extends, imports"]
     end
-    subgraph semantic[Hivenectar - semantic, probabilistic]
+    subgraph semantic[Nectar - semantic, probabilistic]
         d1["daemon observation"] --> d2["nectar - ULID identity"]
         d2 --> d3["LLM title + description + concepts"]
         d3 --> d4["768-dim embedding"]
@@ -168,10 +168,10 @@ hiveantennae is not a Honeycomb worker and it is not the portal host. Its topolo
 
 | Obligation | What it means | Why it is binding |
 |---|---|---|
-| **Own Deep Lake client, shared datasets** | Hivenectar opens its own client but points at the same org/workspace datasets Honeycomb recall reads. | Process independence without data federation. |
-| **Registered supervision** | Hivenectar has a hivedoctor registry entry with its own health URL, PID path, and probe settings. | hivedoctor supervises registered daemons rather than hardcoding one Honeycomb target. |
+| **Own Deep Lake client, shared datasets** | Nectar opens its own client but points at the same org/workspace datasets Honeycomb recall reads. | Process independence without data federation. |
+| **Registered supervision** | Nectar has a doctor registry entry with its own health URL, PID path, and probe settings. | doctor supervises registered daemons rather than hardcoding one Honeycomb target. |
 | **Project scoping** | Every query includes `project_id` as a soft column filter inside the workspace scope. Two projects in the same workspace do not share nectars. | File identity is cross-agent within a project but isolated across projects. |
-| **thehive-hosted dashboard** | Enricher cycles log files described, inherited, failed, tokens consumed, estimated cost; thehive surfaces the rolling cost counter, queue-depth gauge, and Source Graph page by calling Hivenectar APIs. | hivedoctor remains a minimal supervisor; the portal stays independently updateable. |
+| **hive-hosted dashboard** | Enricher cycles log files described, inherited, failed, tokens consumed, estimated cost; hive surfaces the rolling cost counter, queue-depth gauge, and Hive Graph page by calling Nectar APIs. | doctor remains a minimal supervisor; the portal stays independently updateable. |
 | **Non-blocking** | Brooding and enrichment run in the background. Daemon readiness does not wait on them; recall serves partial state during a brood. | Per the daemon readiness principle: accept requests first, do background work after. |
 
 ---
@@ -180,12 +180,12 @@ hiveantennae is not a Honeycomb worker and it is not the portal host. Its topolo
 
 The following are not deferred features; they are out of scope by design and the system actively does not do them.
 
-- **Not a replacement for the CodeGraph.** Both layers ship. The CodeGraph answers structural questions deterministically; Hivenectar answers semantic questions probabilistically.
+- **Not a replacement for the CodeGraph.** Both layers ship. The CodeGraph answers structural questions deterministically; Nectar answers semantic questions probabilistically.
 - **Not an LSP.** hiveantennae does not resolve types, run compilers, or produce compiler-accurate references. The CodeGraph and any future LSP own that.
 - **Not eager.** A file can exist in Deep Lake with a null description indefinitely. Description is a cache.
 - **Not a source mutation.** No file on disk is ever edited by hiveantennae. The only file it writes is the committed, regenerable `.honeycomb/nectars.json`.
 - **Not a separate database.** Deep Lake is the store. The SQLite-sidecar instinct is rejected in ADR-0001 for FR-8 violation.
-- **Not the portal host.** Hivenectar exposes APIs and status; thehive hosts the unified dashboard and Source Graph page.
+- **Not the portal host.** Nectar exposes APIs and status; hive hosts the unified dashboard and Hive Graph page.
 - **Not symbol-granular in v1.** File granularity is deliberate. Symbol-level nectars would multiply row counts 10–100× and duplicate the structural CodeGraph; deferred to a possible v2.
 - **Not directory-granular in v1.** Folders are derivable from file paths; a directory description is synthesized on demand from its files' descriptions. The `kind` column reserves the namespace.
 - **Not bidirectional projection sync.** Sync is one-directional: Deep Lake → projection. The reverse (projection → Deep Lake) happens only on a fresh clone, as an inheritance write for nectars the local Deep Lake lacks.
@@ -205,7 +205,7 @@ flowchart LR
     enrich --> proj2["projection sync"]
     boot["daemon boot after offline changes"] --> cold[Cold catch-up]
     cold --> enrich
-    explicit["honeycomb hivenectar rebuild-projection"] --> proj3["projection sync"]
+    explicit["honeycomb nectar rebuild-projection"] --> proj3["projection sync"]
 ```
 
 Brooding runs once per project and bootstraps the projection. After brooding, the daemon is in live-watch; cold-catch-up handles restarts; projection sync runs at the tail of any mode that produced new descriptions.

@@ -1,10 +1,10 @@
 /**
- * The `/health` contract for the hivenectar daemon.
+ * The `/health` contract for the nectar daemon.
  *
  * Per PRD-001b (decision #20, revised): the top-level coarse `status` bit is
- * what hivedoctor classifies on (modeled on honeycomb's `PipelineStatus`,
+ * what doctor classifies on (modeled on honeycomb's `PipelineStatus`,
  * honeycomb/src/daemon/runtime/health.ts:42), and the body carries
- * hivenectar-native subsystem fields honeycomb's `/health` does not have
+ * nectar-native subsystem fields honeycomb's `/health` does not have
  * (brooding, enricher queue, projection, cost, provider state). The HTTP status
  * gates 200 when ok / 503 when degraded (PRD-003a; mirrors server.ts:318-341).
  */
@@ -35,7 +35,7 @@ export interface HealthBody {
     broodTotalUsd: number;
   };
   embeddings: {
-    provider: "local-nomic" | "cohere" | "off";
+    provider: "local-nomic" | "hosted" | "off";
   };
   portkey: {
     enabled: boolean;
@@ -46,7 +46,7 @@ export interface HealthBody {
  * Mutable daemon health state. Subsystems update their slices as later PRDs
  * (007 brooding, 016 enricher, 011 projection, 010 portkey, 014 embeddings) land;
  * until then the fields report their honest zero/off values. `degrade()` flips
- * the coarse bit hivedoctor classifies on.
+ * the coarse bit doctor classifies on.
  */
 export class HealthState {
   private startedAtMs = Date.now();

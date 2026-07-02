@@ -4,7 +4,7 @@
  * This is the orchestrator that wires the whole file-registration pipeline end
  * to end: the debounced `WatchIntake` (006a) hands settled paths here; each path
  * is `stat`ed, classified (006b), and, for a NEW/CHANGED path, resolved through
- * the re-association ladder (006d) and persisted via the `SourceGraphStore`
+ * the re-association ladder (006d) and persisted via the `HiveGraphStore`
  * (005). It mirrors honeycomb's discover -> resolve -> persist shape
  * (`codebase/api.ts:234-261` `runGraphBuild`) and the fire-and-forget-with-intent
  * settled handler (`file-watcher.ts:234-293` `runSyncCycle`):
@@ -17,7 +17,7 @@
  *   - observations are ignore-filtered before they reach a cycle (AC-5).
  *
  * Step-4 fingerprints are PERSISTED on the version row (the
- * `source_graph_versions.fingerprint` column, written by the ladder), not held
+ * `hive_graph_versions.fingerprint` column, written by the ladder), not held
  * in an in-process cache, so cold-catch-up fuzzy matching survives a daemon
  * restart (AC-8): step 4 reads each missing candidate's fingerprint straight
  * from the store.
@@ -32,9 +32,9 @@ import { reassociate, type FuzzyStep, type LadderDeps, type ObservedFile, type R
 import { WatchIntake } from "./fs-watch.js";
 import type { IgnorePredicate } from "./ignore.js";
 import type { PendingReviewStore } from "./review-store.js";
-import type { SourceGraphStore } from "../source-graph/store.js";
-import type { Tenancy } from "../source-graph/model.js";
-import { mintNectar } from "../source-graph/ulid.js";
+import type { HiveGraphStore } from "../hive-graph/store.js";
+import type { Tenancy } from "../hive-graph/model.js";
+import { mintNectar } from "../hive-graph/ulid.js";
 import type { Timer } from "../poll-loop.js";
 import type { PipelineMetricsSink } from "../telemetry/metrics.js";
 
@@ -56,7 +56,7 @@ export interface RegistrationFs {
 }
 
 export interface RegistrationServiceOptions {
-  readonly store: SourceGraphStore;
+  readonly store: HiveGraphStore;
   readonly tenancy: Tenancy;
   readonly fs: RegistrationFs;
   readonly root: string;
@@ -90,7 +90,7 @@ export interface RegistrationServiceOptions {
 }
 
 export class RegistrationService {
-  private readonly store: SourceGraphStore;
+  private readonly store: HiveGraphStore;
   private readonly tenancy: Tenancy;
   private readonly fs: RegistrationFs;
   private readonly fuzzy: FuzzyStep | undefined;

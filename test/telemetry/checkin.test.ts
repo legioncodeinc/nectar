@@ -8,7 +8,7 @@ import { openTelemetryDb } from "../../dist/telemetry/db.js";
 import { rmDirWithRetry } from "./test-helpers.ts";
 
 function tmpDir() {
-  return mkdtempSync(join(tmpdir(), "hivenectar-checkin-"));
+  return mkdtempSync(join(tmpdir(), "nectar-checkin-"));
 }
 
 function statusRow(db) {
@@ -24,7 +24,7 @@ test("checkin writes a binding_time, an equal initial last_seen, and the current
 
     writer.checkin("ok");
     const row = statusRow(db);
-    assert.equal(row?.["name"], "hivenectar");
+    assert.equal(row?.["name"], "nectar");
     assert.equal(row?.["binding_time"], now);
     assert.equal(row?.["last_seen"], now);
     assert.equal(row?.["health"], "ok");

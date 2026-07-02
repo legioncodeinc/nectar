@@ -32,11 +32,11 @@ When the meaningful-change heuristic (PRD-016a) deems a delta meaningful, the en
 
 ## The model call (mechanics in PRD-010)
 
-When the heuristic (PRD-016a) deems a change meaningful, the new version row enters the pending queue; the next 30s cycle's batch describes it. The enricher sends the version row's content to the model and receives a structured description object (`title`, `description`, `concepts`) written back to the row with `describe_status = 'described'`. The call routes through Portkey's `/v1/chat/completions` reusing Honeycomb's already-shipped transport (`buildPortkeyHeaders` + `PORTKEY_BASE_URL`), so Hivenectar sends no new transport code to the gateway (PRD-010a). The default requested model is **Gemini 2.5 Flash** (`activeModel` vault default, PRD-010b) — the 1M-token context keeps the enricher's per-file cost low.
+When the heuristic (PRD-016a) deems a change meaningful, the new version row enters the pending queue; the next 30s cycle's batch describes it. The enricher sends the version row's content to the model and receives a structured description object (`title`, `description`, `concepts`) written back to the row with `describe_status = 'described'`. The call routes through Portkey's `/v1/chat/completions` reusing Honeycomb's already-shipped transport (`buildPortkeyHeaders` + `PORTKEY_BASE_URL`), so Nectar sends no new transport code to the gateway (PRD-010a). The default requested model is **Gemini 2.5 Flash** (`activeModel` vault default, PRD-010b) — the 1M-token context keeps the enricher's per-file cost low.
 
 ### Function-calling is not required
 
-The model does not use tools; the enricher sends content and receives descriptions (`ai/enricher-and-llm-model.md` § What Hivenectar needs from the model). The response is a structured JSON object; malformed or wrong-length JSON is caught by the validator and routed to the failure path (PRD-016c). This keeps the enricher call shape simpler than a tool-using call.
+The model does not use tools; the enricher sends content and receives descriptions (`ai/enricher-and-llm-model.md` § What Nectar needs from the model). The response is a structured JSON object; malformed or wrong-length JSON is caught by the validator and routed to the failure path (PRD-016c). This keeps the enricher call shape simpler than a tool-using call.
 
 ### Embedding follows the description
 
@@ -46,7 +46,7 @@ Once a description is written (by brooding, by the enricher, or inherited from a
 
 ## The `describe_model` audit column
 
-The `describe_model` column on every `source_graph_versions` row records which model produced each description (`ai/enricher-and-llm-model.md` § Why Gemini 2.5 Flash specifically). It is the audit surface that makes a model swap traceable: an operator who swaps models and wants selective re-description of files described by the old model can query it.
+The `describe_model` column on every `hive_graph_versions` row records which model produced each description (`ai/enricher-and-llm-model.md` § Why Gemini 2.5 Flash specifically). It is the audit surface that makes a model swap traceable: an operator who swaps models and wants selective re-description of files described by the old model can query it.
 
 | Description source | `describe_model` value |
 |---|---|
@@ -57,7 +57,7 @@ The cosmetic-inheritance marker is what distinguishes an inherited description f
 
 ### Model swaps are not automatic
 
-Existing descriptions stay valid until proven otherwise. An operator who swaps models and wants to re-describe everything runs `honeycomb hivenectar brood --force --model <new>`, which sets all non-skipped rows back to `pending` (`ai/enricher-and-llm-model.md` § What the enricher explicitly does not do; PRD-010b). The enricher never re-describes on a model swap by itself.
+Existing descriptions stay valid until proven otherwise. An operator who swaps models and wants to re-describe everything runs `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending` (`ai/enricher-and-llm-model.md` § What the enricher explicitly does not do; PRD-010b). The enricher never re-describes on a model swap by itself.
 
 ---
 
@@ -91,7 +91,7 @@ Existing descriptions stay valid until proven otherwise. An operator who swaps m
 
 ## Implementation notes
 
-- **No new transport code.** The call uses PRD-010's transport verbatim (`buildPortkeyHeaders` + `PORTKEY_BASE_URL` → `/v1/chat/completions`). Hivenectar builds the request body (content + the `model` body field from `activeModel`) and reads the structured response; everything between is PRD-010.
+- **No new transport code.** The call uses PRD-010's transport verbatim (`buildPortkeyHeaders` + `PORTKEY_BASE_URL` → `/v1/chat/completions`). Nectar builds the request body (content + the `model` body field from `activeModel`) and reads the structured response; everything between is PRD-010.
 - **`describe_model` is the single audit column.** It records either the producing model id or the `inherited-from:<prev_content_hash>` marker — nothing else. The marker format is fixed by the corpus heuristic (`ai/enricher-and-llm-model.md` § The "meaningful change" heuristic step 3) and round-trips through the projection unchanged (PRD-011a).
 - **Validator catches malformed output.** A malformed or wrong-length JSON response does not get written as a description; it is routed to the failure path (PRD-016c: retry the batch once with a stricter prompt, then mark `failed` and retry solo). This PRD owns the happy-path write; PRD-016c owns the catch.
 - **Embedding is over `title + ' ' + description`.** A space-joined string of the two fields, not the raw content (`ai/enricher-and-llm-model.md` § Embeddings). The 768-dim contract is load-bearing — a wrong-dimension vector is rejected by the recall guard rather than stored (PRD-014).

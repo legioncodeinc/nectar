@@ -2,13 +2,13 @@
 
 > Category: QA Report | Version: 1.0 | Date: July 2026 | Status: Active
 
-A single consolidated audit of the first four Hivenectar PRD modules (PRD-001 through PRD-004, 20 files) against the knowledge corpus at `library/knowledge/private/`. Produced with quality-stinger + hivenectar-stinger as a PRD-vs-corpus conformance pass (there is no implementation code yet, so the audit verifies each acceptance criterion and load-bearing description against its cited corpus/code source rather than plan-vs-code). Runs after the refine pass and the docs-scoped security scan.
+A single consolidated audit of the first four Nectar PRD modules (PRD-001 through PRD-004, 20 files) against the knowledge corpus at `library/knowledge/private/`. Produced with quality-stinger + hivenectar-stinger as a PRD-vs-corpus conformance pass (there is no implementation code yet, so the audit verifies each acceptance criterion and load-bearing description against its cited corpus/code source rather than plan-vs-code). Runs after the refine pass and the docs-scoped security scan.
 
 **Per-module reports:**
 - [`prd-001 qa`](../backlog/prd-001-three-daemon-topology/qa/prd-001-three-daemon-topology-qa.md)
-- [`prd-002 qa`](../backlog/prd-002-hivenectar-daemon/qa/prd-002-hivenectar-daemon-qa.md)
-- [`prd-003 qa`](../backlog/prd-003-hivenectar-supervision/qa/prd-003-hivenectar-supervision-qa.md)
-- [`prd-004 qa`](../backlog/prd-004-hivedoctor-registry-and-thehive/qa/prd-004-hivedoctor-registry-and-thehive-qa.md)
+- [`prd-002 qa`](../backlog/prd-002-nectar-daemon/qa/prd-002-nectar-daemon-qa.md)
+- [`prd-003 qa`](../backlog/prd-003-nectar-supervision/qa/prd-003-nectar-supervision-qa.md)
+- [`prd-004 qa`](../backlog/prd-004-doctor-registry-and-hive/qa/prd-004-doctor-registry-and-hive-qa.md)
 
 ---
 
@@ -30,17 +30,17 @@ All four modules **PASS** to the medium-and-above standard. The PRDs are excepti
 | ID | Module | Finding | Fix |
 |---|---|---|---|
 | R-1 | PRD-004 index | Corpus link to ADR-0002 used `../../knowledge/...` (one `../` short); resolved to a nonexistent `requirements/knowledge/...` path | Corrected to `../../../knowledge/...` |
-| R-2 | PRD-004 index | Cross-PRD link to PRD-003 used stale folder slug `prd-003-hivedoctor-supervision-of-hivenectar/` | Corrected to `prd-003-hivenectar-supervision/` |
-| R-3 | PRD-001a | `hivenoctor` typo (x3, lines 101/118/137) for the load-bearing `hivedoctor` component name | Corrected to `hivedoctor` |
-| R-4 | PRD-001a, index | ADR-0003 treated as to-be-created with a proposed slug `three-daemon-topology`; the corpus already has `ADR-0003-three-daemon-topology-and-thehive-portal.md` (Status: Active) | Updated references to the created file; resolved the slug DEFAULT; aligned the prescribed status to the framework's `Active` |
-| R-5 | PRD-001 (index, 001a), PRD-004 (index, 004c) | ADR-0004 and the corpus `thehive-portal-daemon.md` were uncited despite thehive being central | Added citations (index Related sections; 001a thehive-role; 004c design references) |
+| R-2 | PRD-004 index | Cross-PRD link to PRD-003 used stale folder slug `prd-003-doctor-supervision-of-nectar/` | Corrected to `prd-003-nectar-supervision/` |
+| R-3 | PRD-001a | `hivenoctor` typo (x3, lines 101/118/137) for the load-bearing `doctor` component name | Corrected to `doctor` |
+| R-4 | PRD-001a, index | ADR-0003 treated as to-be-created with a proposed slug `three-daemon-topology`; the corpus already has `ADR-0003-three-daemon-topology-and-hive-portal.md` (Status: Active) | Updated references to the created file; resolved the slug DEFAULT; aligned the prescribed status to the framework's `Active` |
+| R-5 | PRD-001 (index, 001a), PRD-004 (index, 004c) | ADR-0004 and the corpus `hive-portal-daemon.md` were uncited despite hive being central | Added citations (index Related sections; 001a hive-role; 004c design references) |
 | R-6 | PRD-002, PRD-003, PRD-004 | Missing `qa/` subfolder required by the requirements README | Created `qa/` in each |
 
 ## 4. Open Warning (W-1): honeycomb code refs as non-resolving markdown links
 
 **Severity:** Warning (should fix). **Status:** PRD-001 (75 tokens) and PRD-002 (149 tokens) remediated 2026-07-01 by `/the-smoker` runs converting all tokens to backtick spans (security close-out clean; PRD-002's conversion proven a pure unwrap with no content change). Remains open in **PRD-003 only** (documented, deferred by the refine-not-rewrite scope for that module).
 
-**What:** PRD-001, PRD-002, and PRD-003 cite cross-repo Honeycomb code using markdown links whose visible text is a backtick span (e.g. `honeycomb/src/daemon/index.ts:166-187`) wrapped around a parenthesized relative target (e.g. `../../../../honeycomb/src/daemon/index.ts`). From the standalone `hivenectar` repo, a `../../../../honeycomb/...` target resolves to `hivenectar/honeycomb/...`, which does not exist (honeycomb is a sibling submodule under `the-hive/`, not a child of `hivenectar/`). Approximately 649 such link tokens originally spanned PRD-001/002/003; PRD-001's 75 and PRD-002's 149 have since been converted to backtick spans (the-smoker runs, 2026-07-01), leaving the remainder in PRD-003 only.
+**What:** PRD-001, PRD-002, and PRD-003 cite cross-repo Honeycomb code using markdown links whose visible text is a backtick span (e.g. `honeycomb/src/daemon/index.ts:166-187`) wrapped around a parenthesized relative target (e.g. `../../../../honeycomb/src/daemon/index.ts`). From the standalone `nectar` repo, a `../../../../honeycomb/...` target resolves to `nectar/honeycomb/...`, which does not exist (honeycomb is a sibling submodule under `hive/`, not a child of `nectar/`). Approximately 649 such link tokens originally spanned PRD-001/002/003; PRD-001's 75 and PRD-002's 149 have since been converted to backtick spans (the-smoker runs, 2026-07-01), leaving the remainder in PRD-003 only.
 
 **Why it is a finding:**
 - The Documentation Framework (Canonical, section 6) states code is cited as a backtick file-path span (`` `src/path/file.ts:42` ``), not a markdown link.
@@ -55,26 +55,26 @@ All four modules **PASS** to the medium-and-above standard. The PRDs are excepti
 1. For each markdown link whose parenthesized target matches `.../honeycomb/...`: if the visible text is already a backtick span whose content starts with `honeycomb/` (full-form), drop the link wrapper and keep the span.
 2. If the visible text is short-form, replace it with a backtick span built from the target path (with the `../../../../honeycomb/` prefix normalized to `honeycomb/`) plus the line range parsed from the original visible text.
 3. Re-run the internal link audit (backtick spans are not links, so the count of link-form honeycomb refs should drop to zero) and a `git diff` review to confirm no non-honeycomb link was touched.
-4. Apply the identical treatment to `hivedoctor/...` links (a sibling package inside the honeycomb submodule) which share the same non-resolving shape.
+4. Apply the identical treatment to `doctor/...` links (a sibling package inside the honeycomb submodule) which share the same non-resolving shape.
 
-## 4b. Resolved 2026-07-01: stale `honeycomb/hivedoctor/...` code-path prefix (W-2)
+## 4b. Resolved 2026-07-01: stale `honeycomb/doctor/...` code-path prefix (W-2)
 
-A follow-up cross-repo review (with the whole `the-hive` superproject in view) surfaced a second finding, distinct from W-1: `hivedoctor` was extracted from the honeycomb repo into its own top-level repository (`legioncodeinc/hivedoctor`), so its code now lives at `hivedoctor/src/...`, but the PRDs and two corpus ADRs still cited it with the stale `honeycomb/hivedoctor/...` prefix. honeycomb's own `honeycomb/src/...` paths are correct and were not touched; `thehive` living in the honeycomb repo is a design decision and was not touched.
+A follow-up cross-repo review (with the whole `hive` superproject in view) surfaced a second finding, distinct from W-1: `doctor` was extracted from the honeycomb repo into its own top-level repository (`legioncodeinc/doctor`), so its code now lives at `doctor/src/...`, but the PRDs and two corpus ADRs still cited it with the stale `honeycomb/doctor/...` prefix. honeycomb's own `honeycomb/src/...` paths are correct and were not touched; `hive` living in the honeycomb repo is a design decision and was not touched.
 
-- Fix (`hivenectar-worker-bee`, user-approved widened scope): corrected `honeycomb/hivedoctor/...` to `hivedoctor/...` across PRD-001 (17), PRD-002 (prd-002d), PRD-003 (prd-003a/b/c, 83), PRD-004 (prd-004a), and the two corpus ADRs (`ADR-0003`, `ADR-0004`), plus 4 prose reframings (prd-003 index, prd-004 index, prd-004a, prd-004b) so hivedoctor reads as its own repository. The legitimate `~/.honeycomb/hivedoctor.daemons.json` and `~/.honeycomb/hivedoctor/state-<name>.json` runtime paths were deliberately preserved.
-- Verification: 0 stale `honeycomb/hivedoctor/src` refs remain in scope; runtime paths intact; no `~/.hivedoctor` corruption; `honeycomb/src/` unchanged (390 refs); thehive-in-honeycomb wording intact; internal doc links resolve; `git diff --check` clean.
-- Note: PRD-005..016 had zero `honeycomb/hivedoctor/` references, so no work was needed there.
+- Fix (`hivenectar-worker-bee`, user-approved widened scope): corrected `honeycomb/doctor/...` to `doctor/...` across PRD-001 (17), PRD-002 (prd-002d), PRD-003 (prd-003a/b/c, 83), PRD-004 (prd-004a), and the two corpus ADRs (`ADR-0003`, `ADR-0004`), plus 4 prose reframings (prd-003 index, prd-004 index, prd-004a, prd-004b) so doctor reads as its own repository. The legitimate `~/.honeycomb/doctor.daemons.json` and `~/.honeycomb/doctor/state-<name>.json` runtime paths were deliberately preserved.
+- Verification: 0 stale `honeycomb/doctor/src` refs remain in scope; runtime paths intact; no `~/.doctor` corruption; `honeycomb/src/` unchanged (390 refs); hive-in-honeycomb wording intact; internal doc links resolve; `git diff --check` clean.
+- Note: PRD-005..016 had zero `honeycomb/doctor/` references, so no work was needed there.
 
 ## 5. Corpus-side observations
 
 The corpus lives in `library/knowledge/private/`. In this pass, the only corpus edits made were the user-approved W-2 prefix corrections to `ADR-0003` and `ADR-0004` (above). The remaining observations below were NOT edited (still flagged for the corpus owner, knowledge-worker-bee):
 
-- **C-1:** `ADR-0004-thehive-portal-daemon-role-and-boundaries.md` uses a non-standard header (`> **Status:** Accepted . **Date:** 2026-06-30`, middle-dot separators) and status `Accepted`, which is not in the Documentation Framework status set (Active/Draft/Archived/Canonical). ADR-0003 correctly uses the universal header with `Active`. Recommend aligning ADR-0004's header for internal consistency.
+- **C-1:** `ADR-0004-hive-portal-daemon-role-and-boundaries.md` uses a non-standard header (`> **Status:** Accepted . **Date:** 2026-06-30`, middle-dot separators) and status `Accepted`, which is not in the Documentation Framework status set (Active/Draft/Archived/Canonical). ADR-0003 correctly uses the universal header with `Active`. Recommend aligning ADR-0004's header for internal consistency.
 - **C-2 (informational):** The two known corpus/PRD disagreements recorded in `PRD-DECISIONS-AND-DEFAULTS.md` section C (the `confidence` column and the `skipped-deleted` enum) live in PRD-005/PRD-006 territory, not in PRD-001-004, so they are out of scope for this audit. They remain open corpus edits per that document.
 
 ## 6. High-risk surfaces verified verbatim against the corpus
 
-- Ports: 3850 (honeycomb), 3851 (embeddings), 3852 (hivedoctor status), 3853 (thehive), 3854 (hivenectar) - consistent across all four modules, ADR-0004, and PRD-DECISIONS decision #12.
+- Ports: 3850 (honeycomb), 3851 (embeddings), 3852 (doctor status), 3853 (hive), 3854 (nectar) - consistent across all four modules, ADR-0004, and PRD-DECISIONS decision #12.
 - `/health` body: PRD-001b's purpose-built shape matches PRD-DECISIONS decision #20 (revised).
 - Embedding dimension 768 (PRD-001c) matches `enricher-and-llm-model.md` and the schema `FLOAT4[]` contract.
 - Worker poll interval 30s (PRD-002b) matches `enricher-and-llm-model.md`.

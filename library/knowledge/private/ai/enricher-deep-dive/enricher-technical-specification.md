@@ -11,7 +11,7 @@ The enricher contract: the polling loop over pending rows, the debounce plus mea
 - [`enricher-ecosystem-story-arc.md`](enricher-ecosystem-story-arc.md)
 - [`enricher-conclusion-and-deliverables.md`](enricher-conclusion-and-deliverables.md)
 - [`../brooding-pipeline.md`](../brooding-pipeline.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 
 ---
 
@@ -19,7 +19,7 @@ The enricher contract: the polling loop over pending rows, the debounce plus mea
 
 Brooding describes every file once, as a one-time bootstrap. Everything after that — re-describing a file whose content meaningfully changed, describing a file that brooding skipped (cost cap or `--limit`), and describing genuinely new files the watcher detected — is the enricher's job. The enricher is the steady-state description-maintenance loop, and this document is its contract: the observable inputs, the invariants, and the failure paths.
 
-The enricher runs as a background loop inside the hiveantennae daemon, polling a work queue of `source_graph_versions` rows where `describe_status = 'pending'`. Its correctness rests on two laziness properties — time-laziness (pending rows sit harmlessly) and change-laziness (only meaningful changes re-describe) — plus a graceful-degradation contract that never produces a recall quality cliff.
+The enricher runs as a background loop inside the hiveantennae daemon, polling a work queue of `hive_graph_versions` rows where `describe_status = 'pending'`. Its correctness rests on two laziness properties — time-laziness (pending rows sit harmlessly) and change-laziness (only meaningful changes re-describe) — plus a graceful-degradation contract that never produces a recall quality cliff.
 
 ---
 
@@ -30,7 +30,7 @@ The enricher loop runs on a configurable interval (default 30 seconds) and selec
 ```sql
 -- The enricher's pending-work query (simplified; real query is sqlStr-guarded)
 SELECT nectar, MAX(seq) AS seq
-FROM source_graph_versions
+FROM hive_graph_versions
 WHERE describe_status = 'pending'
   AND org_id = :org
   AND workspace_id = :workspace
@@ -69,7 +69,7 @@ The heuristic is a fast pre-LLM diff evaluated before any model call:
 3. **If similarity ≥ `REDESCRIBE_THRESHOLD`** (default 0.85), the change is cosmetic. The new version row inherits the previous version's `title`, `description`, `concepts`, and `embedding`; `describe_status` is set to `described`; `describe_model` is set to `inherited-from:<prev_content_hash>`. No LLM call is made.
 4. **If similarity < threshold**, the change is meaningful and the new version row enters the pending queue.
 
-This adapts the Smith intuition (`Hash != Described-Against-Hash` triggers re-description; equality skips it) from raw-hash equality to token similarity, so a reformat — which changes the hash but not the tokens meaningfully — does not trigger re-description. The threshold is tunable per-repo via `~/.honeycomb/hivenectar.json`.
+This adapts the Smith intuition (`Hash != Described-Against-Hash` triggers re-description; equality skips it) from raw-hash equality to token similarity, so a reformat — which changes the hash but not the tokens meaningfully — does not trigger re-description. The threshold is tunable per-repo via `~/.honeycomb/nectar.json`.
 
 ---
 
@@ -115,13 +115,13 @@ The model does not need to be a frontier reasoner. It needs to satisfy a specifi
 - **Function calling is NOT required.** The enricher sends content and receives descriptions; it does not use tools.
 - **Multilingual tolerance** — the codebase may contain non-English comments or identifiers. Flash and Haiku handle this; very small local models may not.
 
-Gemini 2.5 Flash is the default because it satisfies every tier requirement at the lowest cost-per-file for the batch sizes Hivenectar uses.
+Gemini 2.5 Flash is the default because it satisfies every tier requirement at the lowest cost-per-file for the batch sizes Nectar uses.
 
 ---
 
 ## The `describe_model` column contract
 
-Every `source_graph_versions` row carries a `describe_model` column that records which model produced its description. The contract:
+Every `hive_graph_versions` row carries a `describe_model` column that records which model produced its description. The contract:
 
 | State | `describe_model` value |
 |---|---|
@@ -177,4 +177,4 @@ If embeddings are off — the optional dependency was not installed, or the daem
 - **It does not describe symbols.** v1 is file-granular; symbol-level description would multiply row counts 10–100×.
 - **It does not run on files the CodeGraph is building.** The two workers write to different tables and may run concurrently without coordination.
 - **It does not block recall.** A query during enrichment sees whatever has been described so far. There is no read-lock, no "enrichment in progress" state.
-- **It does not re-describe on model swap automatically.** Existing descriptions are valid until proven otherwise; re-description requires an explicit `honeycomb hivenectar brood --force --model <new>`.
+- **It does not re-describe on model swap automatically.** Existing descriptions are valid until proven otherwise; re-description requires an explicit `honeycomb nectar brood --force --model <new>`.

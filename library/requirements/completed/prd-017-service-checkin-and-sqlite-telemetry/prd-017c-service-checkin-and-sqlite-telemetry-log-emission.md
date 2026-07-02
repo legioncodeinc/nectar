@@ -10,13 +10,13 @@
 
 ## Goals
 
-Expose hivenectar's non-sensitive logs in its own local SQLite, each line carrying a verbosity level, so hivedoctor can poll recent log activity per `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md`. Keep the store bounded and rotated so it stays small enough for a one-second read cycle and never grows without limit.
+Expose nectar's non-sensitive logs in its own local SQLite, each line carrying a verbosity level, so doctor can poll recent log activity per `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md`. Keep the store bounded and rotated so it stays small enough for a one-second read cycle and never grows without limit.
 
 ## Scope
 
-- A `hivenectar_logs` table in hivenectar's local SQLite (Node's built-in `node:sqlite`), holding recent log lines with a timestamp and a verbosity level.
+- A `nectar_logs` table in nectar's local SQLite (Node's built-in `node:sqlite`), holding recent log lines with a timestamp and a verbosity level.
 - A bounded, rotated retention policy so the table cannot grow unbounded.
-- A tap on hivenectar's existing daemon logging so non-sensitive lines are mirrored into the table without a second logging framework.
+- A tap on nectar's existing daemon logging so non-sensitive lines are mirrored into the table without a second logging framework.
 - Redaction that keeps sensitive material (source-file contents, LLM description bodies, credentials) out of the log rows.
 - Fail-soft writes that never block the nectar pipeline.
 
@@ -24,17 +24,17 @@ Expose hivenectar's non-sensitive logs in its own local SQLite, each line carryi
 
 - Check-in, registration, and heartbeat (PRD-017a).
 - Metrics emission (PRD-017b).
-- hivedoctor's poll, merge, and relay to the-hive (hivedoctor PRD-001 and PRD-002; the-hive PRD-005 renders the log rail).
+- doctor's poll, merge, and relay to hive (doctor PRD-001 and PRD-002; hive PRD-005 renders the log rail).
 
 ---
 
 ## User stories and acceptance criteria
 
-### US-017c.1 - hivedoctor can poll recent logs
+### US-017c.1 - doctor can poll recent logs
 
-**As** hivedoctor, **I want** hivenectar's recent logs in local SQLite, **so that** I can surface them on the health rail without hivenectar pushing.
+**As** doctor, **I want** nectar's recent logs in local SQLite, **so that** I can surface them on the health rail without nectar pushing.
 
-- AC-017c.1.1 Given hivenectar emits log activity, when hivedoctor reads `hivenectar_logs`, then it sees recent lines, each with a timestamp and a verbosity level.
+- AC-017c.1.1 Given nectar emits log activity, when doctor reads `nectar_logs`, then it sees recent lines, each with a timestamp and a verbosity level.
 
 ### US-017c.2 - The log store stays bounded
 
@@ -52,16 +52,16 @@ Expose hivenectar's non-sensitive logs in its own local SQLite, each line carryi
 
 ## Technical considerations
 
-- Logs are mirrored from hivenectar's existing daemon logging, not produced by a parallel logging path, so there is one definition of a log line.
+- Logs are mirrored from nectar's existing daemon logging, not produced by a parallel logging path, so there is one definition of a log line.
 - Retention is enforced on write (cap by row count, byte size, or age) so no separate reaper process is required, mirroring the bounded discipline the telemetry store follows overall.
-- The write uses Node's built-in `node:sqlite` in WAL mode so hivedoctor's read-only open does not contend with hivenectar's writes (per `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md`).
-- Redaction runs before insert; if a line cannot be safely redacted it is dropped rather than written. Because hivenectar handles source text and LLM descriptions, redaction specifically excludes file bodies and description bodies.
+- The write uses Node's built-in `node:sqlite` in WAL mode so doctor's read-only open does not contend with nectar's writes (per `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md`).
+- Redaction runs before insert; if a line cannot be safely redacted it is dropped rather than written. Because nectar handles source text and LLM descriptions, redaction specifically excludes file bodies and description bodies.
 - Fail-soft: a log write error is caught and dropped and never surfaces into the pipeline.
 
 ## Files touched (anticipated)
 
 - New `src/telemetry/logs.ts` - the bounded log writer and logger tap.
-- Hivenectar daemon logging wiring - a non-invasive tap that mirrors non-sensitive lines.
+- Nectar daemon logging wiring - a non-invasive tap that mirrors non-sensitive lines.
 - Tests under `test/telemetry/`.
 
 ## Test plan
@@ -70,18 +70,18 @@ Expose hivenectar's non-sensitive logs in its own local SQLite, each line carryi
 - Unit: rotation keeps the store within its bound under sustained writes (AC-017c.2).
 - Unit: redaction removes sensitive material and drops unredactable lines, including file and description bodies (AC-017c.3.2).
 - Unit: a log write failure is fail-soft.
-- Integration: a read-only reader tails recent logs while hivenectar writes (AC-017c.1.1).
+- Integration: a read-only reader tails recent logs while nectar writes (AC-017c.1.1).
 
 ## Open questions
 
 - [ ] Retention bound: cap by row count, byte size, or age, and what default keeps reads cheap on a one-second cycle?
-- [ ] Verbosity mapping: reuse hivenectar's existing log levels verbatim, or collapse to a small fixed set for hivedoctor's rail?
+- [ ] Verbosity mapping: reuse nectar's existing log levels verbatim, or collapse to a small fixed set for doctor's rail?
 
 ---
 
 ## Related
 
 - Parent: [PRD-017](./prd-017-service-checkin-and-sqlite-telemetry-index.md)
-- `../../../../../hivedoctor/library/knowledge/private/architecture/ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md` - logs live in the service's local SQLite; hivedoctor polls read-only.
-- `../../../../../the-hive/library/requirements/backlog/prd-005-health-rail-and-page/prd-005-health-rail-and-page-index.md` - the-hive health rail and health page, the eventual reader of these logs.
+- `../../../../../doctor/library/knowledge/private/architecture/ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md` - logs live in the service's local SQLite; doctor polls read-only.
+- `../../../../../hive/library/requirements/backlog/prd-005-health-rail-and-page/prd-005-health-rail-and-page-index.md` - hive health rail and health page, the eventual reader of these logs.
 - Sibling: [PRD-017a](./prd-017a-service-checkin-and-sqlite-telemetry-checkin-and-registration.md), [PRD-017b](./prd-017b-service-checkin-and-sqlite-telemetry-metrics-emission.md).

@@ -7,7 +7,7 @@ test("a fresh HealthState is ok and carries the purpose-built subsystem fields",
   const body = h.snapshot();
   assert.equal(body.status, "ok");
   assert.ok(body.uptimeMs >= 0);
-  // hivenectar-native fields honeycomb's /health does not have (PRD-001b decision #20)
+  // nectar-native fields honeycomb's /health does not have (PRD-001b decision #20)
   assert.equal(body.brooding.active, false);
   assert.equal(body.enricher.queueDepth, 0);
   assert.equal(body.enricher.consecutiveFailures, 0);
@@ -17,7 +17,7 @@ test("a fresh HealthState is ok and carries the purpose-built subsystem fields",
   assert.equal(body.portkey.enabled, false);
 });
 
-test("degrade flips the coarse bit hivedoctor classifies on", () => {
+test("degrade flips the coarse bit doctor classifies on", () => {
   const h = new HealthState();
   assert.equal(h.pipelineStatus, "ok");
   h.degrade();

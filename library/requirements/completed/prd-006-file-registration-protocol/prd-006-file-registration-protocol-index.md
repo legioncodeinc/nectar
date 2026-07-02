@@ -27,7 +27,7 @@ Three values are defaults pending implementation confirmation. Each is flagged i
 Per the `hivenectar-stinger` guide 00 § Principle 3, two values remain unspecified on purpose. This PRD surfaces them as gaps, not numbers:
 
 - **TLSH confidence thresholds** — `identity-and-reassociation.md` states the default is "configurable, default tuned during brooding" with **no numeric value**. 006d leaves the threshold configurable and empirically tuned; it pins no `0.75` / `0.4` / distance band.
-- **`review-matches` sub-flag syntax** — the corpus names only the bare command `honeycomb hivenectar review-matches`. 006d specifies the command and its surface; the accept/reject flag syntax is a flagged implementation decision, not invented.
+- **`review-matches` sub-flag syntax** — the corpus names only the bare command `honeycomb nectar review-matches`. 006d specifies the command and its surface; the accept/reject flag syntax is a flagged implementation decision, not invented.
 
 ## Goals
 
@@ -39,7 +39,7 @@ Per the `hivenectar-stinger` guide 00 § Principle 3, two values remain unspecif
 
 ## Non-Goals
 
-- The tables this protocol writes — PRD-005 (`source_graph`, `source_graph_versions`).
+- The tables this protocol writes — PRD-005 (`hive_graph`, `hive_graph_versions`).
 - The brooding pipeline (one-time full-codebase mint + describe) — PRD-007. Brooding is the ladder's cold-catch-up extreme; this PRD defines the live-watch intake + the ladder shared by both modes.
 - The enricher loop that fills `title`/`description`/`embedding` after the ladder appends a `pending` version row — PRD-016.
 - The portable projection (`.honeycomb/nectars.json`) the ladder consults on a fresh clone — PRD-011.
@@ -60,12 +60,12 @@ Per the `hivenectar-stinger` guide 00 § Principle 3, two values remain unspecif
 - [ ] The watcher is `node:fs.watch` (directory-level) + `setTimeout`/`clearTimeout` debounce; `chokidar` is NOT a dependency. The pattern mirrors `file-watcher.ts:333-375` (watch attachment + `scheduleSyncCycle` debounce) and `file-watcher.ts:177-183` (`debounceMs = 500`).
 - [ ] A burst of `(eventType, filename)` events within the debounce window coalesces into one settled cycle, mirroring `scheduleSyncCycle` (`file-watcher.ts:300-316`); the settled handler catches all errors internally and the watcher keeps running (the `runSyncCycle` fire-and-forget-with-intent pattern at `file-watcher.ts:234-293`).
 - [ ] The classification (006b) maps every debounced path to exactly one of: new path (no known nectar), changed path (known path, content differs), or missing path (known nectar, no file on disk) — the three inputs the ladder consumes.
-- [ ] The copy detector (006c) mints a **fresh nectar N2** and sets `source_graph.derived_from_nectar = N1` + `fork_content_hash = H1` when a new path's content matches an existing file's current content; the logic matches `classifyNewFile` in `identity-and-reassociation.md`.
+- [ ] The copy detector (006c) mints a **fresh nectar N2** and sets `hive_graph.derived_from_nectar = N1` + `fork_content_hash = H1` when a new path's content matches an existing file's current content; the logic matches `classifyNewFile` in `identity-and-reassociation.md`.
 - [ ] The ladder (006d) carries all 5 steps verbatim from `identity-and-reassociation.md`: (1) path+mtime+size exact, (2) path match + content changed, (3) exact content-hash match to a missing file, (4) TLSH fuzzy match to a missing file, (5) mint new — first match wins.
-- [ ] Step-4 fuzzy matches carry a `confidence` field; matches below the high-confidence band are surfaced to `honeycomb hivenectar review-matches` for human confirmation, NOT auto-claimed (re-association does not guess).
+- [ ] Step-4 fuzzy matches carry a `confidence` field; matches below the high-confidence band are surfaced to `honeycomb nectar review-matches` for human confirmation, NOT auto-claimed (re-association does not guess).
 - [ ] The TLSH confidence threshold is configurable and empirically tuned; **no numeric threshold is pinned** (deliberate spec gap preserved).
 - [ ] The `review-matches` command is specified; its accept/reject flag syntax is flagged as a default-pending-implementation, not invented.
-- [ ] Pruning is a separate, explicit, human-triggered operation (`honeycomb hivenectar prune --confirm`, 30-day grace default); the ladder never deletes or reuses nectars.
+- [ ] Pruning is a separate, explicit, human-triggered operation (`honeycomb nectar prune --confirm`, 30-day grace default); the ladder never deletes or reuses nectars.
 - [ ] Every Honeycomb `file:line` citation and every corpus citation resolves to its cited source (no hallucinated line numbers, helpers, or thresholds).
 
 ## Related

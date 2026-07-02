@@ -1,9 +1,9 @@
 /**
- * The since-restart metrics snapshot writer (PRD-017b), per hivedoctor's
+ * The since-restart metrics snapshot writer (PRD-017b), per doctor's
  * `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md`.
  *
  * `service_metrics` (id=1, latest-wins) carries five pure counts: files
- * registered, nectars minted, descriptions generated, source_graph_versions
+ * registered, nectars minted, descriptions generated, hive_graph_versions
  * written, and embeddings computed, all since the CURRENT process's start. A
  * restart is a fresh `MetricsWriter` instance (constructed by `daemon.ts` on
  * every `start()`), so the "reset to zero on restart" contract (AC-6 /
@@ -15,15 +15,15 @@
  * never a nectar identity, source text, or description body (AC-10 /
  * AC-017b.4.1).
  */
-import type { SourceGraphRow, SourceGraphVersionRow } from "../source-graph/model.js";
-import type { SourceGraphStore } from "../source-graph/store.js";
+import type { HiveGraphRow, HiveGraphVersionRow } from "../hive-graph/model.js";
+import type { HiveGraphStore } from "../hive-graph/store.js";
 import type { SqliteDatabaseLike } from "./db.js";
 
 export interface MetricsSnapshot {
   readonly filesRegistered: number;
   readonly nectarsMinted: number;
   readonly descriptionsGenerated: number;
-  readonly sourceGraphVersions: number;
+  readonly hiveGraphVersions: number;
   readonly embeddingsComputed: number;
 }
 
@@ -35,8 +35,8 @@ export interface PipelineMetricsSink {
   incrementNectarsMinted(): void;
   /** One LLM description produced (the enricher/brooding loop, PRD-007/PRD-016). */
   incrementDescriptionsGenerated(): void;
-  /** One `source_graph_versions` row written (PRD-005). */
-  incrementSourceGraphVersions(): void;
+  /** One `hive_graph_versions` row written (PRD-005). */
+  incrementHiveGraphVersions(): void;
   /** One embedding computed (PRD-014). */
   incrementEmbeddingsComputed(): void;
 }
@@ -45,7 +45,7 @@ interface MutableCounts {
   filesRegistered: number;
   nectarsMinted: number;
   descriptionsGenerated: number;
-  sourceGraphVersions: number;
+  hiveGraphVersions: number;
   embeddingsComputed: number;
 }
 
@@ -54,7 +54,7 @@ function zeroCounts(): MutableCounts {
     filesRegistered: 0,
     nectarsMinted: 0,
     descriptionsGenerated: 0,
-    sourceGraphVersions: 0,
+    hiveGraphVersions: 0,
     embeddingsComputed: 0,
   };
 }
@@ -97,8 +97,8 @@ export class MetricsWriter implements PipelineMetricsSink {
     this.flush();
   }
 
-  incrementSourceGraphVersions(): void {
-    this.counts.sourceGraphVersions += 1;
+  incrementHiveGraphVersions(): void {
+    this.counts.hiveGraphVersions += 1;
     this.flush();
   }
 
@@ -111,13 +111,13 @@ export class MetricsWriter implements PipelineMetricsSink {
     try {
       this.db
         .prepare(
-          `INSERT INTO service_metrics (id, files_registered, nectars_minted, descriptions_generated, source_graph_versions, embeddings_computed, updated_at)
+          `INSERT INTO service_metrics (id, files_registered, nectars_minted, descriptions_generated, hive_graph_versions, embeddings_computed, updated_at)
            VALUES (1, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              files_registered = excluded.files_registered,
              nectars_minted = excluded.nectars_minted,
              descriptions_generated = excluded.descriptions_generated,
-             source_graph_versions = excluded.source_graph_versions,
+             hive_graph_versions = excluded.hive_graph_versions,
              embeddings_computed = excluded.embeddings_computed,
              updated_at = excluded.updated_at`,
         )
@@ -125,7 +125,7 @@ export class MetricsWriter implements PipelineMetricsSink {
           this.counts.filesRegistered,
           this.counts.nectarsMinted,
           this.counts.descriptionsGenerated,
-          this.counts.sourceGraphVersions,
+          this.counts.hiveGraphVersions,
           this.counts.embeddingsComputed,
           this.nowFn(),
         );
@@ -136,7 +136,7 @@ export class MetricsWriter implements PipelineMetricsSink {
 }
 
 /**
- * Wrap a {@link SourceGraphStore} so the two counters with a precise 1:1
+ * Wrap a {@link HiveGraphStore} so the two counters with a precise 1:1
  * store-level definition increment at their REAL completion point, with ZERO
  * changes to the ladder (`registration/ladder.ts`) or the store adapters:
  *
@@ -145,8 +145,8 @@ export class MetricsWriter implements PipelineMetricsSink {
  *     THROWING insert (duplicate nectar, the store's own dedup guard) never
  *     increments, because the throw happens before the increment line below -
  *     no double counting across a rejected mint.
- *   - `sourceGraphVersions`: one `appendVersion()` call = one
- *     `source_graph_versions` row written (ladder steps 2/3/4/5), the exact
+ *   - `hiveGraphVersions`: one `appendVersion()` call = one
+ *     `hive_graph_versions` row written (ladder steps 2/3/4/5), the exact
  *     PRD-005 catalog write.
  *
  * `descriptionsGenerated` and `embeddingsComputed` are wired to the CLOSEST
@@ -162,19 +162,19 @@ export class MetricsWriter implements PipelineMetricsSink {
  * row or a non-null embedding through this same `appendVersion` call, the
  * counter starts moving with no further wiring required.
  */
-export function wrapStoreWithMetrics<T extends SourceGraphStore>(store: T, sink: PipelineMetricsSink): T {
+export function wrapStoreWithMetrics<T extends HiveGraphStore>(store: T, sink: PipelineMetricsSink): T {
   return new Proxy(store, {
     get(target, prop, receiver) {
       if (prop === "insertIdentity") {
-        return (row: SourceGraphRow): void => {
+        return (row: HiveGraphRow): void => {
           target.insertIdentity(row);
           sink.incrementNectarsMinted();
         };
       }
       if (prop === "appendVersion") {
-        return (row: SourceGraphVersionRow): void => {
+        return (row: HiveGraphVersionRow): void => {
           target.appendVersion(row);
-          sink.incrementSourceGraphVersions();
+          sink.incrementHiveGraphVersions();
           if (row.describeStatus === "described") sink.incrementDescriptionsGenerated();
           if (row.embedding !== null) sink.incrementEmbeddingsComputed();
         };

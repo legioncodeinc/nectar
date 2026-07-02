@@ -21,7 +21,7 @@ import { rmDirWithRetry } from "./test-helpers.ts";
 // way through the real daemon, passes reliably in `../daemon.test.ts`).
 
 function tmpDir() {
-  return mkdtempSync(join(tmpdir(), "hivenectar-checkin-service-"));
+  return mkdtempSync(join(tmpdir(), "nectar-checkin-service-"));
 }
 
 function manualTimer() {

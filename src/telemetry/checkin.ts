@@ -1,19 +1,19 @@
 /**
- * The runtime status check-in writer (PRD-017a), per hivedoctor's
+ * The runtime status check-in writer (PRD-017a), per doctor's
  * `ADR-0002-service-registration-static-registry-plus-runtime-sqlite.md`.
  *
  * `service_status` (id=1, latest-wins) carries binding time, last-seen, and
- * health - the churning runtime layer hivedoctor merges with the static
- * registry entry (`hivedoctor-registry.ts`). Two writers:
+ * health - the churning runtime layer doctor merges with the static
+ * registry entry (`doctor-registry.ts`). Two writers:
  *   - `checkin()`   a FRESH binding: a new binding_time, an initial last_seen
  *                   equal to it, and the current health (AC-017a.2.1).
  *   - `heartbeat()` advances last_seen (and refreshes health) WITHOUT touching
- *                   binding_time, so hivedoctor can tell "quiet but alive" from
+ *                   binding_time, so doctor can tell "quiet but alive" from
  *                   "dead" purely from the age of last_seen (AC-017a.3.1).
  *
- * `deeplake_connected`/`deeplake_last_comm` are left NULL: hivenectar has no
+ * `deeplake_connected`/`deeplake_last_comm` are left NULL: nectar has no
  * in-process "am I currently connected to Deep Lake" signal today (the
- * `DeepLakeSourceGraphStore` is a stateless per-call HTTP client, not a live
+ * `DeepLakeHiveGraphStore` is a stateless per-call HTTP client, not a live
  * connection) - a documented approximation, not a fabricated value. A future
  * PRD that adds real connectivity tracking can populate these columns without
  * a schema change (see PRD-017 evidence).
@@ -22,17 +22,17 @@
  * error, or a missing directory is caught and dropped, never propagated into
  * daemon boot or the nectar pipeline.
  */
-import { HIVENECTAR_DAEMON_NAME } from "../hivedoctor-registry.js";
+import { NECTAR_DAEMON_NAME } from "../doctor-registry.js";
 import type { PipelineStatus } from "../health.js";
 import { realTimer, type Timer } from "../poll-loop.js";
 import type { SqliteDatabaseLike } from "./db.js";
 
 /**
  * SIGNED OFF 2026-07-02 (decision #33, `PRD-DECISIONS-AND-DEFAULTS.md`),
- * amended from the original 10s. hivedoctor polls each service's SQLite
- * roughly every 1s (ADR-0001); hivenectar's own heartbeat is a separate,
+ * amended from the original 10s. doctor polls each service's SQLite
+ * roughly every 1s (ADR-0001); nectar's own heartbeat is a separate,
  * slower write interval (last-seen only needs to look "fresh enough" relative
- * to hivedoctor's staleness threshold, not to match its poll rate 1:1). 5s
+ * to doctor's staleness threshold, not to match its poll rate 1:1). 5s
  * halves the worst-case delay before a stale last_seen reveals a dead daemon
  * while still avoiding a write per poll tick.
  */
@@ -90,7 +90,7 @@ export class CheckinWriter {
              last_seen = excluded.last_seen,
              health = excluded.health`,
         )
-        .run(HIVENECTAR_DAEMON_NAME, bindingTime, lastSeen, health);
+        .run(NECTAR_DAEMON_NAME, bindingTime, lastSeen, health);
     } catch {
       // fail-soft (AC-7 / AC-017a): a status write error never blocks boot or the pipeline.
     }

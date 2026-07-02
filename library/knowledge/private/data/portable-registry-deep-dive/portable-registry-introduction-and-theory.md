@@ -10,7 +10,7 @@ The conceptual motivation for the portable registry: why Deep Lake (cloud) and f
 - [`portable-registry-user-stories.md`](portable-registry-user-stories.md)
 - [`portable-registry-ecosystem-story-arc.md`](portable-registry-ecosystem-story-arc.md)
 - [`portable-registry-conclusion-and-deliverables.md`](portable-registry-conclusion-and-deliverables.md)
-- [`../source-graph-schema.md`](../source-graph-schema.md)
+- [`../hive-graph-schema.md`](../hive-graph-schema.md)
 - [`../recall-integration.md`](../recall-integration.md)
 - [`../../ai/identity-and-reassociation.md`](../../ai/identity-and-reassociation.md)
 - [`../../ai/brooding-pipeline.md`](../../ai/brooding-pipeline.md)
@@ -20,7 +20,7 @@ The conceptual motivation for the portable registry: why Deep Lake (cloud) and f
 
 ## The tension the projection resolves
 
-Deep Lake is the source of truth for Hivenectar, but Deep Lake is not in the git repo. A fresh `git clone` produces the source files and no nectars — the clone's local Deep Lake has no `source_graph` rows until the daemon does something about it. Two recovery paths exist without the projection, and both are unsatisfactory.
+Deep Lake is the source of truth for Nectar, but Deep Lake is not in the git repo. A fresh `git clone` produces the source files and no nectars — the clone's local Deep Lake has no `hive_graph` rows until the daemon does something about it. Two recovery paths exist without the projection, and both are unsatisfactory.
 
 The first path is cloud sync: the daemon boots and pulls the workspace's rows from Deep Lake. This requires network and auth. A clone on a plane, behind a captive portal, or in an air-gapped environment cannot take it. The second path is brooding from scratch: the daemon re-describes every file, re-paying the LLM cost. This wastes money and time — the brooding cost was already paid by whoever first brooded the project (documented in [`../../ai/brooding-pipeline.md`](../../ai/brooding-pipeline.md)).
 
@@ -36,12 +36,12 @@ A **sidecar** is a parallel source of truth that the system reads from and write
 
 A **projection** is a denormalized, regenerable view of the source of truth. It is written from the source of truth on a defined schedule, never edited directly, and can be deleted and regenerated without loss. A lockfile (`package-lock.json`, `Cargo.lock`) is a projection — delete it and `npm install` or `cargo build` regenerates it from the manifest. The system does not depend on the lockfile for correctness; it depends on it for reproducibility and convenience.
 
-`.honeycomb/nectars.json` is generated from Deep Lake at the end of every brood and every enricher cycle that produced new descriptions. It is committed for portability. It is never the system of record. Delete it, and `honeycomb hivenectar rebuild-projection` reproduces it from Deep Lake alone. That property — regenerability from the source of truth with no other inputs — is what makes it a projection rather than a sidecar, regardless of the fact that it is a JSON file on disk.
+`.honeycomb/nectars.json` is generated from Deep Lake at the end of every brood and every enricher cycle that produced new descriptions. It is committed for portability. It is never the system of record. Delete it, and `honeycomb nectar rebuild-projection` reproduces it from Deep Lake alone. That property — regenerability from the source of truth with no other inputs — is what makes it a projection rather than a sidecar, regardless of the fact that it is a JSON file on disk.
 
 ```mermaid
 flowchart LR
     subgraph deeplake[Deep Lake - source of truth]
-        sg["source_graph + source_graph_versions"]
+        sg["hive_graph + hive_graph_versions"]
     end
     sg -->|regenerate - defined schedule| proj["nectars.json - projection"]
     proj -.->|inherit on fresh clone only| local["local Deep Lake on clone"]
@@ -61,7 +61,7 @@ The answer is that FR-8 forbids *sidecars as sources of truth*, not *files that 
 2. The projection is never edited by hand or by external tools — no out-of-band mutations.
 3. The projection is regenerable from Deep Lake alone — if rebuild could not reproduce it, it would be a sidecar.
 
-These rules are not aspirations; they are invariants the implementation must not violate. Rule 3 is the load-bearing one. It is the difference between "a file that happens to be convenient" and "a file the system depends on for correctness." Hivenectar depends on Deep Lake for correctness; it depends on the projection only for offline portability and reviewability. Delete Deep Lake and the system is broken; delete the projection and `rebuild-projection` fixes it in a single scan.
+These rules are not aspirations; they are invariants the implementation must not violate. Rule 3 is the load-bearing one. It is the difference between "a file that happens to be convenient" and "a file the system depends on for correctness." Nectar depends on Deep Lake for correctness; it depends on the projection only for offline portability and reviewability. Delete Deep Lake and the system is broken; delete the projection and `rebuild-projection` fixes it in a single scan.
 
 This is why the projection is on the right side of FR-8: it exists for portability and reviewability, not because Deep Lake is insufficient.
 

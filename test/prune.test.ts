@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
+import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
 import { runPrune, findPruneCandidates, PRUNE_GRACE_MS } from "../dist/registration/prune-cli.js";
 import { reassociate } from "../dist/registration/ladder.js";
 
@@ -9,7 +9,7 @@ const NOW = "2026-07-01T00:00:00.000Z";
 const nowMs = Date.parse(NOW);
 const daysAgo = (n: number) => new Date(nowMs - n * 24 * 60 * 60 * 1000).toISOString();
 
-function mint(store: InMemorySourceGraphStore, relPath: string, lastUpdate: string): string {
+function mint(store: InMemoryHiveGraphStore, relPath: string, lastUpdate: string): string {
   const r = reassociate(
     { relPath, sizeBytes: 3, mtimeObserved: NOW, readContent: () => "abc" },
     { store, tenancy: TEN, now: () => NOW, existsOnDisk: () => true },
@@ -19,7 +19,7 @@ function mint(store: InMemorySourceGraphStore, relPath: string, lastUpdate: stri
 }
 
 test("prune: bare command previews and deletes nothing (AC-19)", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const gone = mint(store, "old.ts", daysAgo(40));
   const out: string[] = [];
   const result = runPrune({
@@ -37,7 +37,7 @@ test("prune: bare command previews and deletes nothing (AC-19)", () => {
 });
 
 test("prune --confirm is the sole deletion path (AC-19)", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const gone = mint(store, "old.ts", daysAgo(40));
   const out: string[] = [];
   const result = runPrune({
@@ -53,7 +53,7 @@ test("prune --confirm is the sole deletion path (AC-19)", () => {
 });
 
 test("prune: grace-period boundary only prunes files missing longer than the grace (AC-19)", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const recentMissing = mint(store, "recent.ts", daysAgo(10)); // missing but young
   const oldMissing = mint(store, "old.ts", daysAgo(40)); // missing and old
   const present = mint(store, "present.ts", daysAgo(90)); // old but still on disk
@@ -74,7 +74,7 @@ test("prune: grace-period boundary only prunes files missing longer than the gra
 });
 
 test("prune: a present file is never a candidate even if old", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   mint(store, "present.ts", daysAgo(365));
   const candidates = findPruneCandidates({
     store,

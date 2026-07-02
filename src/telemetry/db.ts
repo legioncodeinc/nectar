@@ -1,9 +1,9 @@
 /**
- * Shared `node:sqlite` plumbing for hivenectar's local telemetry database
- * (PRD-017, hivedoctor ADR-0001 / ADR-0002).
+ * Shared `node:sqlite` plumbing for nectar's local telemetry database
+ * (PRD-017, doctor ADR-0001 / ADR-0002).
  *
- * ONE physical file (`~/.honeycomb/telemetry/hivenectar.sqlite` by default),
- * three tables, per the pinned Contract B shared with hivedoctor:
+ * ONE physical file (`~/.honeycomb/telemetry/nectar.sqlite` by default),
+ * three tables, per the pinned Contract B shared with doctor:
  *   - `service_status`  single row (id=1, latest-wins): binding time, last-seen,
  *     health, and Deep Lake connectivity (PRD-017a).
  *   - `service_metrics` single row (id=1, latest-wins): the 5 since-restart
@@ -16,9 +16,9 @@
  * HERE and is caught by the fail-soft facade in `index.ts` (AC-7 / AC-017a's
  * "never blocks boot or the pipeline"), rather than crashing at module load.
  *
- * WAL mode is set on open so hivedoctor's read-only poller (~1s cadence, per
- * ADR-0001) never contends with hivenectar's own writes. hivedoctor is the ONLY
- * external reader, and it opens read-only; this module is hivenectar's write
+ * WAL mode is set on open so doctor's read-only poller (~1s cadence, per
+ * ADR-0001) never contends with nectar's own writes. doctor is the ONLY
+ * external reader, and it opens read-only; this module is nectar's write
  * side only.
  */
 import { chmodSync, mkdirSync } from "node:fs";
@@ -29,15 +29,15 @@ import { RUNTIME_DIR_NAME } from "../config.js";
 
 /** The subdirectory of the runtime dir the telemetry database lives under. */
 export const TELEMETRY_DIR_NAME = "telemetry";
-/** The telemetry database's filename, matching hivedoctor's per-service naming (`<name>.sqlite`). */
-export const TELEMETRY_DB_FILE_NAME = "hivenectar.sqlite";
+/** The telemetry database's filename, matching doctor's per-service naming (`<name>.sqlite`). */
+export const TELEMETRY_DB_FILE_NAME = "nectar.sqlite";
 
 /** Derive the telemetry DB path from a resolved runtime dir (keeps it alongside the pid/lock files). */
 export function telemetryDbPathForRuntimeDir(runtimeDir: string): string {
   return join(runtimeDir, TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME);
 }
 
-/** The default telemetry DB path: `~/.honeycomb/telemetry/hivenectar.sqlite`. */
+/** The default telemetry DB path: `~/.honeycomb/telemetry/nectar.sqlite`. */
 export function defaultTelemetryDbPath(home: string = homedir()): string {
   return telemetryDbPathForRuntimeDir(join(home, RUNTIME_DIR_NAME));
 }
@@ -113,7 +113,7 @@ export function openTelemetryDb(dbPath: string): SqliteDatabaseLike {
 /**
  * Create the three telemetry tables + the log index if absent. Column/table
  * names are fixed literal constants under our own control (never interpolated
- * user input), matching the pinned Contract B schema hivedoctor's poller reads
+ * user input), matching the pinned Contract B schema doctor's poller reads
  * verbatim - schema drift here is a cross-repo break, not a local style choice.
  */
 function migrateSchema(db: SqliteDatabaseLike): void {
@@ -134,7 +134,7 @@ function migrateSchema(db: SqliteDatabaseLike): void {
       files_registered INTEGER NOT NULL DEFAULT 0,
       nectars_minted INTEGER NOT NULL DEFAULT 0,
       descriptions_generated INTEGER NOT NULL DEFAULT 0,
-      source_graph_versions INTEGER NOT NULL DEFAULT 0,
+      hive_graph_versions INTEGER NOT NULL DEFAULT 0,
       embeddings_computed INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     )`,

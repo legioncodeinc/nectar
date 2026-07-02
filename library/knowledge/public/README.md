@@ -34,19 +34,19 @@ Customer-facing documentation. Anything in this folder may eventually be publish
 ## Current contents
 
 ### `overview/`
-- [`what-is-hivenectar.md`](overview/what-is-hivenectar.md) — The 60-second pitch for a new user.
-- [`how-hivenectar-helps-your-agent.md`](overview/how-hivenectar-helps-your-agent.md) — The value story as a before/after walkthrough.
-- [`hivenectar-glossary.md`](overview/hivenectar-glossary.md) — Plain-language glossary of customer-facing concepts.
+- [`what-is-nectar.md`](overview/what-is-nectar.md) — The 60-second pitch for a new user.
+- [`how-nectar-helps-your-agent.md`](overview/how-nectar-helps-your-agent.md) — The value story as a before/after walkthrough.
+- [`nectar-glossary.md`](overview/nectar-glossary.md) — Plain-language glossary of customer-facing concepts.
 
 ### `guides/`
-- [`getting-started-with-hivenectar.md`](guides/getting-started-with-hivenectar.md) — The first-run journey, including the `--dry-run` cost-preview tip.
+- [`getting-started-with-nectar.md`](guides/getting-started-with-nectar.md) — The first-run journey, including the `--dry-run` cost-preview tip.
 - [`sharing-understanding-with-your-team.md`](guides/sharing-understanding-with-your-team.md) — How committing the shared map gives teammates free inheritance on clone.
 - [`keeping-descriptions-accurate.md`](guides/keeping-descriptions-accurate.md) — How descriptions stay current across edits, renames, moves, and copy-paste.
 
 ### `faqs/`
-- [`hivenectar-basics-faq.md`](faqs/hivenectar-basics-faq.md) — Foundational questions a new user asks.
-- [`hivenectar-privacy-and-cost-faq.md`](faqs/hivenectar-privacy-and-cost-faq.md) — Trust questions: does code leave the machine, what does it cost, does it work offline.
-- [`hivenectar-comparison-faq.md`](faqs/hivenectar-comparison-faq.md) — How Hivenectar differs from code search, AI indexers, and IDE navigation.
+- [`nectar-basics-faq.md`](faqs/nectar-basics-faq.md) — Foundational questions a new user asks.
+- [`nectar-privacy-and-cost-faq.md`](faqs/nectar-privacy-and-cost-faq.md) — Trust questions: does code leave the machine, what does it cost, does it work offline.
+- [`nectar-comparison-faq.md`](faqs/nectar-comparison-faq.md) — How Nectar differs from code search, AI indexers, and IDE navigation.
 
 ## What does NOT belong here
 

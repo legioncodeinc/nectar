@@ -1,12 +1,12 @@
-# PRD-003 to PRD-017 Dependency Map (Hivenectar Implementation)
+# PRD-003 to PRD-017 Dependency Map (Nectar Implementation)
 
 > Category: Requirements | Version: 1.1 | Date: July 2026 | Status: Active
 
-**Status update (2026-07-02).** This map was drawn at scan time (2026-07-01) with every PRD in `backlog/`. Since then: PRD-001 through 006 moved to `completed/` (003 and 006 implemented as code and verified, 006 shipped on PR #9 with the persisted `fingerprint` column per PRD-DECISIONS decision #28); 010/011/014 moved to `in-work/` (spec QA-PASS); hivedoctor's multi-daemon registry (004a) was found implemented in the hivedoctor repo; thehive (004c) is implemented and QA'd in the-hive repo; and **PRD-017** (service check-in + SQLite telemetry) was added and is profiled at the end of Section 4. Section 3's snapshot table and Section 8's register are updated in place. The filename keeps its `PRD-003-016` name for link stability across the ledger, QA reports, and PRDs.
+**Status update (2026-07-02).** This map was drawn at scan time (2026-07-01) with every PRD in `backlog/`. Since then: PRD-001 through 006 moved to `completed/` (003 and 006 implemented as code and verified, 006 shipped on PR #9 with the persisted `fingerprint` column per PRD-DECISIONS decision #28); 010/011/014 moved to `in-work/` (spec QA-PASS); doctor's multi-daemon registry (004a) was found implemented in the doctor repo; hive (004c) is implemented and QA'd in hive repo; and **PRD-017** (service check-in + SQLite telemetry) was added and is profiled at the end of Section 4. Section 3's snapshot table and Section 8's register are updated in place. The filename keeps its `PRD-003-016` name for link stability across the ledger, QA reports, and PRDs.
 
-**Second status update (2026-07-02, later).** Verified against the sibling repos' `main` branches and the apiary execution ledger: **PRD-004 is now complete across all four sub-PRDs** and its folder sits in `completed/`; 004b (multi-daemon status page + CLI) is implemented and tested in the hivedoctor repo (`hivedoctor/src/status-page/server.ts` per-daemon `daemons` array, `hivedoctor/src/cli/dispatch.ts` `statusDaemons` iteration + `logs --daemon`, tests named `b-AC-1..b-AC-7`), and 004d (thehive service unit + registration) is implemented and tested in the-hive (`hive/src/service/`, `hive/src/install/registry.ts`, tests `d-AC-6..d-AC-8`). **PRD-017 is implemented and merged on hivenectar `main`** (`src/telemetry/{db,checkin,metrics,logs,index}.ts`, all 10 module ACs verified per the apiary execution ledger's hivenectar PRD-017 section) but its on-disk `qa/` report is still outstanding and its 007/016 counter touchpoints are dormant until those PRDs land, so the folder moved `backlog/` -> `in-work/` (started, not finished). Its OOB poll-side consumers also landed: hivedoctor's poll/merge/SSE (hivedoctor PRD-001/002) and the-hive's buzzing screen + health rail (the-hive PRD-004/005) are merged on their `main` branches.
+**Second status update (2026-07-02, later).** Verified against the sibling repos' `main` branches and the apiary execution ledger: **PRD-004 is now complete across all four sub-PRDs** and its folder sits in `completed/`; 004b (multi-daemon status page + CLI) is implemented and tested in the doctor repo (`doctor/src/status-page/server.ts` per-daemon `daemons` array, `doctor/src/cli/dispatch.ts` `statusDaemons` iteration + `logs --daemon`, tests named `b-AC-1..b-AC-7`), and 004d (hive service unit + registration) is implemented and tested in hive (`hive/src/service/`, `hive/src/install/registry.ts`, tests `d-AC-6..d-AC-8`). **PRD-017 is implemented and merged on nectar `main`** (`src/telemetry/{db,checkin,metrics,logs,index}.ts`, all 10 module ACs verified per the apiary execution ledger's nectar PRD-017 section) but its on-disk `qa/` report is still outstanding and its 007/016 counter touchpoints are dormant until those PRDs land, so the folder moved `backlog/` -> `in-work/` (started, not finished). Its OOB poll-side consumers also landed: doctor's poll/merge/SSE (doctor PRD-001/002) and hive's buzzing screen + health rail (hive PRD-004/005) are merged on their `main` branches.
 
-The exhaustive dependency profile for the Hivenectar PRD set. For any PRD or sub-PRD, a reader (human or AI) can determine from this document whether it can start independently or is gated, and by exactly what. It is the analysis input to the companion [`PRD-003-016-WAVE-PLAN.md`](./PRD-003-016-WAVE-PLAN.md). The authoritative brief is [`MASTER-PRD-INDEX.md`](./MASTER-PRD-INDEX.md); the authored PRD content lives under the lifecycle folders [`backlog/`](./backlog/), [`in-work/`](./in-work/), and [`completed/`](./completed/) (folder location = lifecycle state); the status ground truth is the consolidated QA report ([`reports/2026-07-01-prd-001-004-corpus-conformance-qa.md`](./reports/2026-07-01-prd-001-004-corpus-conformance-qa.md)) and the [`EXECUTION_LEDGER.md`](../ledger/EXECUTION_LEDGER.md).
+The exhaustive dependency profile for the Nectar PRD set. For any PRD or sub-PRD, a reader (human or AI) can determine from this document whether it can start independently or is gated, and by exactly what. It is the analysis input to the companion [`PRD-003-016-WAVE-PLAN.md`](./PRD-003-016-WAVE-PLAN.md). The authoritative brief is [`MASTER-PRD-INDEX.md`](./MASTER-PRD-INDEX.md); the authored PRD content lives under the lifecycle folders [`backlog/`](./backlog/), [`in-work/`](./in-work/), and [`completed/`](./completed/) (folder location = lifecycle state); the status ground truth is the consolidated QA report ([`reports/2026-07-01-prd-001-004-corpus-conformance-qa.md`](./reports/2026-07-01-prd-001-004-corpus-conformance-qa.md)) and the [`EXECUTION_LEDGER.md`](../ledger/EXECUTION_LEDGER.md).
 
 ---
 
@@ -21,7 +21,7 @@ The exhaustive dependency profile for the Hivenectar PRD set. For any PRD or sub
 3. The graph was verified against the authored PRD text, not only against the master index. Where the authored PRDs contradict the brief that commissioned this map, the discrepancy is recorded in Section 7 and the corrected edge is the one encoded here.
 4. Sub-PRD micro-dependencies are derived from each PRD index Features/Sub-features table plus the master index sub-PRD breakdown; where an authored sub-PRD file states a tighter dependency, that is used.
 
-**Scan-time correction (read this first).** The commissioning brief asserted that PRD-005 through PRD-016 are unauthored (no folders, no acceptance criteria). That is false at scan time. All twelve have full folders under `backlog/` with an index file, sub-PRD files, and complete acceptance criteria at the same standard as PRD-001 to PRD-004; several also carry a `qa/` subfolder. The corpus corroborates this: the QA report Section 7 states "PRD-005 through PRD-016 were not modified," Section 4b states "PRD-005..016 had zero `honeycomb/hivedoctor/` references," and Section 5 places the `confidence` column and `skipped-deleted` enum "in PRD-005/PRD-006 territory." PRDs 001 to 004 also cross-link the 005 to 016 index files as existing targets. This document therefore records the true authored state and flags the discrepancy (Section 7, D-1). These files are treated as strictly read-only (they are another agent's active work).
+**Scan-time correction (read this first).** The commissioning brief asserted that PRD-005 through PRD-016 are unauthored (no folders, no acceptance criteria). That is false at scan time. All twelve have full folders under `backlog/` with an index file, sub-PRD files, and complete acceptance criteria at the same standard as PRD-001 to PRD-004; several also carry a `qa/` subfolder. The corpus corroborates this: the QA report Section 7 states "PRD-005 through PRD-016 were not modified," Section 4b states "PRD-005..016 had zero `honeycomb/doctor/` references," and Section 5 places the `confidence` column and `skipped-deleted` enum "in PRD-005/PRD-006 territory." PRDs 001 to 004 also cross-link the 005 to 016 index files as existing targets. This document therefore records the true authored state and flags the discrepancy (Section 7, D-1). These files are treated as strictly read-only (they are another agent's active work).
 
 ---
 
@@ -35,12 +35,12 @@ The exhaustive dependency profile for the Hivenectar PRD set. For any PRD or sub
 | **QA-pending** | Authored but no QA report recorded yet. |
 | **HARD dep** | Y must be substantially available before X is implemented and its ACs verified. |
 | **SOFT dep** | Pattern reuse, contract citation, or data-presence relationship; X can be specified and largely built without Y, but a specific AC or end-to-end behavior needs Y. |
-| **Locus DOC** | Documentation-only PRD; ships no code (lands in the `hivenectar` repo as a spec/decision record). |
-| **Locus IN-BAND** | New code in the `hivenectar` daemon (this project's runnable process). |
+| **Locus DOC** | Documentation-only PRD; ships no code (lands in the `nectar` repo as a spec/decision record). |
+| **Locus IN-BAND** | New code in the `nectar` daemon (this project's runnable process). |
 | **Locus DATA** | Shared data or recall layer in the `honeycomb` repo. |
-| **Locus STRADDLE** | New provider-switch/config logic the hivenectar daemon consumes, reusing or extending a `honeycomb` transport; exact repo placement is a design point to confirm. |
-| **Locus OOB-HIVEDOCTOR** | Out-of-band work in the `hivedoctor` repo. |
-| **Locus OOB-THEHIVE** | Out-of-band work in the `honeycomb` repo, in the new `thehive` package. |
+| **Locus STRADDLE** | New provider-switch/config logic the nectar daemon consumes, reusing or extending a `honeycomb` transport; exact repo placement is a design point to confirm. |
+| **Locus OOB-DOCTOR** | Out-of-band work in the `doctor` repo. |
+| **Locus OOB-HIVE** | Out-of-band work in the `honeycomb` repo, in the new `hive` package. |
 | **Node status DONE** | Documentation deliverables complete and independently verified. |
 | **Node status IN-FLIGHT** | An agent is actively working it (per the brief). |
 | **Node status AUTHORED-BACKLOG** | Authored, in `backlog/`, awaiting QA and implementation. |
@@ -52,34 +52,34 @@ The exhaustive dependency profile for the Hivenectar PRD set. For any PRD or sub
 | PRD | Title | Authored? | Lifecycle / QA | Node status | Locus | In/Out band | Effort | Priority |
 |---|---|---|---|---|---|---|---|---|
 | 001 | Three-daemon topology + ADR-0003 | Authored | completed / QA-PASS, VERIFIED (ledger) | DONE | DOC | in-band (docs) | M | P0 |
-| 002 | Hivenectar daemon | Authored | completed / QA-PASS (double pass, both PASS) | DONE (spec); daemon code shipped (lock, `/health`, server, CLI) | IN-BAND | in-band | XL | P0 |
-| 003 | Hivenectar supervision by hivedoctor | Authored | completed / QA-PASS, W-1 resolved | IMPLEMENTED + VERIFIED (service units + registry writer, all 5 ACs, 127 tests) | IN-BAND (+ registry touch) | in-band | M | P0 |
-| 004 | hivedoctor registry + thehive portal | Authored (a-d) | completed / QA-PASS | IMPLEMENTED, all four sub-PRDs: 004a + 004b (hivedoctor repo, `b-AC` tests); 004c + 004d (the-hive repo, QA'd + `d-AC` tests) | OOB-HIVEDOCTOR + OOB-THEHIVE | out-of-band | L | P0 |
-| 005 | Source Graph catalog tables | Authored | completed / QA-PASS (Wave A) | VERIFIED | DATA | out-of-band (honeycomb catalog) | S | P0 |
+| 002 | Nectar daemon | Authored | completed / QA-PASS (double pass, both PASS) | DONE (spec); daemon code shipped (lock, `/health`, server, CLI) | IN-BAND | in-band | XL | P0 |
+| 003 | Nectar supervision by doctor | Authored | completed / QA-PASS, W-1 resolved | IMPLEMENTED + VERIFIED (service units + registry writer, all 5 ACs, 127 tests) | IN-BAND (+ registry touch) | in-band | M | P0 |
+| 004 | doctor registry + hive portal | Authored (a-d) | completed / QA-PASS | IMPLEMENTED, all four sub-PRDs: 004a + 004b (doctor repo, `b-AC` tests); 004c + 004d (hive repo, QA'd + `d-AC` tests) | OOB-DOCTOR + OOB-HIVE | out-of-band | L | P0 |
+| 005 | Hive Graph catalog tables | Authored | completed / QA-PASS (Wave A) | VERIFIED | DATA | out-of-band (honeycomb catalog) | S | P0 |
 | 006 | File registration protocol | Authored | completed / QA-PASS + security + quality close-outs | IMPLEMENTED + SHIPPED (PR #9; all 21 ACs; `fingerprint` persisted) | IN-BAND | in-band | L | P0 |
 | 007 | Brooding process | Authored | backlog / QA-pending | AUTHORED-BACKLOG | IN-BAND | in-band | L | P0 |
-| 008 | Hivenectar daemon API endpoints | Authored | backlog / QA-pending | AUTHORED-BACKLOG | IN-BAND | in-band | L | P1 |
+| 008 | Nectar daemon API endpoints | Authored | backlog / QA-pending | AUTHORED-BACKLOG | IN-BAND | in-band | L | P1 |
 | 009 | Harness exposure via recall (doc) | Authored | backlog / QA-pending | AUTHORED-BACKLOG | DOC | in-band (docs) | XS | P1 |
 | 010 | Portkey gateway integration | Authored | in-work / QA-PASS (Wave B) | IN-WORK | STRADDLE | in-band + honeycomb transport | M | P1 |
 | 011 | Portable projection sync | Authored | in-work / QA-PASS (Wave B) | IN-WORK | IN-BAND | in-band | M | P1 |
-| 012 | Manual Source Graph search | Authored | backlog / QA-pending | AUTHORED-BACKLOG | IN-BAND | in-band | M | P2 |
-| 013 | Recall arm: source_graph_versions | Authored | backlog / QA-pending | AUTHORED-BACKLOG | DATA | out-of-band (honeycomb recall) | M | P0 |
+| 012 | Manual Hive Graph search | Authored | backlog / QA-pending | AUTHORED-BACKLOG | IN-BAND | in-band | M | P2 |
+| 013 | Recall arm: hive_graph_versions | Authored | backlog / QA-pending | AUTHORED-BACKLOG | DATA | out-of-band (honeycomb recall) | M | P0 |
 | 014 | Embeddings provider switching | Authored | in-work / QA-PASS (Wave B; one corpus deferral) | IN-WORK | STRADDLE | in-band + honeycomb transport | M | P1 |
-| 015 | Dashboard Source Graph page | Authored | backlog / QA-pending | AUTHORED-BACKLOG | OOB-THEHIVE | out-of-band | M | P1 |
+| 015 | Dashboard Hive Graph page | Authored | backlog / QA-pending | AUTHORED-BACKLOG | OOB-HIVE | out-of-band | M | P1 |
 | 016 | Enricher steady-state loop | Authored | backlog / QA-pending | AUTHORED-BACKLOG | IN-BAND | in-band | L | P1 |
-| 017 | Service check-in + SQLite telemetry | Authored | completed / QA PASS-with-warnings (retrospective, 2026-07-02) | COMPLETE: implemented + merged (`src/telemetry/`), retrospective QA on disk; 007/016 counter touchpoints dormant until Wave C wires the registration pipeline into the daemon | IN-BAND | in-band (+ hivedoctor/the-hive poll side, landed OOB) | L | P1 |
+| 017 | Service check-in + SQLite telemetry | Authored | completed / QA PASS-with-warnings (retrospective, 2026-07-02) | COMPLETE: implemented + merged (`src/telemetry/`), retrospective QA on disk; 007/016 counter touchpoints dormant until Wave C wires the registration pipeline into the daemon | IN-BAND | in-band (+ doctor/hive poll side, landed OOB) | L | P1 |
 
 Notes on the snapshot:
 
 - **001** is marked DONE for its documentation deliverables (ADR-0003, the four-role contract, the process/health/infra contracts); all nine ACs are VERIFIED per the ledger. It changes no code. Moved to `completed/` (Wave A close, user-approved).
 - **002** carries a completed double quality pass (both PASS at medium-and-above) per the ledger. The daemon code it specifies exists on disk (`src/lock.ts`, `src/health.ts`, `src/server.ts`, `src/cli.ts` per the PRD-003 implementation run's AC-1/AC-2 evidence). Moved to `completed/` (Wave A close, user-approved); the D-5 lifecycle observation is resolved.
-- **003** W-1 was remediated in Wave B (105 refs converted); its implementation run (2026-07-01) shipped the OS service module + hivedoctor registry writer with all five ACs verified and security + quality close-outs clean.
-- **004** is complete: QA-PASS at the module level and all four sub-PRDs implemented in their owning repos. 004a's registry is in the hivedoctor repo (`hivedoctor/src/registry.ts`, `remediation.ts`, `compose/index.ts`). 004b's multi-daemon reporting is in the hivedoctor repo (`status-page/server.ts` per-daemon `daemons` array + HTML badge rows, `cli/dispatch.ts` `statusDaemons` per-daemon blocks + `logs --daemon` filter; tests `b-AC-1..b-AC-7` across `tests/status-page/server.test.ts`, `tests/cli/dispatch.test.ts`, `tests/compose/multi-daemon.test.ts`). 004c is implemented and independently QA'd in the-hive (26/27 ACs PASS). 004d's service module + registry writer are in the-hive (`hive/src/service/{platform,templates}.ts`, `hive/src/install/registry.ts`, `thehive install-service`/`uninstall-service`/`register` CLI verbs; tests `d-AC-6..d-AC-8` + `tests/service/`). The folder is in `completed/`. Residual (non-implementation): the 004d thehive service-unit-name DEFAULT sign-off, tracked under B-7.
+- **003** W-1 was remediated in Wave B (105 refs converted); its implementation run (2026-07-01) shipped the OS service module + doctor registry writer with all five ACs verified and security + quality close-outs clean.
+- **004** is complete: QA-PASS at the module level and all four sub-PRDs implemented in their owning repos. 004a's registry is in the doctor repo (`doctor/src/registry.ts`, `remediation.ts`, `compose/index.ts`). 004b's multi-daemon reporting is in the doctor repo (`status-page/server.ts` per-daemon `daemons` array + HTML badge rows, `cli/dispatch.ts` `statusDaemons` per-daemon blocks + `logs --daemon` filter; tests `b-AC-1..b-AC-7` across `tests/status-page/server.test.ts`, `tests/cli/dispatch.test.ts`, `tests/compose/multi-daemon.test.ts`). 004c is implemented and independently QA'd in hive (26/27 ACs PASS). 004d's service module + registry writer are in hive (`hive/src/service/{platform,templates}.ts`, `hive/src/install/registry.ts`, `hive install-service`/`uninstall-service`/`register` CLI verbs; tests `d-AC-6..d-AC-8` + `tests/service/`). The folder is in `completed/`. Residual (non-implementation): the 004d hive service-unit-name DEFAULT sign-off, tracked under B-7.
 - **005** passed its Wave A corpus-conformance QA after remediation and moved to `completed/`.
 - **006** passed Wave B spec QA, then its implementation run closed all 21 ACs (pure-TS TLSH, review/prune mechanics, tenancy guards, path-escape hardening, persisted `fingerprint`), survived security + quality + CodeRabbit remediation, and shipped as PR #9.
 - **007/008/009/012/013/015/016** are authored, in `backlog/`, with no per-PRD QA report on disk. QA-pending remains the gate before their implementation begins (wave plan Wave 0, blocker B-1).
 - **010/011/014** passed Wave B spec QA (014 with one corpus-side deferral to knowledge-worker-bee) and sit in `in-work/` for implementation.
-- **017** postdates the commissioning scan entirely: authored with 10 module ACs and three sub-PRDs, then implemented and merged on hivenectar `main` (`src/telemetry/{db,checkin,metrics,logs,index}.ts`, `src/hivedoctor-registry.ts` extended with `telemetryDbPath`, `src/daemon.ts` wiring; all 10 module ACs verified per the apiary execution ledger, including the read-only-WAL-reader integration test and the no-sensitive-data tests). Folder moved to `in-work/`, not `completed/`, because (a) its on-disk `qa/` report is still outstanding (the Wave-0 QA bar) and (b) the `descriptionsGenerated`/`embeddingsComputed` counters and the registration-pipeline live wiring are dormant until PRD-007/016 land. Profiled at the end of Section 4.
+- **017** postdates the commissioning scan entirely: authored with 10 module ACs and three sub-PRDs, then implemented and merged on nectar `main` (`src/telemetry/{db,checkin,metrics,logs,index}.ts`, `src/doctor-registry.ts` extended with `telemetryDbPath`, `src/daemon.ts` wiring; all 10 module ACs verified per the apiary execution ledger, including the read-only-WAL-reader integration test and the no-sensitive-data tests). Folder moved to `in-work/`, not `completed/`, because (a) its on-disk `qa/` report is still outstanding (the Wave-0 QA bar) and (b) the `descriptionsGenerated`/`embeddingsComputed` counters and the registration-pipeline live wiring are dormant until PRD-007/016 land. Profiled at the end of Section 4.
 
 ---
 
@@ -89,34 +89,34 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 ---
 
-### PRD-003 - Hivenectar supervision by hivedoctor
+### PRD-003 - Nectar supervision by doctor
 
-- **Locus:** IN-BAND (hivenectar repo), with a cross-repo touchpoint (the installer appends one entry to hivedoctor's registry file). Source: [`prd-003 index`](./completed/prd-003-hivenectar-supervision/prd-003-hivenectar-supervision-index.md) header "Codebase: hivenectar repo".
+- **Locus:** IN-BAND (nectar repo), with a cross-repo touchpoint (the installer appends one entry to doctor's registry file). Source: [`prd-003 index`](./completed/prd-003-nectar-supervision/prd-003-nectar-supervision-index.md) header "Codebase: nectar repo".
 - **Authored:** yes. **QA:** PASS, W-1 open. **Effort:** M (3-8h). **Priority:** P0.
 
 **Upstream dependencies:**
 
 | Dep | Type | Reason (grounded) |
 |---|---|---|
-| 001 | HARD | Conforms to the process surface PRD-001b locked (port 3854, `~/.honeycomb/hivenectar.pid` / `.lock`, coarse health bit). Source: prd-003 index Overview and Related. |
+| 001 | HARD | Conforms to the process surface PRD-001b locked (port 3854, `~/.honeycomb/nectar.pid` / `.lock`, coarse health bit). Source: prd-003 index Overview and Related. |
 | 002 | HARD | The daemon must exist to expose `/health`, write its PID/lock, and be started by the service unit; prd-003 index Non-Goals defers the shutdown path that removes the PID/lock to PRD-002. |
-| 004a | HARD | prd-003 "consumes the registry (PRD-004 builds it)"; AC-4 appends hivenectar's entry to `~/.honeycomb/hivedoctor.daemons.json`, whose schema is 004a's deliverable. |
+| 004a | HARD | prd-003 "consumes the registry (PRD-004 builds it)"; AC-4 appends nectar's entry to `~/.honeycomb/doctor.daemons.json`, whose schema is 004a's deliverable. |
 
 **Downstream dependents:** none (supervision is a leaf that makes the runtime reliable; nothing else is gated on it).
 
 **Sub-PRDs and micro-dependencies:**
 
 - `prd-003a-health-endpoint-and-pid-lock`: depends on 002 (the daemon that mounts `/health` and acquires the lock) and 001b (the locked port/paths/health-bit contract).
-- `prd-003b-os-service-unit`: depends on 002 (the `hivenectar daemon` run command the unit launches) and the hivedoctor self-registration service-template pattern. It references thehive's service unit PRD-004c/004d in Non-Goals (see D-4).
-- `prd-003c-registry-entry-and-watchdog-guards`: depends on 004a (the registry schema it writes into), 002 (hivenectar's own PID file the guards read), and 003a (the PID/lock it registers).
+- `prd-003b-os-service-unit`: depends on 002 (the `nectar daemon` run command the unit launches) and the doctor self-registration service-template pattern. It references hive's service unit PRD-004c/004d in Non-Goals (see D-4).
+- `prd-003c-registry-entry-and-watchdog-guards`: depends on 004a (the registry schema it writes into), 002 (nectar's own PID file the guards read), and 003a (the PID/lock it registers).
 
 **Acceptance criteria (verbatim, module-level):**
 
-- AC-1: "Given hivenectar is running, when hivedoctor probes `GET http://127.0.0.1:3854/health`, then it receives a `200` with a coarse `status: "ok"|"degraded"` body (a `503` + `degraded` when a sub-dependency is down)."
-- AC-2: "Given hivenectar boots, when it acquires its single-instance lock, then it writes `~/.honeycomb/hivenectar.pid` and `~/.honeycomb/hivenectar.lock`, and a second start throws before binding port 3854."
-- AC-3: "Given the OS boots (or the user logs in), when the registered service unit runs, then hivenectar starts; when it crashes, the OS restarts it."
-- AC-4: "Given hivenectar's installer runs, then it appends one entry to `~/.honeycomb/hivedoctor.daemons.json` naming hivenectar with `healthUrl: http://127.0.0.1:3854/health` and `pidPath: ~/.honeycomb/hivenectar.pid`."
-- AC-5: "Given hivenectar is healthy and its lock is held, when hivedoctor's restart rung checks, then it skips the restart (lock-held-and-healthy guard) - it does not start a second hivenectar that would hit the single-instance lock and exit."
+- AC-1: "Given nectar is running, when doctor probes `GET http://127.0.0.1:3854/health`, then it receives a `200` with a coarse `status: "ok"|"degraded"` body (a `503` + `degraded` when a sub-dependency is down)."
+- AC-2: "Given nectar boots, when it acquires its single-instance lock, then it writes `~/.honeycomb/nectar.pid` and `~/.honeycomb/nectar.lock`, and a second start throws before binding port 3854."
+- AC-3: "Given the OS boots (or the user logs in), when the registered service unit runs, then nectar starts; when it crashes, the OS restarts it."
+- AC-4: "Given nectar's installer runs, then it appends one entry to `~/.honeycomb/doctor.daemons.json` naming nectar with `healthUrl: http://127.0.0.1:3854/health` and `pidPath: ~/.honeycomb/nectar.pid`."
+- AC-5: "Given nectar is healthy and its lock is held, when doctor's restart rung checks, then it skips the restart (lock-held-and-healthy guard) - it does not start a second nectar that would hit the single-instance lock and exit."
 
 **Can start independently?** No. **Gated by:** 001 (locked), 002 (in-flight), 004a (authored, not implemented).
 
@@ -126,9 +126,9 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 ---
 
-### PRD-004 - hivedoctor daemon registry + thehive portal daemon (out-of-band)
+### PRD-004 - doctor daemon registry + hive portal daemon (out-of-band)
 
-- **Locus:** OOB-HIVEDOCTOR (004a, 004b) + OOB-THEHIVE (004c, 004d). Source: [`prd-004 index`](./completed/prd-004-hivedoctor-registry-and-thehive/prd-004-hivedoctor-registry-and-thehive-index.md) Overview "work in two other codebases".
+- **Locus:** OOB-DOCTOR (004a, 004b) + OOB-HIVE (004c, 004d). Source: [`prd-004 index`](./completed/prd-004-doctor-registry-and-hive/prd-004-doctor-registry-and-hive-index.md) Overview "work in two other codebases".
 - **Authored:** yes, all four sub-PRDs 004a-004d on disk (see D-3). **QA:** PASS. **Effort:** L (1-3d). **Priority:** P0.
 
 **Upstream dependencies:**
@@ -137,35 +137,35 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 |---|---|---|
 | 001 | HARD | "It is foundational: it lands early, and every other supervised daemon supervises against the registry this PRD delivers." Conforms to the PRD-001 topology + port contract. Source: prd-004 index Overview + Related (cites PRD-001). |
 
-**Downstream dependents:** 003 (registers into the registry), 015 (thehive hosts the dashboard page). Internally, 004b, 004c depend on 004a; 004d depends on 004c.
+**Downstream dependents:** 003 (registers into the registry), 015 (hive hosts the dashboard page). Internally, 004b, 004c depend on 004a; 004d depends on 004c.
 
 **Sub-PRDs and micro-dependencies:**
 
-- `prd-004a-hivedoctor-registry-config-and-supervisor-instances`: depends on 001 only. Root of the supervision registry. Depended on by 003c, 004b, 004c.
-- `prd-004b-hivedoctor-status-and-cli`: depends on 004a (reports over the N registered daemons).
-- `prd-004c-thehive-portal-daemon`: depends on 004a (registered + supervised like the others); SOFT-runtime-fetches PRD-008 endpoints and reuses honeycomb's `src/dashboard/web/` code; hosts PRD-015. Source: prd-004 index Goals + Non-Goals.
-- `prd-004d-thehive-service-unit-and-registration`: depends on 004c. Authored + QA-passed (8 ACs d-AC-1..d-AC-8); see D-3.
+- `prd-004a-doctor-registry-config-and-supervisor-instances`: depends on 001 only. Root of the supervision registry. Depended on by 003c, 004b, 004c.
+- `prd-004b-doctor-status-and-cli`: depends on 004a (reports over the N registered daemons).
+- `prd-004c-hive-portal-daemon`: depends on 004a (registered + supervised like the others); SOFT-runtime-fetches PRD-008 endpoints and reuses honeycomb's `src/dashboard/web/` code; hosts PRD-015. Source: prd-004 index Goals + Non-Goals.
+- `prd-004d-hive-service-unit-and-registration`: depends on 004c. Authored + QA-passed (8 ACs d-AC-1..d-AC-8); see D-3.
 
 **Acceptance criteria (verbatim, module-level):**
 
-- AC-1: "Given hivedoctor's registry file lists honeycomb + thehive + hivenectar, when hivedoctor boots, then it spawns one independent supervisor instance per registry entry, each probing its own `healthUrl` on its own `probeIntervalMs`."
+- AC-1: "Given doctor's registry file lists honeycomb + hive + nectar, when doctor boots, then it spawns one independent supervisor instance per registry entry, each probing its own `healthUrl` on its own `probeIntervalMs`."
 - AC-2: "Given two daemons are registered, when daemon A fails its `/health` and is restarted, then daemon B's incident log, remediation state, and consecutive-restart-failure count are untouched."
-- AC-3: "Given thehive is registered and healthy, when the device boots, then thehive serves the unified dashboard on its port without waiting for any workload daemon to be healthy."
-- AC-4: "Given thehive is updateable independently of hivedoctor, when thehive is upgraded, then hivedoctor's process is not restarted and its own supervisor instances keep running."
-- AC-5: "Given a new workload daemon ships, when its installer runs, then the installer appends one entry to the registry file and does NOT touch hivedoctor's code or restart hivedoctor to register."
-- AC-6: "Given hivedoctor's loopback status page and CLI, when an operator runs `hivedoctor status`, then the output reports every registered daemon's health, not just one."
+- AC-3: "Given hive is registered and healthy, when the device boots, then hive serves the unified dashboard on its port without waiting for any workload daemon to be healthy."
+- AC-4: "Given hive is updateable independently of doctor, when hive is upgraded, then doctor's process is not restarted and its own supervisor instances keep running."
+- AC-5: "Given a new workload daemon ships, when its installer runs, then the installer appends one entry to the registry file and does NOT touch doctor's code or restart doctor to register."
+- AC-6: "Given doctor's loopback status page and CLI, when an operator runs `doctor status`, then the output reports every registered daemon's health, not just one."
 
 **Can start independently?** 004a: yes, after 001 (which is locked). 004b/004c: gated by 004a. 004d: gated by 004c (authored + QA-passed; no authoring gate remains).
 
-**Blockers / gaps:** none at the file level (004d is authored + QA-passed; B-2 / D-3). Registry file path `~/.honeycomb/hivedoctor.daemons.json` and thehive port 3853 are inherited defaults pending confirmation; 004d's thehive service-unit-name flags await sign-off (subsumed by B-7).
+**Blockers / gaps:** none at the file level (004d is authored + QA-passed; B-2 / D-3). Registry file path `~/.honeycomb/doctor.daemons.json` and hive port 3853 are inherited defaults pending confirmation; 004d's hive service-unit-name flags await sign-off (subsumed by B-7).
 
-**DEFAULT-confirm flags carried:** registry file path and per-daemon schema (via 003 AC-4 and 004a), thehive port 3853 and PID/lock paths (from PRD-001), thehive service unit names (004d, when authored).
+**DEFAULT-confirm flags carried:** registry file path and per-daemon schema (via 003 AC-4 and 004a), hive port 3853 and PID/lock paths (from PRD-001), hive service unit names (004d, when authored).
 
 ---
 
-### PRD-005 - Source Graph catalog tables and lazy schema healing
+### PRD-005 - Hive Graph catalog tables and lazy schema healing
 
-- **Locus:** DATA (honeycomb repo). It registers two `CatalogTable` entries appended to the honeycomb `CATALOG` aggregation. Source: [`prd-005 index`](./completed/prd-005-source-graph-catalog-tables/prd-005-source-graph-catalog-tables-index.md) Goals.
+- **Locus:** DATA (honeycomb repo). It registers two `CatalogTable` entries appended to the honeycomb `CATALOG` aggregation. Source: [`prd-005 index`](./completed/prd-005-hive-graph-catalog-tables/prd-005-hive-graph-catalog-tables-index.md) Goals.
 - **Authored:** yes. **QA:** pending. **Effort:** S. **Priority:** P0. **Role:** root of the data pipeline.
 
 **Upstream dependencies:**
@@ -178,24 +178,24 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 **Sub-PRDs and micro-dependencies:**
 
-- `prd-005a-source-graph-table`: the identity + provenance ColumnDef[] + CatalogTable entry. No intra-set dep beyond 001's tenancy contract.
-- `prd-005b-source-graph-versions-table`: the append-only ColumnDef[] + CatalogTable entry + the nullable 768-dim `embedding` column. This is the column PRD-013's semantic arm and PRD-014 tie to.
+- `prd-005a-hive-graph-table`: the identity + provenance ColumnDef[] + CatalogTable entry. No intra-set dep beyond 001's tenancy contract.
+- `prd-005b-hive-graph-versions-table`: the append-only ColumnDef[] + CatalogTable entry + the nullable 768-dim `embedding` column. This is the column PRD-013's semantic arm and PRD-014 tie to.
 - `prd-005c-tenancy-and-project-id-filter`: the `project_id` soft-filter verification against `QueryScope`.
 
 **Acceptance criteria (verbatim, as authored checklist):**
 
-- "Both DDL blocks from `source-graph-schema.md` appear verbatim in 005a/005b; every column name and SQL type cross-checks against the source."
+- "Both DDL blocks from `hive-graph-schema.md` appear verbatim in 005a/005b; every column name and SQL type cross-checks against the source."
 - "Each table's `ColumnDef[]` array satisfies the load-time guard (`schema.ts:80-100`): valid identifiers, no duplicates, and every `NOT NULL` column carries a `DEFAULT` (or is nullable, for the versions `embedding`)."
 - "Both `CatalogTable` records declare `scope: tenant` and the columns carry `org_id` / `workspace_id` / `project_id`, mirroring `CODEBASE_COLUMNS`."
-- "The `source-graph` catalog group is appended to `CATALOG`, so `REGISTRY` (`buildRegistry(CATALOG)`) picks up both tables' write patterns."
-- "Both tables self-create on first write through `withHeal`; no DDL pre-step exists in the hivenectar boot sequence."
+- "The `hive-graph` catalog group is appended to `CATALOG`, so `REGISTRY` (`buildRegistry(CATALOG)`) picks up both tables' write patterns."
+- "Both tables self-create on first write through `withHeal`; no DDL pre-step exists in the nectar boot sequence."
 - "`project_id` is documented as a soft `WHERE` column filter inside the workspace partition, verified against `QueryScope` which carries only `org` + `workspace`."
 
 **Can start independently?** Yes, after 001 (locked) and its own QA pass. It is the earliest data-layer work.
 
 **Blockers / gaps:** none beyond QA-pending. C-2 in the QA report notes two corpus/PRD disagreements in PRD-005/PRD-006 territory (the `confidence` column and the `skipped-deleted` enum) remain open corpus edits.
 
-**DEFAULT-confirm flags carried:** catalog group name `source-graph`; WritePattern for each table (`update-or-insert` / `append-only`); CatalogScope `tenant`.
+**DEFAULT-confirm flags carried:** catalog group name `hive-graph`; WritePattern for each table (`update-or-insert` / `append-only`); CatalogScope `tenant`.
 
 ---
 
@@ -207,7 +207,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 | Dep | Type | Reason (grounded) |
 |---|---|---|
-| 005 | HARD | The protocol writes the `source_graph` / `source_graph_versions` rows PRD-005 owns. prd-006 index Non-Goals: "The tables this protocol writes - PRD-005." |
+| 005 | HARD | The protocol writes the `hive_graph` / `hive_graph_versions` rows PRD-005 owns. prd-006 index Non-Goals: "The tables this protocol writes - PRD-005." |
 | 002 | HARD | The worker loop that runs the intake + ladder is PRD-002's; prd-006 index Non-Goals: "The daemon process, worker harness ... - PRD-002 (this PRD specifies the algorithm the worker runs)." |
 
 **Downstream dependents:** 007 (SOFT: brooding reuses the ladder's `git ls-files` discovery), 016 (HARD: the enricher consumes the version rows re-association appends).
@@ -223,9 +223,9 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 - "The watcher is `node:fs.watch` (directory-level) + `setTimeout`/`clearTimeout` debounce; `chokidar` is NOT a dependency."
 - "The classification (006b) maps every debounced path to exactly one of: new path ... changed path ... or missing path ... the three inputs the ladder consumes."
-- "The copy detector (006c) mints a fresh nectar N2 and sets `source_graph.derived_from_nectar = N1` + `fork_content_hash = H1` when a new path's content matches an existing file's current content."
+- "The copy detector (006c) mints a fresh nectar N2 and sets `hive_graph.derived_from_nectar = N1` + `fork_content_hash = H1` when a new path's content matches an existing file's current content."
 - "The ladder (006d) carries all 5 steps verbatim ... (1) path+mtime+size exact, (2) path match + content changed, (3) exact content-hash match to a missing file, (4) TLSH fuzzy match to a missing file, (5) mint new - first match wins."
-- "Step-4 fuzzy matches carry a `confidence` field; matches below the high-confidence band are surfaced to `honeycomb hivenectar review-matches` for human confirmation, NOT auto-claimed."
+- "Step-4 fuzzy matches carry a `confidence` field; matches below the high-confidence band are surfaced to `honeycomb nectar review-matches` for human confirmation, NOT auto-claimed."
 - "The TLSH confidence threshold is configurable and empirically tuned; no numeric threshold is pinned (deliberate spec gap preserved)."
 - "The `review-matches` command is specified; its accept/reject flag syntax is flagged as a default-pending-implementation, not invented."
 - "Pruning is a separate, explicit, human-triggered operation ... 30-day grace default; the ladder never deletes or reuses nectars."
@@ -246,14 +246,14 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 | Dep | Type | Reason (grounded) |
 |---|---|---|
-| 005 | HARD | Writes `source_graph` + `source_graph_versions`. prd-007 index Non-Goals + Related. |
+| 005 | HARD | Writes `hive_graph` + `hive_graph_versions`. prd-007 index Non-Goals + Related. |
 | 002 | HARD | The worker (002b) drives brooding; the CLI (002c) invokes it. prd-007 index Non-Goals. |
 | 010 | HARD | "batched or solo LLM calls through Portkey (model choice + transport owned by PRD-010)." The describe step cannot run or be AC-verified without the Portkey routing. prd-007 index Overview + Non-Goals. |
 | 014 | HARD | "embed `title + ' ' + description` (provider owned by PRD-014)." The embed step depends on the provider switch. prd-007 index Overview + Non-Goals. |
 | 011 | HARD | Brooding is trigger #1 for the projection; it "regenerate `.honeycomb/nectars.json` (owned by PRD-011)." prd-007 index Overview. |
 | 006 | SOFT | Reuses the ladder's `git ls-files` discovery (shared with cold-catch-up). prd-007 index Non-Goals + Related. |
 
-**Downstream dependents:** 008 (HARD: the `/api/source-graph/build` endpoint triggers a brood), 013 (SOFT: real recall hits need brooded rows), 016 (SOFT: enricher is everything after brooding; shares discovery + populates the same tables).
+**Downstream dependents:** 008 (HARD: the `/api/hive-graph/build` endpoint triggers a brood), 013 (SOFT: real recall hits need brooded rows), 016 (SOFT: enricher is everything after brooding; shares discovery + populates the same tables).
 
 **Sub-PRDs and micro-dependencies:**
 
@@ -268,7 +268,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 - "A file whose `content_hash` matches a committed projection entry inherits its nectar + description and makes no LLM call - the fresh-clone shortcut."
 - "The four buckets and their thresholds match `brooding-pipeline.md` exactly: skip-binary ... skip-too-large (`> 256 KB`), batch (`<= 4 KB`/file, `<= 100 KB`/batch, 30-50 files/call), solo (`> 4 KB` but `<= 256 KB`)."
 - "The cost math is carried verbatim - ~$3.05/2000 files = $0.65 input + $2.40 output; ~2.15M input tokens; ~318 calls ..."
-- "Brooding is resumable via `source_graph_versions.describe_status` with no lockfile and no partial-state marker ..."
+- "Brooding is resumable via `hive_graph_versions.describe_status` with no lockfile and no partial-state marker ..."
 - "`brood --dry-run` runs discovery + bucketing, prints the estimated call count + cost, and exits without any LLM call."
 - "Brooding does not block daemon readiness and runs in the background after the daemon accepts requests."
 
@@ -280,7 +280,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 ---
 
-### PRD-008 - Hivenectar daemon API endpoints
+### PRD-008 - Nectar daemon API endpoints
 
 - **Locus:** IN-BAND. **Authored:** yes. **QA:** pending. **Effort:** L (1-3d). **Priority:** P1.
 
@@ -289,31 +289,31 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 | Dep | Type | Reason (grounded) |
 |---|---|---|
 | 002 | HARD | The route group mounts on the daemon PRD-002 produces; prd-008 index "attaches handlers to a group PRD-002 mounts." |
-| 005 | HARD | The endpoints read/write the `source_graph` / `source_graph_versions` tables. prd-008 index Non-Goals + Related. |
+| 005 | HARD | The endpoints read/write the `hive_graph` / `hive_graph_versions` tables. prd-008 index Non-Goals + Related. |
 | 012 | HARD | The search endpoint (008b) "delegates to PRD-012's search engine." prd-008 index Overview + AC. This is a co-dependency: 008b mounts 012's engine, 012b's endpoint is the handler 008b mounts (they land together). |
-| 007 | HARD | `/api/source-graph/build` triggers a brood (the PRD-007 pipeline). prd-008 index Non-Goals: "008c owns the `build` endpoint that triggers a brood." |
+| 007 | HARD | `/api/hive-graph/build` triggers a brood (the PRD-007 pipeline). prd-008 index Non-Goals: "008c owns the `build` endpoint that triggers a brood." |
 
-**Downstream dependents:** 015 (HARD: the dashboard page fetches these endpoints), 004c (SOFT-runtime: thehive's aggregation `wire` binds to these endpoints).
+**Downstream dependents:** 015 (HARD: the dashboard page fetches these endpoints), 004c (SOFT-runtime: hive's aggregation `wire` binds to these endpoints).
 
 **Sub-PRDs and micro-dependencies:**
 
 - `prd-008a-route-group-scaffolding`: depends on 002 (the Hono app + `ROUTE_GROUPS` scaffolding).
-- `prd-008b-search-endpoint`: co-dependent with 012 (mounts `searchSourceGraph`).
+- `prd-008b-search-endpoint`: co-dependent with 012 (mounts `searchHiveGraph`).
 - `prd-008c-build-status-projection-endpoints`: depends on 007 (build), 016/enricher status (via the `describe_status` counts), and 011 (projection read/regenerate).
 
 **Acceptance criteria (verbatim, selected authored checklist items):**
 
-- "The hivenectar daemon mounts a `/api/source-graph` route group in its `ROUTE_GROUPS`-equivalent list (`protect: true`) ..."
-- "A `mountSourceGraphApi(daemon, options)` module attaches handlers to `daemon.group("/api/source-graph")` once after `createDaemon(...)`, mirroring `mountGraphApi` ..."
-- "Every `/api/source-graph/*` endpoint inherits the daemon's permission middleware ... an unfilled path returns the root 501 scaffold ..."
-- "`/api/source-graph/search` delegates to PRD-012's search engine and returns the same result shape the CLI emits ..."
-- "`/api/source-graph/build`, `/api/source-graph/status`, and the projection read/regenerate endpoints resolve scope per-request ... and reach storage solely through the injected storage client."
+- "The nectar daemon mounts a `/api/hive-graph` route group in its `ROUTE_GROUPS`-equivalent list (`protect: true`) ..."
+- "A `mountHiveGraphApi(daemon, options)` module attaches handlers to `daemon.group("/api/hive-graph")` once after `createDaemon(...)`, mirroring `mountGraphApi` ..."
+- "Every `/api/hive-graph/*` endpoint inherits the daemon's permission middleware ... an unfilled path returns the root 501 scaffold ..."
+- "`/api/hive-graph/search` delegates to PRD-012's search engine and returns the same result shape the CLI emits ..."
+- "`/api/hive-graph/build`, `/api/hive-graph/status`, and the projection read/regenerate endpoints resolve scope per-request ... and reach storage solely through the injected storage client."
 
 **Can start independently?** No. **Gated by:** 002, 005; co-develops with 012; needs 007 for the build endpoint's downstream behavior.
 
 **Blockers / gaps:** QA-pending. The brief listed a SOFT dependency 008 -> 013; the authored PRD-008 declares PRD-013 a Non-Goal and explicitly distinct (D-7). No 008 -> 013 edge is encoded.
 
-**DEFAULT-confirm flags carried:** route group path `/api/source-graph` with session-protect middleware.
+**DEFAULT-confirm flags carried:** route group path `/api/hive-graph` with session-protect middleware.
 
 ---
 
@@ -334,7 +334,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 **Acceptance criteria (verbatim, module-level):**
 
-- AC-1: "The decision record states, in present tense, that Hivenectar ships no harness hooks/connectors/hook-config and gains exposure solely through PRD-013's recall arm ..."
+- AC-1: "The decision record states, in present tense, that Nectar ships no harness hooks/connectors/hook-config and gains exposure solely through PRD-013's recall arm ..."
 - AC-2: "The PRD maps each of the three priority harnesses (Claude Code, Codex, Cursor) to (a) its connector ... (b) its hook-config/handler seam ... and (c) the single `recallMemories` call site that serves it ..."
 - AC-3: "The PRD cites the exact insertion point (`recall.ts:2113-2118` `arms` array) PRD-013 extends ..."
 - AC-4: "The PRD states the deploy-time tenancy invariant ... and cites PRD-001c as the owner, and names the failure mode ..."
@@ -350,7 +350,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 ### PRD-010 - Portkey gateway integration
 
-- **Locus:** STRADDLE. New routing/config logic the hivenectar daemon consumes, reusing honeycomb's shipped Portkey transport. Source: prd-010 index Overview.
+- **Locus:** STRADDLE. New routing/config logic the nectar daemon consumes, reusing honeycomb's shipped Portkey transport. Source: prd-010 index Overview.
 - **Authored:** yes. **QA:** pending. **Effort:** M (3-8h). **Priority:** P1.
 
 **Upstream dependencies:**
@@ -358,7 +358,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 | Dep | Type | Reason (grounded) |
 |---|---|---|
 | 002 | HARD | The daemon makes the brooding/enricher calls; the routing is exercised inside the daemon. prd-010 index Overview (brooding + enricher calls). |
-| 005 | SOFT | Populates the `describe_model` audit column on `source_graph_versions`, owned by PRD-005. prd-010 index Data model changes. |
+| 005 | SOFT | Populates the `describe_model` audit column on `hive_graph_versions`, owned by PRD-005. prd-010 index Data model changes. |
 
 **Downstream dependents:** 007 (HARD: brooding LLM calls route through Portkey), 016 (HARD: enricher model calls route through Portkey).
 
@@ -373,7 +373,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 - AC-1: "Given Portkey is enabled + keyed, when the brooding/enricher call runs, then it POSTs `https://api.portkey.ai/v1/chat/completions` with the `x-portkey-api-key` + `x-portkey-config` headers from `buildPortkeyHeaders`."
 - AC-2: "Given no explicit model is set, when a description is generated, then the requested model resolves to Gemini 2.5 Flash (`activeModel` default)."
 - AC-3: "Given the operator runs `brood --force --model <new>`, then every non-skipped row is reset to `pending` and re-described under the new model, with `describe_model` stamped to the new id."
-- AC-4: "Given any description is produced, then the `source_graph_versions.describe_model` column records the model that produced it."
+- AC-4: "Given any description is produced, then the `hive_graph_versions.describe_model` column records the model that produced it."
 - AC-5: "Given semantic caching / guardrails are in effect, then no client vault key enables or disables either; both are Portkey-server-side via the `portkey.config` id (DECISION #6)."
 
 **Can start independently?** No (needs 002). It should land no later than 007/016, which depend on it (D-6).
@@ -392,7 +392,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 | Dep | Type | Reason (grounded) |
 |---|---|---|
-| 005 | HARD | The projection denormalizes the latest described version per nectar from the `source_graph` / `source_graph_versions` tables. prd-011 index Data model changes + Related. |
+| 005 | HARD | The projection denormalizes the latest described version per nectar from the `hive_graph` / `hive_graph_versions` tables. prd-011 index Data model changes + Related. |
 | 002 | HARD | The daemon writes the projection atomically and validates it on load. prd-011 index Goals (atomic write, validation-on-load); the CLI extends PRD-002c. |
 
 **Downstream dependents (co-dependent triggers):** 007 (trigger #1: end of brooding), 016 (trigger #2: end of an enricher cycle that wrote new descriptions). 007 and 016 invoke 011's writer; 011's triggers #1/#2 are sourced from 007/016. They co-develop: 011's atomic-write primitive must exist for 007's end-of-brood trigger.
@@ -407,11 +407,11 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 - AC-1: "Given brooding completes, then a complete `.honeycomb/nectars.json` is written atomically (temp + rename) at the project root."
 - AC-2: "Given an enricher cycle writes one or more new descriptions, then the projection is rewritten atomically with the newly-described versions substituted in."
-- AC-3: "Given the operator runs `honeycomb hivenectar rebuild-projection`, then the file is regenerated from a single `source_graph_versions` scan ... and written atomically."
+- AC-3: "Given the operator runs `honeycomb nectar rebuild-projection`, then the file is regenerated from a single `hive_graph_versions` scan ... and written atomically."
 - AC-4: "Given the daemon loads a projection whose `version` exceeds its own schema version, then the projection is ignored with a warning and the daemon falls back to full brooding."
 - AC-5: "Given the daemon loads a projection whose `project.org_id`/`workspace_id`/`project_id` does not match the current context, then the projection is ignored with a warning and never partially loaded."
 - AC-6: "Given a fresh clone with a current projection, when the daemon boots, then every file whose content hash matches the projection inherits its nectar and description with zero LLM calls and zero fuzzy matches ..."
-- AC-7: "Given `honeycomb hivenectar rebuild-projection`, then the output is byte-identical to the source-of-truth projection modulo `generated_at`."
+- AC-7: "Given `honeycomb nectar rebuild-projection`, then the output is byte-identical to the source-of-truth projection modulo `generated_at`."
 
 **Can start independently?** No. **Gated by:** 005, 002. Its writer must precede 007/016's end-of-cycle triggers.
 
@@ -421,43 +421,43 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 ---
 
-### PRD-012 - Manual Source Graph search
+### PRD-012 - Manual Hive Graph search
 
-- **Locus:** IN-BAND (the `searchSourceGraph` engine + `hivenectar search` CLI). **Authored:** yes. **QA:** pending. **Effort:** M (3-8h). **Priority:** P2.
+- **Locus:** IN-BAND (the `searchHiveGraph` engine + `nectar search` CLI). **Authored:** yes. **QA:** pending. **Effort:** M (3-8h). **Priority:** P2.
 
 **Upstream dependencies:**
 
 | Dep | Type | Reason (grounded) |
 |---|---|---|
-| 005 | HARD | Reads `source_graph_versions` (latest described version per nectar). prd-012 index Overview + Related. |
+| 005 | HARD | Reads `hive_graph_versions` (latest described version per nectar). prd-012 index Overview + Related. |
 | 014 | HARD | The semantic arm embeds the query via the embed client PRD-014 owns; when embeddings are off, only the lexical arm runs. prd-012 index Overview + Non-Goals. |
-| 008 | HARD (co-dependent) | The `/api/source-graph/search` endpoint is the handler PRD-008b mounts; 012b specifies the endpoint that 008b hosts. They land together. prd-012 index Overview + Non-Goals. |
+| 008 | HARD (co-dependent) | The `/api/hive-graph/search` endpoint is the handler PRD-008b mounts; 012b specifies the endpoint that 008b hosts. They land together. prd-012 index Overview + Non-Goals. |
 
 **Downstream dependents:** 008 (008b mounts the engine), 015 (the dashboard search box calls the endpoint).
 
 **Sub-PRDs and micro-dependencies:**
 
-- `prd-012a-lexical-semantic-search-over-source-graph`: depends on 005 (table) + 014 (query vector). Independently mirrors the honeycomb `recall.ts` arm builders (this is a shared pattern with PRD-013, not a dependency on it; see D-7).
+- `prd-012a-lexical-semantic-search-over-hive-graph`: depends on 005 (table) + 014 (query vector). Independently mirrors the honeycomb `recall.ts` arm builders (this is a shared pattern with PRD-013, not a dependency on it; see D-7).
 - `prd-012b-cli-and-endpoint`: co-dependent with 008b (the endpoint handler) and depends on 012a (the engine).
 
 **Acceptance criteria (verbatim, selected authored checklist items):**
 
-- "The `searchSourceGraph` engine runs a guarded lexical arm over `title + ' ' + description + ' ' + concepts` and, when embeddings are available, a guarded `<#>` vector arm over `embedding`, both scoped by `org_id`/`workspace_id`/`project_id` and filtered to the latest described version per nectar."
+- "The `searchHiveGraph` engine runs a guarded lexical arm over `title + ' ' + description + ' ' + concepts` and, when embeddings are available, a guarded `<#>` vector arm over `embedding`, both scoped by `org_id`/`workspace_id`/`project_id` and filtered to the latest described version per nectar."
 - "The engine applies the latest-per-nectar subquery (`MAX(seq)` join) and the `describe_status = 'described'` filter ..."
 - "Every identifier routes through `sqlIdent` and the search term through `sqlLike` ... no value is hand-quoted."
-- "A missing `source_graph_versions` table (fresh workspace) degrades to `{ hits: [], sources: [], degraded: true }`, never a 500 ..."
+- "A missing `hive_graph_versions` table (fresh workspace) degrades to `{ hits: [], sources: [], degraded: true }`, never a 500 ..."
 - "When embeddings are off / the query embed returns null, the engine runs the lexical arm only and returns `degraded: true` ..."
-- "`hivenectar search <query>` (CLI) and `/api/source-graph/search` (endpoint) return the identical result shape (two clients of the one engine)."
+- "`nectar search <query>` (CLI) and `/api/hive-graph/search` (endpoint) return the identical result shape (two clients of the one engine)."
 
 **Can start independently?** No. **Gated by:** 005, 014; co-develops with 008b.
 
 **Blockers / gaps:** QA-pending.
 
-**DEFAULT-confirm flags carried:** search result default LIMIT 20; CLI command `hivenectar search <query>` (proposed).
+**DEFAULT-confirm flags carried:** search result default LIMIT 20; CLI command `nectar search <query>` (proposed).
 
 ---
 
-### PRD-013 - Recall arm: add source_graph_versions to the fused recall
+### PRD-013 - Recall arm: add hive_graph_versions to the fused recall
 
 - **Locus:** DATA (honeycomb repo; extends `honeycomb/src/daemon/runtime/memories/recall.ts`). **Authored:** yes. **QA:** pending. **Effort:** M. **Priority:** P0. **Role:** the load-bearing agent-facing integration.
 
@@ -465,7 +465,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 | Dep | Type | Reason (grounded) |
 |---|---|---|
-| 005 | HARD | Reads the `source_graph_versions` table (PRD-005b). prd-013 index Overview + Non-Goals. |
+| 005 | HARD | Reads the `hive_graph_versions` table (PRD-005b). prd-013 index Overview + Non-Goals. |
 | 014 | HARD | The semantic arm scores the 768-dim `embedding` column PRD-014 produces; 013c is a BM25-only fallback, so the arm is partial without 014. prd-013 index Goals + Non-Goals + Related. |
 | 007 / 016 | SOFT (data presence) | The arm code needs only the table to pass its fail-soft ACs, but end-to-end value (real hits for "where is the login logic") needs brooded/enriched rows. |
 
@@ -479,26 +479,26 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 **Acceptance criteria (verbatim, selected authored checklist items):**
 
-- "`"source_graph_versions"` is a member of the `RecallSource` union (`recall.ts:169`); `readSource` recognizes it (rather than defaulting it to `"sessions"`)."
-- "`buildSourceGraphVersionsArmSql` mirrors `buildMemoriesArmSql` ... every identifier routes through `sqlIdent`, the search term through `sqlLike` ..."
+- "`"hive_graph_versions"` is a member of the `RecallSource` union (`recall.ts:169`); `readSource` recognizes it (rather than defaulting it to `"sessions"`)."
+- "`buildHiveGraphVersionsArmSql` mirrors `buildMemoriesArmSql` ... every identifier routes through `sqlIdent`, the search term through `sqlLike` ..."
 - "The lexical arm carries the latest-per-nectar `MAX(seq)` subquery, the `describe_status = 'described'` filter, and the `project_id` conjunct ..."
-- "`ARM_CLASS_WEIGHT` scores `source_graph_versions` as the distilled `memory` class ...; the RRF contribution is `1.0 / (RRF_K + rank)`."
+- "`ARM_CLASS_WEIGHT` scores `hive_graph_versions` as the distilled `memory` class ...; the RRF contribution is `1.0 / (RRF_K + rank)`."
 - "The arm runs in the `Promise.all` ... and is appended to the `arms` array ...; its hits fuse with the other three via `fuseHits`."
-- "Given an injected `EmbedClient` whose query embed is a 768-dim vector, a `source_graph_versions` semantic-arm spec in `SEMANTIC_ARMS` runs `<#>` cosine over `embedding` ..."
+- "Given an injected `EmbedClient` whose query embed is a 768-dim vector, a `hive_graph_versions` semantic-arm spec in `SEMANTIC_ARMS` runs `<#>` cosine over `embedding` ..."
 - "Given embeddings are off ... the lexical arm runs alone and `degraded` is `true` - no error, no quality cliff ..."
-- "Given the `source_graph_versions` table is absent ... the arm returns empty for that arm only; the `memories`/`memory`/`sessions` arms still answer - the per-arm fail-soft contract holds."
+- "Given the `hive_graph_versions` table is absent ... the arm returns empty for that arm only; the `memories`/`memory`/`sessions` arms still answer - the per-arm fail-soft contract holds."
 
 **Can start independently?** No. **Gated by:** 005, 014 (code); real-hit verification needs data from 007/016.
 
 **Blockers / gaps:** QA-pending. The prd-013 index cross-links PRD-009 with a stale folder slug (D-8).
 
-**DEFAULT-confirm flags carried:** `ARM_CLASS_WEIGHT` for `source_graph_versions` = 1.0; the arm's per-arm LIMIT (matches the clamped caller limit, default 20).
+**DEFAULT-confirm flags carried:** `ARM_CLASS_WEIGHT` for `hive_graph_versions` = 1.0; the arm's per-arm LIMIT (matches the clamped caller limit, default 20).
 
 ---
 
 ### PRD-014 - Embeddings provider switching
 
-- **Locus:** STRADDLE. The `EmbedProvider` switch the hivenectar daemon consumes; the Cohere path is modeled on honeycomb's `honeycomb/src/daemon/runtime/recall/rerank-portkey.ts`; it abstracts the hard-wired nomic consts at `honeycomb/embeddings/src/index.ts`. Exact repo placement is a design point to confirm. Source: prd-014 index Overview + MASTER-PRD-INDEX decision #5.
+- **Locus:** STRADDLE. The `EmbedProvider` switch the nectar daemon consumes; the Cohere path is modeled on honeycomb's `honeycomb/src/daemon/runtime/recall/rerank-portkey.ts`; it abstracts the hard-wired nomic consts at `honeycomb/embeddings/src/index.ts`. Exact repo placement is a design point to confirm. Source: prd-014 index Overview + MASTER-PRD-INDEX decision #5.
 - **Authored:** yes. **QA:** pending. **Effort:** M (3-8h). **Priority:** P1.
 
 **Upstream dependencies:**
@@ -531,42 +531,42 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 ---
 
-### PRD-015 - Dashboard Source Graph page
+### PRD-015 - Dashboard Hive Graph page
 
-- **Locus:** OOB-THEHIVE (route registry + page component land in thehive, a honeycomb-repo daemon per PRD-004c). **Authored:** yes. **QA:** pending. **Effort:** M (3-8h). **Priority:** P1. **Role:** terminal consumer.
+- **Locus:** OOB-HIVE (route registry + page component land in hive, a honeycomb-repo daemon per PRD-004c). **Authored:** yes. **QA:** pending. **Effort:** M (3-8h). **Priority:** P1. **Role:** terminal consumer.
 
 **Upstream dependencies:**
 
 | Dep | Type | Reason (grounded) |
 |---|---|---|
-| 004c | HARD | The page is hosted by thehive; its `RouteEntry` lands in the shared `ROUTES` list thehive reads. prd-015 index Overview + Non-Goals. |
-| 008 | HARD | The page hydrates from hivenectar's `/api/source-graph/*` endpoints through thehive's aggregation `wire`. prd-015 index Goals + AC-5. |
-| 012 | HARD | The search box calls `/api/source-graph/search` with PRD-012's semantics. prd-015 index Goals + AC-4. |
-| 005 | SOFT | Reads `derived_from_nectar` from the `source_graph` table as the file-graph edge source. prd-015 index Non-Goals + Data model changes. |
+| 004c | HARD | The page is hosted by hive; its `RouteEntry` lands in the shared `ROUTES` list hive reads. prd-015 index Overview + Non-Goals. |
+| 008 | HARD | The page hydrates from nectar's `/api/hive-graph/*` endpoints through hive's aggregation `wire`. prd-015 index Goals + AC-5. |
+| 012 | HARD | The search box calls `/api/hive-graph/search` with PRD-012's semantics. prd-015 index Goals + AC-4. |
+| 005 | SOFT | Reads `derived_from_nectar` from the `hive_graph` table as the file-graph edge source. prd-015 index Non-Goals + Data model changes. |
 
 **Downstream dependents:** none (terminal).
 
 **Sub-PRDs and micro-dependencies:**
 
-- `prd-015a-route-registry-and-sourcegraphpage`: depends on 004c (thehive host + the shared `ROUTES` list).
+- `prd-015a-route-registry-and-hivegraphpage`: depends on 004c (hive host + the shared `ROUTES` list).
 - `prd-015b-file-graph-visualization`: depends on 005 (the `derived_from_nectar` column) + 008 (the file-graph payload endpoint).
-- `prd-015c-search-box-and-status-widgets`: depends on 012 (search) + 008 (status/build) via thehive aggregation.
+- `prd-015c-search-box-and-status-widgets`: depends on 012 (search) + 008 (status/build) via hive aggregation.
 
 **Acceptance criteria (verbatim, module-level):**
 
-- AC-1: "Given thehive is running and serving the shared `ROUTES` list ..., when the operator navigates to `/source-graph`, then the `SourceGraphPage` mounts via `matchRoute` and a "Source Graph" nav item appears in the sidebar - added by ONE `RouteEntry`, with no sidebar or router hand-edit."
-- AC-2: "Given `SourceGraphPage` takes the shared `PageProps` ..., when it mounts, then it hydrates via the shared `wire` + `usePoll` recipe ... mirroring `GraphPage`."
+- AC-1: "Given hive is running and serving the shared `ROUTES` list ..., when the operator navigates to `/hive-graph`, then the `HiveGraphPage` mounts via `matchRoute` and a "Hive Graph" nav item appears in the sidebar - added by ONE `RouteEntry`, with no sidebar or router hand-edit."
+- AC-2: "Given `HiveGraphPage` takes the shared `PageProps` ..., when it mounts, then it hydrates via the shared `wire` + `usePoll` recipe ... mirroring `GraphPage`."
 - AC-3: "Given the file-graph panel, when it renders, then each node is a nectar (a file) and each edge is a `derived_from_nectar` provenance link ..."
-- AC-4: "Given the search box, when the operator submits a query, then it calls hivenectar's `/api/source-graph/search` (PRD-012) through thehive's aggregation `wire`, and the file graph highlights / filters to matching nectars."
-- AC-5: "Given the status/queue/cost widgets, when the page hydrates, then they read hivenectar's `/api/source-graph/status` + `/build` (PRD-008) ..."
-- AC-6: "Given hivenectar is down but thehive is up, when the operator opens `/source-graph`, then thehive renders the shell + page chrome with the source marked unreachable, rather than blanking the dashboard."
-- AC-7: "Given the codebase-graph density failure ..., when the Source Graph is added, then it is a NEW route (`/source-graph`), NOT a third graph on `/graph` ..."
+- AC-4: "Given the search box, when the operator submits a query, then it calls nectar's `/api/hive-graph/search` (PRD-012) through hive's aggregation `wire`, and the file graph highlights / filters to matching nectars."
+- AC-5: "Given the status/queue/cost widgets, when the page hydrates, then they read nectar's `/api/hive-graph/status` + `/build` (PRD-008) ..."
+- AC-6: "Given nectar is down but hive is up, when the operator opens `/hive-graph`, then hive renders the shell + page chrome with the source marked unreachable, rather than blanking the dashboard."
+- AC-7: "Given the codebase-graph density failure ..., when the Hive Graph is added, then it is a NEW route (`/hive-graph`), NOT a third graph on `/graph` ..."
 
 **Can start independently?** No. **Gated by:** 004c, 008, 012. It is the deepest terminal consumer in the graph.
 
-**Blockers / gaps:** QA-pending. The boot-on-start thehive host depends on 004c + 004d, both of which are authored and QA-passed; no file-level blocker remains.
+**Blockers / gaps:** QA-pending. The boot-on-start hive host depends on 004c + 004d, both of which are authored and QA-passed; no file-level blocker remains.
 
-**DEFAULT-confirm flags carried:** route `/source-graph`; page label `Source Graph`; icon (pick from thehive's icon set at implementation).
+**DEFAULT-confirm flags carried:** route `/hive-graph`; page label `Hive Graph`; icon (pick from hive's icon set at implementation).
 
 ---
 
@@ -579,7 +579,7 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 | Dep | Type | Reason (grounded) |
 |---|---|---|
 | 002 | HARD | Runs as a background loop inside the hiveantennae daemon. prd-016 index Overview. |
-| 005 | HARD | Operates on the `source_graph_versions` rows (reads/updates `describe_status`, `describe_model`, embeddings). prd-016 index Data model changes. |
+| 005 | HARD | Operates on the `hive_graph_versions` rows (reads/updates `describe_status`, `describe_model`, embeddings). prd-016 index Data model changes. |
 | 006 | HARD | Consumes the version rows re-association appends; the 500ms watcher intake debounce is the file-registration intake. prd-016 index Non-Goals + AC-2. |
 | 010 | HARD | Each enricher model call routes through Portkey. prd-016 index Non-Goals + AC-5. |
 | 014 | HARD | Embeds `title + ' ' + description` via the configured provider. prd-016 index Non-Goals. |
@@ -591,11 +591,11 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 - `prd-016a-queue-poll-debounce-meaningful-change`: depends on 005 (the pending queue) + 006 (the 500ms intake debounce).
 - `prd-016b-model-call-and-describe-model-audit`: depends on 010 (Portkey transport) + 014 (embed).
-- `prd-016c-failure-handling-persistent-alert`: depends on 008 (SOFT: per-cycle observability surfaces via `/api/source-graph/status`).
+- `prd-016c-failure-handling-persistent-alert`: depends on 008 (SOFT: per-cycle observability surfaces via `/api/hive-graph/status`).
 
 **Acceptance criteria (verbatim, module-level):**
 
-- AC-1: "Given `source_graph_versions` rows with `describe_status = 'pending'`, when the enricher cycle runs, then it selects the latest pending version per nectar (grouped by nectar, ordered by `MIN(observed_at)`) scoped to the project."
+- AC-1: "Given `hive_graph_versions` rows with `describe_status = 'pending'`, when the enricher cycle runs, then it selects the latest pending version per nectar (grouped by nectar, ordered by `MIN(observed_at)`) scoped to the project."
 - AC-2: "Given multiple `(eventType, filename)` events on the same path within the 500ms window, then they collapse to a single "the file at this path changed" signal entering re-association."
 - AC-3: "Given a new version row whose token Jaccard similarity to the prior version is >= 0.85, then the change is deemed cosmetic: the new row inherits the prior `title`/`description`/`concepts`/`embedding` and `describe_model = inherited-from:<prev_content_hash>`, with no LLM call."
 - AC-4: "Given a new version row whose token Jaccard similarity to the prior version is < 0.85, then the change is deemed meaningful and the row enters the pending queue."
@@ -613,30 +613,30 @@ Each profile lists: id and title; locus; authored state; effort and priority (fr
 
 ### PRD-017 - Service check-in and SQLite telemetry emission (added 2026-07, post-scan)
 
-- **Locus:** IN-BAND (hivenectar repo: registry-writer extension + new `src/telemetry/` module + pipeline counter touchpoints). The poll/merge/SSE consumers are OOB: hivedoctor PRD-001/002 and the-hive PRD-005 (both merged on their `main` branches). Source: [`prd-017 index`](./in-work/prd-017-service-checkin-and-sqlite-telemetry/prd-017-service-checkin-and-sqlite-telemetry-index.md) Overview + Non-Goals.
-- **Authored:** yes (index + 017a/017b/017c, 10 module ACs). **Implemented:** yes, merged on hivenectar `main` (`src/telemetry/`, all 10 module ACs verified per the apiary execution ledger). **QA:** on-disk report pending (empty `qa/`). **Lifecycle:** `in-work/`. **Effort:** L (1-3d). **Priority:** P1.
+- **Locus:** IN-BAND (nectar repo: registry-writer extension + new `src/telemetry/` module + pipeline counter touchpoints). The poll/merge/SSE consumers are OOB: doctor PRD-001/002 and hive PRD-005 (both merged on their `main` branches). Source: [`prd-017 index`](./in-work/prd-017-service-checkin-and-sqlite-telemetry/prd-017-service-checkin-and-sqlite-telemetry-index.md) Overview + Non-Goals.
+- **Authored:** yes (index + 017a/017b/017c, 10 module ACs). **Implemented:** yes, merged on nectar `main` (`src/telemetry/`, all 10 module ACs verified per the apiary execution ledger). **QA:** on-disk report pending (empty `qa/`). **Lifecycle:** `in-work/`. **Effort:** L (1-3d). **Priority:** P1.
 
 **Upstream dependencies:**
 
 | Dep | Type | Reason (grounded) |
 |---|---|---|
 | 002 | HARD | The daemon that binds `127.0.0.1:3854`, serves `/health` (`src/health.ts` `PipelineStatus`), and hosts the telemetry writer. Complete. |
-| 003 | HARD | The registry writer this PRD extends (`src/hivedoctor-registry.ts` from the PRD-003/004 registration work) and the install path that invokes it. Complete. |
-| 004a | HARD | The registry schema (`~/.honeycomb/hivedoctor.daemons.json`) the extended entry lands in. Implemented in the hivedoctor repo. |
+| 003 | HARD | The registry writer this PRD extends (`src/doctor-registry.ts` from the PRD-003/004 registration work) and the install path that invokes it. Complete. |
+| 004a | HARD | The registry schema (`~/.honeycomb/doctor.daemons.json`) the extended entry lands in. Implemented in the doctor repo. |
 | 006 / 007 / 016 | SOFT | The pipeline paths the since-restart counters wire into (files registered, nectars minted, descriptions, versions, embeddings). Counter wiring is additive and fail-soft; the 007/016 touchpoints land whenever those PRDs do. Counter identifiers are DEFAULT, confirm before implementation. |
-| hivedoctor ADR-0001 / ADR-0002 | HARD (contract) | The locked telemetry-transport and registration decisions this PRD conforms to (pull-only, local SQLite, WAL, read-only poll, static registry + runtime status). Cross-repo spec source, not in-set work. |
+| doctor ADR-0001 / ADR-0002 | HARD (contract) | The locked telemetry-transport and registration decisions this PRD conforms to (pull-only, local SQLite, WAL, read-only poll, static registry + runtime status). Cross-repo spec source, not in-set work. |
 
-**Downstream dependents:** none in-set. Consumed out of band by hivedoctor's poll/merge (its PRD-001/002) and the-hive's health rail (its PRD-005).
+**Downstream dependents:** none in-set. Consumed out of band by doctor's poll/merge (its PRD-001/002) and hive's health rail (its PRD-005).
 
 **Sub-PRDs and micro-dependencies:**
 
-- `prd-017a-checkin-and-registration`: extends `HivedoctorRegistryEntry` + writer (DB path), writes runtime status (binding time, heartbeat, health from `PipelineStatus`); depends on 002/003.
+- `prd-017a-checkin-and-registration`: extends `DoctorRegistryEntry` + writer (DB path), writes runtime status (binding time, heartbeat, health from `PipelineStatus`); depends on 002/003.
 - `prd-017b-metrics-emission`: since-restart counters to local SQLite (latest-wins snapshot); depends on 017a (the DB) + the pipeline touchpoints (SOFT).
 - `prd-017c-log-emission`: bounded, rotated, verbosity-leveled logs to local SQLite; depends on 017a (the DB).
 
-**Acceptance criteria (module-level, abbreviated; full text in the index):** AC-1 registry entry records the SQLite DB path; AC-2 check-in records binding time + initial health; AC-3 heartbeat advances last-seen; AC-4 hivedoctor observes live metrics by polling, no push; AC-5 logs carry verbosity levels; AC-6 since-restart counters reset on restart while entry + DB path stay stable; AC-7 telemetry failure is fail-soft (never blocks boot or pipeline); AC-8 log store rotates at its bound; AC-9 read-only WAL reads without lock stalls; AC-10 no sensitive data in any row.
+**Acceptance criteria (module-level, abbreviated; full text in the index):** AC-1 registry entry records the SQLite DB path; AC-2 check-in records binding time + initial health; AC-3 heartbeat advances last-seen; AC-4 doctor observes live metrics by polling, no push; AC-5 logs carry verbosity levels; AC-6 since-restart counters reset on restart while entry + DB path stay stable; AC-7 telemetry failure is fail-soft (never blocks boot or pipeline); AC-8 log store rotates at its bound; AC-9 read-only WAL reads without lock stalls; AC-10 no sensitive data in any row.
 
-**Can start independently?** Started and substantially done: the implementation is merged on hivenectar `main` and the poll-side consumers (hivedoctor PRD-001/002, the-hive PRD-005) are merged on their `main` branches, so end-to-end verification is unblocked. What remains to close it: the Wave-0-standard on-disk QA report (empty `qa/`), and the dormant 007/016 counter touchpoints, which activate automatically when those PRDs land (no further 017 wiring needed).
+**Can start independently?** Started and substantially done: the implementation is merged on nectar `main` and the poll-side consumers (doctor PRD-001/002, hive PRD-005) are merged on their `main` branches, so end-to-end verification is unblocked. What remains to close it: the Wave-0-standard on-disk QA report (empty `qa/`), and the dormant 007/016 counter touchpoints, which activate automatically when those PRDs land (no further 017 wiring needed).
 
 **Blockers / gaps:** on-disk QA report pending (B-12). The `descriptionsGenerated`/`embeddingsComputed` counters read 0 in production until PRD-007/016 write described/embedded rows, and the registration pipeline is not yet constructed in the live daemon path (a PRD-006 non-goal inherited, not a 017 defect); both are documented in `src/telemetry/metrics.ts` and the apiary ledger's QA addendum. FR-8 tension is resolved in-PRD: telemetry is operational, non-durable, non-sensitive local SQLite (Node built-in `node:sqlite`, no new dependency), following the honeycomb local-queue precedent; it is not a durable-state sidecar.
 
@@ -669,7 +669,7 @@ HARD edges unless marked (S) for SOFT. "Depends on" = upstream that must precede
 | 014 | 005, 010 (S) | 007, 012, 013, 016 |
 | 015 | 004c, 008, 012, 005 (S) | (none) |
 | 016 | 002, 005, 006, 010, 011, 014 | 011 (co-dependent trigger) |
-| 017 | 002, 003, 004a; 006/007/016 (S counters) | (none in-set; consumed OOB by hivedoctor PRD-001/002 + the-hive PRD-005) |
+| 017 | 002, 003, 004a; 006/007/016 (S counters) | (none in-set; consumed OOB by doctor PRD-001/002 + hive PRD-005) |
 
 ---
 
@@ -680,10 +680,10 @@ flowchart TD
     PRD001["PRD-001 topology (DOC, done)"]
     PRD002["PRD-002 daemon (in-band, in-flight)"]
     PRD003["PRD-003 supervision (in-band)"]
-    PRD004a["PRD-004a hivedoctor registry (OOB hivedoctor)"]
-    PRD004b["PRD-004b hivedoctor status/CLI (OOB hivedoctor)"]
-    PRD004c["PRD-004c thehive portal (OOB thehive)"]
-    PRD004d["PRD-004d thehive service unit (OOB thehive)"]
+    PRD004a["PRD-004a doctor registry (OOB doctor)"]
+    PRD004b["PRD-004b doctor status/CLI (OOB doctor)"]
+    PRD004c["PRD-004c hive portal (OOB hive)"]
+    PRD004d["PRD-004d hive service unit (OOB hive)"]
     PRD005["PRD-005 tables (DATA honeycomb)"]
     PRD006["PRD-006 file registration (in-band)"]
     PRD007["PRD-007 brooding (in-band)"]
@@ -694,7 +694,7 @@ flowchart TD
     PRD012["PRD-012 manual search (in-band)"]
     PRD013["PRD-013 recall arm (DATA honeycomb)"]
     PRD014["PRD-014 embeddings switch (straddle)"]
-    PRD015["PRD-015 dashboard page (OOB thehive, terminal)"]
+    PRD015["PRD-015 dashboard page (OOB hive, terminal)"]
     PRD016["PRD-016 enricher (in-band)"]
     PRD017["PRD-017 check-in + telemetry (in-band, added 2026-07)"]
 
@@ -750,14 +750,14 @@ Each item states the brief's claim, the corpus reality, and the resolution encod
 
 - **D-1 (critical): PRDs 005 to 016 are authored, not unauthored.** Brief: "PRD-005 through PRD-016: NOT AUTHORED ... No folders, no ACs." Reality: all twelve have folders, index files, sub-PRD files, and complete acceptance criteria under `backlog/`; corroborated by the QA report Sections 4b/5/7 and by PRD-001 to PRD-004 cross-links. Resolution: the status snapshot and every profile record the true authored state; the wave plan reframes Wave 0 from "author 005-016" to "QA 005-016 to the 001-004 standard" (they are QA-pending, not unwritten). Files left untouched (another agent's active work).
 - **D-2: PRD-002 double-QA completed, it was not left blocked.** Brief: "the two-model double-QA on PRD-002 was BLOCKED by an external billing error." Reality: the ledger records several dispatch failures on a flapping billing error, then a successful retry; both passes (one on `claude-opus-4-8-thinking-xhigh-fast`, one on `gpt-5.5-medium-fast`) returned PASS at medium-and-above. Resolution: recorded as QA-PASS with the transient-block history noted; the risk register keeps the billing-flakiness as a process risk, not an open PRD-002 blocker.
-- **D-3 (retracted): 004d exists and is QA-passed.** An earlier reading called `prd-004d-thehive-service-unit-and-registration.md` absent. That was a stale-listing error, retracted after a 2026-07-01 disk check: the file is present (9241 bytes, dated 2026-06-30, 8 ACs d-AC-1..d-AC-8) and is covered by the PRD-004 QA-PASS. Resolution: the "absent" claim is withdrawn everywhere; blocker B-2 is downgraded to LOW (residual: its thehive service-unit-name DEFAULT flags await sign-off, subsumed by B-7).
-- **D-4: PRD-003 references 004d.** Confirmed: prd-003 index Non-Goals names "PRD-004c/004d"; the sub-PRDs 003b/003c reference the thehive service unit pattern. Encoded as a note on 003 and as blocker B-2.
+- **D-3 (retracted): 004d exists and is QA-passed.** An earlier reading called `prd-004d-hive-service-unit-and-registration.md` absent. That was a stale-listing error, retracted after a 2026-07-01 disk check: the file is present (9241 bytes, dated 2026-06-30, 8 ACs d-AC-1..d-AC-8) and is covered by the PRD-004 QA-PASS. Resolution: the "absent" claim is withdrawn everywhere; blocker B-2 is downgraded to LOW (residual: its hive service-unit-name DEFAULT flags await sign-off, subsumed by B-7).
+- **D-4: PRD-003 references 004d.** Confirmed: prd-003 index Non-Goals names "PRD-004c/004d"; the sub-PRDs 003b/003c reference the hive service unit pattern. Encoded as a note on 003 and as blocker B-2.
 - **D-5 (observation): PRD-002 lifecycle location.** The brief calls PRD-002 in-progress; per library schema v2, an actively implemented PRD lives in `in-work/`, but PRD-002 is still under `backlog/`. The ledger shows its documentation the-smoker run shipped. Observation only; not corrected here (read-only). Recorded so a driver reconciles lifecycle-location with the "in-flight" claim.
 - **D-6: ordering correction (010/014 before 007/016).** The master index linear order (bottom of `MASTER-PRD-INDEX.md`) lists 010 + 014 after 007 + 011 + 016. But PRD-007 delegates its model call to PRD-010 and its embed to PRD-014, and PRD-016 calls the model via PRD-010 and embeds via PRD-014; their acceptance criteria cannot be verified without 010/014. Resolution: 010 and 014 are encoded as HARD upstream dependencies of 007 and 016; the wave plan lands 010/014 no later than the pipeline PRDs. Presented as a topological refinement, in the same spirit as the master index's own six decisions, not as an error in prior work.
 - **D-7: 008 does not depend on 013.** Brief listed 008 -> 013 (soft). The authored PRD-008 declares PRD-013 a Non-Goal and explicitly distinct ("This PRD's search endpoint is a standalone search tool, distinct from the fused recall arm"). Similarly, PRD-012 and PRD-013 both independently mirror the honeycomb `recall.ts` arm builders; that is a shared pattern, not a 012 -> 013 dependency. Resolution: no 008 -> 013 edge and no 012 -> 013 edge are encoded.
 - **D-8 (RESOLVED 2026-07-02): PRD-013 index stale cross-link to PRD-009.** The prd-013 index Related section linked PRD-009 as `../prd-009-harness-exposure-via-recall-extension/...`, but the folder on disk is `prd-009-harness-exposure-via-recall`. Corrected in the PRD-013 index during the 2026-07-02 planning-doc update.
-- **D-9 (post-scan addition): PRD-017 exists outside the commissioned 003-016 set.** Added 2026-07 (index + 017a/b/c, 10 module ACs), driven by the fleet realignment (hivedoctor ADR-0001/0002) and mirroring honeycomb's PRD-071. It appears in no scan-time analysis; this map, the master index, and the wave plan were extended 2026-07-02 to carry it. Implemented the same day and moved to `in-work/prd-017-service-checkin-and-sqlite-telemetry/` (on-disk QA report still outstanding). Its profile is at the end of Section 4.
-- **D-10 (supersedes the Wave B ledger reading): hivedoctor's multi-daemon registry (004a) is implemented.** The Wave B run recorded 004a/004b implementation as BLOCKED (hivedoctor still single-daemon). The subsequent PRD-003 implementation run found `hivedoctor/src/registry.ts`, `remediation.ts`, and `compose/index.ts` already carrying the multi-daemon registry, per-entry supervisors, and the generic PID guard on hivedoctor's `main`. 004a is implemented. **Update (2026-07-02, later):** 004b is now implemented too; hivedoctor's `main` carries the per-daemon status page (`StatusJson.daemons` + HTML badge rows), the per-daemon CLI `status` blocks (`statusDaemons`), and `logs --daemon`, with tests named `b-AC-1..b-AC-7`. Nothing about PRD-004 remains unverified at the implementation level.
+- **D-9 (post-scan addition): PRD-017 exists outside the commissioned 003-016 set.** Added 2026-07 (index + 017a/b/c, 10 module ACs), driven by the fleet realignment (doctor ADR-0001/0002) and mirroring honeycomb's PRD-071. It appears in no scan-time analysis; this map, the master index, and the wave plan were extended 2026-07-02 to carry it. Implemented the same day and moved to `in-work/prd-017-service-checkin-and-sqlite-telemetry/` (on-disk QA report still outstanding). Its profile is at the end of Section 4.
+- **D-10 (supersedes the Wave B ledger reading): doctor's multi-daemon registry (004a) is implemented.** The Wave B run recorded 004a/004b implementation as BLOCKED (doctor still single-daemon). The subsequent PRD-003 implementation run found `doctor/src/registry.ts`, `remediation.ts`, and `compose/index.ts` already carrying the multi-daemon registry, per-entry supervisors, and the generic PID guard on doctor's `main`. 004a is implemented. **Update (2026-07-02, later):** 004b is now implemented too; doctor's `main` carries the per-daemon status page (`StatusJson.daemons` + HTML badge rows), the per-daemon CLI `status` blocks (`statusDaemons`), and `logs --daemon`, with tests named `b-AC-1..b-AC-7`. Nothing about PRD-004 remains unverified at the implementation level.
 
 ---
 
@@ -768,8 +768,8 @@ Severity scale: HIGH (blocks a wave gate), MEDIUM (blocks a specific PRD or need
 | ID | Severity | Blocker / gap | Affected PRDs | Owner type | Resolution path |
 |---|---|---|---|---|---|
 | B-1 | HIGH | PRDs 005 to 016 authored but QA-pending; implementation cannot be verified to the 001-004 bar until each passes QA. | 005-016 | quality-worker-bee | Run the quality pass per PRD (parallelizable) as Wave 0. |
-| B-2 | LOW | PRD-004d (thehive OS service unit + registration) is authored and QA-passed (the earlier "absent" finding is retracted, verified against disk). Residual: its thehive service-unit-name DEFAULT flags await sign-off, subsumed by B-7/R-7. | 004d | user | Sign off the thehive service-unit-name DEFAULT flags (tracked under B-7). |
-| B-3 | HIGH | Out-of-band cross-repo work cannot fully complete inside `hivenectar`: 004a/004b land in the `hivedoctor` repo; 004c/004d/015 land in the `honeycomb`/`thehive` package; 005 and 013 land in the `honeycomb` data/recall layer. | 004a-d, 005, 013, 015; 010/014 straddle | cross-repo coordination (human + owning-repo agents) | Sequence out-of-band PRDs with the owning repos; the `hivenectar` repo tracks them but cannot merge them. |
+| B-2 | LOW | PRD-004d (hive OS service unit + registration) is authored and QA-passed (the earlier "absent" finding is retracted, verified against disk). Residual: its hive service-unit-name DEFAULT flags await sign-off, subsumed by B-7/R-7. | 004d | user | Sign off the hive service-unit-name DEFAULT flags (tracked under B-7). |
+| B-3 | HIGH | Out-of-band cross-repo work cannot fully complete inside `nectar`: 004a/004b land in the `doctor` repo; 004c/004d/015 land in the `honeycomb`/`hive` package; 005 and 013 land in the `honeycomb` data/recall layer. | 004a-d, 005, 013, 015; 010/014 straddle | cross-repo coordination (human + owning-repo agents) | Sequence out-of-band PRDs with the owning repos; the `nectar` repo tracks them but cannot merge them. |
 | B-4 | MEDIUM | PRD-009 is explicitly deferred to after PRD-013 in the master index, which conflicts with a "no deferrals" mandate unless sequenced last. | 009 | driver + user | Sequence 009 as the final integration document after 013; if "no deferrals" is strict, record explicit user authorization for the ordering. |
 | B-5 | MEDIUM | Ordering correction: 010/014 must land no later than 007/016 (D-6). If the master index linear order is followed literally, 007/016 ACs cannot be verified. | 007, 016, 010, 014 | driver | Adopt the corrected topological order in the wave plan. |
 | B-6 | MEDIUM | W-1 (honeycomb code refs as non-resolving markdown links) remains open in PRD-003. | 003 | library-worker-bee (per the QA remediation recipe) | Convert the remaining PRD-003 link tokens to backtick spans per the QA report Section 4 recipe. |
@@ -785,13 +785,13 @@ The rows above are preserved as the scan-time record; current disposition:
 
 - **B-1: PARTIALLY RESOLVED.** QA reports exist on disk for 005, 006, 010, 011, 014 (all PASS after remediation; 014 with one corpus-side deferral). Still QA-pending: 007, 008, 009, 012, 013, 015, 016; 017's report is retrospective (implementation already merged, see B-12).
 - **B-2: CLOSED 2026-07-02 (decision #32 in `PRD-DECISIONS-AND-DEFAULTS.md`, implemented same day).** The fleet-wide naming scheme (short names `honeycomb`/`doctor`/`hive`/`nectar` + reverse-DNS `com.legioncode.<name>` labels, systemd `<name>.service`, schtasks `<name>`) supersedes the shipped per-repo names. Implemented in all four repos with a best-effort legacy deregister on every install/register and per-platform tests.
-- **B-3: PARTIALLY RESOLVED (further narrowed 2026-07-02, later).** 004a + 004b implemented in the hivedoctor repo (D-10); 004c + 004d implemented in the-hive; PRD-017's poll-side consumers (hivedoctor PRD-001/002, the-hive PRD-004/005) merged on their `main` branches. Still cross-repo-gated: the 005 catalog + 013 recall-arm merges into honeycomb, 015, and 010/014 straddle placement.
+- **B-3: PARTIALLY RESOLVED (further narrowed 2026-07-02, later).** 004a + 004b implemented in the doctor repo (D-10); 004c + 004d implemented in hive; PRD-017's poll-side consumers (doctor PRD-001/002, hive PRD-004/005) merged on their `main` branches. Still cross-repo-gated: the 005 catalog + 013 recall-arm merges into honeycomb, 015, and 010/014 straddle placement.
 - **B-4: OPEN.** Unchanged; 009 stays sequenced last.
 - **B-5: ADOPTED.** The wave plan carries the corrected order; moot once Wave B closed with 010/014 QA'd.
 - **B-6: RESOLVED.** W-1 remediated in PRD-003 during Wave B (105 refs converted, grep-verified 0).
 - **B-7: PARTIALLY CLOSED (2026-07-02, decisions #29-#33 in `PRD-DECISIONS-AND-DEFAULTS.md`).** Signed off: default model id `gemini-2.5-flash` (#29); the Cohere dim reconciliation, resolved as embed-v4.0 with `output_dimension: 768`, superseding `embed-english-v3.0` (#30); projection path + 30s debounce (#31); the fleet-wide service-naming scheme (#32, also closes B-2); PRD-017's four flags, two amended, heartbeat 5s and log retention 24h age bound (#33). Still open: the per-PRD defaults of unimplemented PRDs (007, 008, 012, 013, 015, 016), to be collected before each enters implementation.
 - **B-8: OPEN by design.** All four deliberate gaps confirmed unfilled through the PRD-006 implementation (TLSH threshold stays injected/unpinned; review-matches flag grammar uninvented).
-- **B-9: RESOLVED.** The corpus `data/source-graph-schema.md` now carries `confidence`, the `skipped-deleted` enum value, and the later user-authorized `fingerprint` column (decisions #13/#14/#28).
+- **B-9: RESOLVED.** The corpus `data/hive-graph-schema.md` now carries `confidence`, the `skipped-deleted` enum value, and the later user-authorized `fingerprint` column (decisions #13/#14/#28).
 - **B-10: RESOLVED 2026-07-02.** PRD-013 index slug corrected (D-8).
 - **B-11: RESOLVED.** PRD-001 and PRD-002 moved to `completed/` (Wave A close, user-approved).
 - **B-12: CLOSED 2026-07-02.** The retrospective QA report is on disk (`completed/prd-017-service-checkin-and-sqlite-telemetry/qa/`, PASS-with-warnings: 0 Critical, 1 inherited Warning, 1 Suggestion) and the folder moved to `completed/`. The Warning (metrics counters dormant in production until the registration pipeline is constructed on the daemon boot path) is the inherited PRD-006 gap, tracked for the Wave C integration.

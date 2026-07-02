@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Timer } from "../dist/poll-loop.js";
 import { RegistrationService, type RegistrationFs } from "../dist/registration/service.js";
-import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
+import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
 import { InMemoryPendingReviewStore } from "../dist/registration/review-store.js";
 import { createTlshFuzzyStep } from "../dist/registration/tlsh.js";
 import { reassociate, type LadderDeps, type ObservedFile } from "../dist/registration/ladder.js";
@@ -53,7 +53,7 @@ function memFs(files: Map<string, FileEntry>, opts: { throwOn?: string } = {}): 
 }
 
 test("service: a settled burst mints and drains via _waitForIdle (AC-4)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const files = new Map<string, FileEntry>([
     ["src/a.ts", { content: "aaa" }],
     ["src/b.ts", { content: "bbb" }],
@@ -68,7 +68,7 @@ test("service: a settled burst mints and drains via _waitForIdle (AC-4)", async 
 });
 
 test("service: a per-path failure is isolated and the cycle continues (AC-4)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const files = new Map<string, FileEntry>([["good.ts", { content: "ok" }]]);
   const logs: Record<string, unknown>[] = [];
   const mt = manualTimer();
@@ -95,7 +95,7 @@ test("service: a per-path failure is isolated and the cycle continues (AC-4)", a
 });
 
 test("service: a rename reconstructs a move end-to-end through step 3 (AC-9)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const files = new Map<string, FileEntry>([["src/a.ts", { content: "moved-content" }]]);
   const mt = manualTimer();
   const svc = new RegistrationService({ store, tenancy: TEN, fs: memFs(files), root: "/x", timer: mt.timer, now: () => NOW });
@@ -120,7 +120,7 @@ test("service: a rename reconstructs a move end-to-end through step 3 (AC-9)", a
 });
 
 test("service: a null-filename observation triggers a full resync settle (AC-3)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const files = new Map<string, FileEntry>([
     ["src/a.ts", { content: "aaa" }],
     ["src/c.ts", { content: "ccc" }],
@@ -136,7 +136,7 @@ test("service: a null-filename observation triggers a full resync settle (AC-3)"
 });
 
 test("service: ignored paths never trigger a cycle (AC-5)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const files = new Map<string, FileEntry>([
     ["node_modules/x.ts", { content: "dep" }],
     ["src/a.ts", { content: "aaa" }],
@@ -163,7 +163,7 @@ test("service: ignored paths never trigger a cycle (AC-5)", async () => {
 });
 
 test("service: step 4 low-confidence match is queued for review, not auto-claimed", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const pendingReviews = new InMemoryPendingReviewStore();
   const original = "the original body of a moderately sized source file ".repeat(4);
   const files = new Map<string, FileEntry>([["src/a.ts", { content: original }]]);
@@ -204,7 +204,7 @@ function obsFile(relPath: string, content: string, mtime = NOW): ObservedFile {
 }
 
 test("step 4 reads the PERSISTED fingerprint from the version row (survives restart, no in-memory cache)", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const original = "the original body of a source file that will move and be edited later on";
 
   // Register src/a.ts: the mint persists the content fingerprint on the version row.

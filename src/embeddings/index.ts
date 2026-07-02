@@ -39,17 +39,17 @@ export {
   DEFAULT_LOCAL_EMBED_TIMEOUT_MS,
 } from "./local-nomic.js";
 export {
-  type CohereEmbeddingsConfig,
-  type CoherePortkeyDeps,
-  createCoherePortkeyProvider,
+  type HostedEmbeddingsConfig,
+  type HostedPortkeyDeps,
+  createHostedPortkeyProvider,
   parseEmbeddingsResponse,
-  DEFAULT_COHERE_EMBED_MODEL,
-  DEFAULT_COHERE_OUTPUT_DIMENSION,
-  DEFAULT_COHERE_MAX_ATTEMPTS,
-  DEFAULT_COHERE_RETRY_BACKOFF_MS,
-  DEFAULT_COHERE_REQUEST_TIMEOUT_MS,
-  COHERE_RETRYABLE_STATUSES,
-} from "./cohere-portkey.js";
+  DEFAULT_HOSTED_EMBED_MODEL,
+  DEFAULT_HOSTED_OUTPUT_DIMENSION,
+  DEFAULT_HOSTED_MAX_ATTEMPTS,
+  DEFAULT_HOSTED_RETRY_BACKOFF_MS,
+  DEFAULT_HOSTED_REQUEST_TIMEOUT_MS,
+  HOSTED_RETRYABLE_STATUSES,
+} from "./hosted-portkey.js";
 export {
   type FetchLike,
   type FetchResponseLike,

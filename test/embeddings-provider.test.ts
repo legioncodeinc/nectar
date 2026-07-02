@@ -46,10 +46,10 @@ test("014-AC-1 the default (local) path is invoked once per text and returns the
   assert.equal(out[1]?.length, 768);
 });
 
-test("014-AC-1 selecting cohere does NOT exercise the local daemon path (AC-014a.2.2)", async () => {
+test("014-AC-1 selecting hosted does NOT exercise the local daemon path (AC-014a.2.2)", async () => {
   const config = resolveEmbeddingsConfig({
-    selector: "cohere",
-    cohere: { apiKey: "k", configId: "c" },
+    selector: "hosted",
+    hosted: { apiKey: "k", configId: "c" },
     env: {},
   });
   const local = fakeLocal(768);
@@ -59,7 +59,7 @@ test("014-AC-1 selecting cohere does NOT exercise the local daemon path (AC-014a
     text: async () => JSON.stringify({ data: [{ embedding: new Array(768).fill(0.2), index: 0 }] }),
   });
   const provider = resolveEmbedProvider(config, { localTransport: local.transport, fetch });
-  assert.equal(provider.kind, "cohere");
+  assert.equal(provider.kind, "hosted");
   await provider.embed(["x"]);
   assert.equal(local.calls(), 0);
 });

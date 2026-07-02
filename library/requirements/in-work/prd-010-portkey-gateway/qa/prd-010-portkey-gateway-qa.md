@@ -2,7 +2,7 @@
 
 > Category: QA Report | Version: 1.0 | Date: July 2026 | Status: Active
 
-Conformance audit of PRD-010 (index + 010a/010b/010c) against the Hivenectar knowledge corpus and the cited Honeycomb transport code, armed with quality-stinger + hivenectar-stinger. This is a PRD-vs-corpus/code pass: PRD-010 is a straddle PRD whose transport already ships in Honeycomb and whose data surface (`describe_model`) is carried from PRD-005, so there is no Hivenectar implementation to diff. Every acceptance criterion and load-bearing claim was traced to `ai/enricher-and-llm-model.md` (Gemini 2.5 Flash rationale, model comparison table, `describe_model` audit, server-side cache posture), `ai/brooding-pipeline.md` (batch call shape), and the real files under `honeycomb/src/daemon/runtime/inference/` and `honeycomb/src/daemon/runtime/vault/`. Matches the bar and format of the consolidated PRD-001-004 report and the PRD-005 report.
+Conformance audit of PRD-010 (index + 010a/010b/010c) against the Nectar knowledge corpus and the cited Honeycomb transport code, armed with quality-stinger + hivenectar-stinger. This is a PRD-vs-corpus/code pass: PRD-010 is a straddle PRD whose transport already ships in Honeycomb and whose data surface (`describe_model`) is carried from PRD-005, so there is no Nectar implementation to diff. Every acceptance criterion and load-bearing claim was traced to `ai/enricher-and-llm-model.md` (Gemini 2.5 Flash rationale, model comparison table, `describe_model` audit, server-side cache posture), `ai/brooding-pipeline.md` (batch call shape), and the real files under `honeycomb/src/daemon/runtime/inference/` and `honeycomb/src/daemon/runtime/vault/`. Matches the bar and format of the consolidated PRD-001-004 report and the PRD-005 report.
 
 **Related:**
 - [`prd-010-portkey-gateway-index.md`](../prd-010-portkey-gateway-index.md)
@@ -104,7 +104,7 @@ Impact: an implementer verifying the "surfaces zero, never throws" invariant aga
 - **DEFAULT-confirm flags.** `prd-010b:84` flags `gemini-2.5-flash` as `[DEFAULT - confirm before implementation]`, and `prd-010a:65` flags the `https://api.portkey.ai/v1/chat/completions` endpoint likewise. Both preserved.
 - **Model comparison table carried verbatim.** `prd-010b:34-39` reproduces the corpus table (`enricher-and-llm-model.md:37-42`) character-for-character, including the four model rows, the `$3.05` Gemini total, and the "(quality risk)" GPT-4o-mini annotation. The "2000-file brood / 1500 small files" framing is carried faithfully from the corpus (the corpus uses the same phrasing at `:35-37`); not a divergence.
 - **`REDESCRIBE_THRESHOLD` default 0.85** is grounded (corpus `:105`, `:108`), not invented. Symbol/directory-level description is preserved as a stated v1 non-goal (`prd-010b:26`).
-- **Reuse-not-fork posture.** 010a correctly frames the transport as reused from Honeycomb (`createPortkeyTransport`), with no Hivenectar-authored transport, matching ADR-0002 (mirror, do not import).
+- **Reuse-not-fork posture.** 010a correctly frames the transport as reused from Honeycomb (`createPortkeyTransport`), with no Nectar-authored transport, matching ADR-0002 (mirror, do not import).
 
 ## 8. High-risk surfaces verified against source (spot-check, drift recorded)
 

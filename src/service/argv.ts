@@ -1,7 +1,7 @@
 /**
  * Exact argv construction for every service-manager command (PRD-003b).
  *
- * Mirrors hivedoctor's `service/argv.ts` with hivenectar's unit/task names. Each
+ * Mirrors doctor's `service/argv.ts` with nectar's unit/task names. Each
  * operation - install, uninstall, status - maps to one or more ordered argv arrays.
  * This module is the single source of truth for those argv arrays; it is pure (a
  * {@link ServicePlan} in, argv arrays out) so a test asserts the EXACT command line

@@ -9,15 +9,15 @@
  * This is the step-5 decision for a new path that is NOT a move (moves are caught
  * earlier by the ladder's step 3, gated on the source path being gone from disk).
  */
-import type { Tenancy } from "../source-graph/model.js";
-import type { SourceGraphStore } from "../source-graph/store.js";
+import type { Tenancy } from "../hive-graph/model.js";
+import type { HiveGraphStore } from "../hive-graph/store.js";
 
 export type NewFileDecision =
   | { readonly action: "mint" }
   | { readonly action: "copy"; readonly sourceNectar: string; readonly forkContentHash: string };
 
 export function classifyNewFile(
-  store: SourceGraphStore,
+  store: HiveGraphStore,
   tenancy: Tenancy,
   newContentHash: string,
 ): NewFileDecision {

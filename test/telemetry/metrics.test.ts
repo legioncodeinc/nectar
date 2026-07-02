@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MetricsWriter, wrapStoreWithMetrics } from "../../dist/telemetry/metrics.js";
 import { openTelemetryDb } from "../../dist/telemetry/db.js";
-import { InMemorySourceGraphStore } from "../../dist/source-graph/memory-store.js";
+import { InMemoryHiveGraphStore } from "../../dist/hive-graph/memory-store.js";
 import { RegistrationService } from "../../dist/registration/service.js";
 import { rmDirWithRetry } from "./test-helpers.ts";
 
 function tmpDir() {
-  return mkdtempSync(join(tmpdir(), "hivenectar-metrics-"));
+  return mkdtempSync(join(tmpdir(), "nectar-metrics-"));
 }
 
 function metricsRow(db) {
@@ -29,7 +29,7 @@ test("a fresh MetricsWriter establishes an all-zero baseline row immediately (AC
     assert.equal(Number(row?.["files_registered"]), 0);
     assert.equal(Number(row?.["nectars_minted"]), 0);
     assert.equal(Number(row?.["descriptions_generated"]), 0);
-    assert.equal(Number(row?.["source_graph_versions"]), 0);
+    assert.equal(Number(row?.["hive_graph_versions"]), 0);
     assert.equal(Number(row?.["embeddings_computed"]), 0);
     assert.equal(db.prepare("SELECT COUNT(*) as c FROM service_metrics").get()?.["c"], 1, "latest-wins single row, not an append log");
     db.close();
@@ -48,21 +48,21 @@ test("each counter increments independently and the row stays latest-wins (AC-01
     writer.incrementFilesRegistered();
     writer.incrementNectarsMinted();
     writer.incrementDescriptionsGenerated();
-    writer.incrementSourceGraphVersions();
-    writer.incrementSourceGraphVersions();
-    writer.incrementSourceGraphVersions();
+    writer.incrementHiveGraphVersions();
+    writer.incrementHiveGraphVersions();
+    writer.incrementHiveGraphVersions();
     writer.incrementEmbeddingsComputed();
 
     const snap = writer.snapshot();
     assert.equal(snap.filesRegistered, 2);
     assert.equal(snap.nectarsMinted, 1);
     assert.equal(snap.descriptionsGenerated, 1);
-    assert.equal(snap.sourceGraphVersions, 3);
+    assert.equal(snap.hiveGraphVersions, 3);
     assert.equal(snap.embeddingsComputed, 1);
 
     const row = metricsRow(db);
     assert.equal(Number(row?.["files_registered"]), 2);
-    assert.equal(Number(row?.["source_graph_versions"]), 3);
+    assert.equal(Number(row?.["hive_graph_versions"]), 3);
     assert.equal(db.prepare("SELECT COUNT(*) as c FROM service_metrics").get()?.["c"], 1, "still one row after many increments");
     db.close();
   } finally {
@@ -109,7 +109,7 @@ test("wrapStoreWithMetrics increments nectarsMinted once per successful insertId
   try {
     const db = openTelemetryDb(join(dir, "t.sqlite"));
     const writer = new MetricsWriter({ db, now: () => NOW });
-    const store = wrapStoreWithMetrics(new InMemorySourceGraphStore(), writer);
+    const store = wrapStoreWithMetrics(new InMemoryHiveGraphStore(), writer);
 
     const row = {
       nectar: "N1",
@@ -133,12 +133,12 @@ test("wrapStoreWithMetrics increments nectarsMinted once per successful insertId
   }
 });
 
-test("wrapStoreWithMetrics increments sourceGraphVersions once per appendVersion call, without double counting", () => {
+test("wrapStoreWithMetrics increments hiveGraphVersions once per appendVersion call, without double counting", () => {
   const dir = tmpDir();
   try {
     const db = openTelemetryDb(join(dir, "t.sqlite"));
     const writer = new MetricsWriter({ db, now: () => NOW });
-    const store = wrapStoreWithMetrics(new InMemorySourceGraphStore(), writer);
+    const store = wrapStoreWithMetrics(new InMemoryHiveGraphStore(), writer);
 
     const version = (nectar, seq) => ({
       nectar,
@@ -170,7 +170,7 @@ test("wrapStoreWithMetrics increments sourceGraphVersions once per appendVersion
     store.appendVersion(version("N2", 0));
 
     const snap = writer.snapshot();
-    assert.equal(snap.sourceGraphVersions, 3, "one increment per appendVersion call");
+    assert.equal(snap.hiveGraphVersions, 3, "one increment per appendVersion call");
     assert.equal(snap.descriptionsGenerated, 0, "no version row was described, so no false increment");
     assert.equal(snap.embeddingsComputed, 0, "no version row carried an embedding, so no false increment");
     db.close();
@@ -187,7 +187,7 @@ test(
     try {
       const db = openTelemetryDb(join(dir, "t.sqlite"));
       const writer = new MetricsWriter({ db, now: () => NOW });
-      const store = wrapStoreWithMetrics(new InMemorySourceGraphStore(), writer);
+      const store = wrapStoreWithMetrics(new InMemoryHiveGraphStore(), writer);
 
       const pendingRow = {
         nectar: "N1",
@@ -240,7 +240,7 @@ test("no metrics column ever holds nectar content, a description body, or an emb
   try {
     const db = openTelemetryDb(join(dir, "t.sqlite"));
     const writer = new MetricsWriter({ db, now: () => NOW });
-    const store = wrapStoreWithMetrics(new InMemorySourceGraphStore(), writer);
+    const store = wrapStoreWithMetrics(new InMemoryHiveGraphStore(), writer);
 
     store.insertIdentity({
       nectar: "N1",
@@ -299,7 +299,7 @@ test("integration: RegistrationService's metrics + a wrapped store increment fil
   try {
     const db = openTelemetryDb(join(dir, "t.sqlite"));
     const writer = new MetricsWriter({ db, now: () => NOW });
-    const rawStore = new InMemorySourceGraphStore();
+    const rawStore = new InMemoryHiveGraphStore();
     const store = wrapStoreWithMetrics(rawStore, writer);
 
     const files = new Map([
@@ -339,7 +339,7 @@ test("integration: RegistrationService's metrics + a wrapped store increment fil
     const snap = writer.snapshot();
     assert.equal(snap.filesRegistered, 2, "one increment per settled path resolved through the ladder");
     assert.equal(snap.nectarsMinted, 2, "two fresh mints, no double counting");
-    assert.equal(snap.sourceGraphVersions, 2, "two version rows written");
+    assert.equal(snap.hiveGraphVersions, 2, "two version rows written");
     db.close();
   } finally {
     rmDirWithRetry(dir);

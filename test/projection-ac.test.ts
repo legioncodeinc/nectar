@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mintNectar, nectarCreatedAt } from "../dist/source-graph/ulid.js";
-import { sha256Hex } from "../dist/source-graph/hash.js";
-import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
+import { mintNectar, nectarCreatedAt } from "../dist/hive-graph/ulid.js";
+import { sha256Hex } from "../dist/hive-graph/hash.js";
+import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
 import {
   PROJECTION_SCHEMA_VERSION,
   canonicalSerialize,
@@ -25,7 +25,7 @@ import { inheritFromProjection } from "../dist/projection/inherit.js";
 const TEN = { orgId: "legion", workspaceId: "engineering", projectId: "honeycomb" };
 
 function tempRoot(): string {
-  return mkdtempSync(join(tmpdir(), "hivenectar-proj-"));
+  return mkdtempSync(join(tmpdir(), "nectar-proj-"));
 }
 
 function hashFor(content: string): string {
@@ -87,7 +87,7 @@ function sampleDoc(overrides: Partial<PortableProjection> = {}): PortableProject
   return {
     version: PROJECTION_SCHEMA_VERSION,
     generated_at: "2026-06-30T12:00:00.000Z",
-    generator: "honeycomb-hivenectar@0.0.1",
+    generator: "honeycomb-nectar@0.0.1",
     project: { org_id: TEN.orgId, workspace_id: TEN.workspaceId, project_id: TEN.projectId },
     files: {
       [n1]: {
@@ -209,7 +209,7 @@ test("011-AC-2 debounced writer coalesces enricher rewrites into one flush with 
 test("011-AC-3 rebuildProjection scans store and writes immediately without debounce", () => {
   const root = tempRoot();
   try {
-    const store = new InMemorySourceGraphStore();
+    const store = new InMemoryHiveGraphStore();
     const n = mintNectar();
     store.insertIdentity(identityRow(n));
     store.appendVersion(describedVersion(n, 0, "src/auth/login.ts", "login body", "Login", "Handles login"));
@@ -311,7 +311,7 @@ test("011-AC-6 existing local nectars are never overwritten", () => {
 // --- AC-7: byte-identical modulo generated_at ---
 
 test("011-AC-7 two generations from same store state are byte-identical modulo generated_at", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const n1 = mintNectar(1000);
   const n2 = mintNectar(2000);
   store.insertIdentity(identityRow(n1));

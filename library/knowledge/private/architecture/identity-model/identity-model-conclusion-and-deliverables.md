@@ -17,7 +17,7 @@ The identity-model decision restated (Option C adopted), its positive and negati
 
 ## The decision, restated
 
-Hivenectar adopts **Option C**: a daemon-minted ULID nectar, persisted in Deep Lake as the primary key of `source_graph`, re-associated to files on disk by the exact-then-fuzzy ladder, with a committed regenerable projection for fresh-clone inheritance. The nectar is minted once, never written into the file, never re-derived from the file's content, and never reused. This is the decision recorded in [`ADR-0001`](../ADR-0001-minted-nectar-over-source-embedded-serial.md); this document closes the narrative by accounting for its consequences, its reversibility, and the alternatives it leaves behind.
+Nectar adopts **Option C**: a daemon-minted ULID nectar, persisted in Deep Lake as the primary key of `hive_graph`, re-associated to files on disk by the exact-then-fuzzy ladder, with a committed regenerable projection for fresh-clone inheritance. The nectar is minted once, never written into the file, never re-derived from the file's content, and never reused. This is the decision recorded in [`ADR-0001`](../ADR-0001-minted-nectar-over-source-embedded-serial.md); this document closes the narrative by accounting for its consequences, its reversibility, and the alternatives it leaves behind.
 
 The decision rests on a single load-bearing insight: a file on disk has no stable identity of its own, so identity must be assigned by an observer and maintained by observation. The minted ULID is the assigned identity; the re-association ladder is the observation that maintains it; the committed projection is the carrier that lets that assignment survive a git-clone boundary. Every other choice in the system — the two-table schema, the watcher contract, the fresh-clone story, the team-share path — is a deduction from this one. The four sibling documents in this folder expand each facet of the decision; the ADR remains the authoritative record.
 
@@ -59,7 +59,7 @@ The decision is not free. Four negative consequences are acknowledged in the ADR
 
 The decision's reversibility is asymmetric, and understanding the asymmetry is the reason it warranted an ADR.
 
-**Reversible at the data-model level.** The schema could be migrated to a different identity scheme. `source_graph` and `source_graph_versions` are Deep Lake tables subject to the same additive schema-heal pass as the rest of Honeycomb; a migration script could re-key them. The nectar format itself (ULID) is independently reversible — a future release could re-encode nectars to UUIDv7 without touching the identity *model*. The format is deliberately recorded as separable from the model for exactly this reason.
+**Reversible at the data-model level.** The schema could be migrated to a different identity scheme. `hive_graph` and `hive_graph_versions` are Deep Lake tables subject to the same additive schema-heal pass as the rest of Honeycomb; a migration script could re-key them. The nectar format itself (ULID) is independently reversible — a future release could re-encode nectars to UUIDv7 without touching the identity *model*. The format is deliberately recorded as separable from the model for exactly this reason.
 
 **Irreversible at the operational level.** Once nectars are minted and descriptions are written against those nectars, re-brooding under a different identity model means rebuilding every history chain, every provenance edge, every recall link. The descriptions are cheap to regenerate; the *associations between descriptions and the files they describe* are not. Any cross-reference a teammate or agent has already formed — in recall results, in interlink views, in `derived_from` edges — is invalidated. This is the irreversibility that matters operationally: not "can the schema change" but "can the existing associations survive the change," and the answer is no, not cheaply.
 
@@ -105,7 +105,7 @@ The identity-model decision produces a defined set of artifacts, each documented
 | The ecosystem cascade (seven stages) | [`identity-model-ecosystem-story-arc.md`](identity-model-ecosystem-story-arc.md) |
 | The engineering acceptance criteria (25 stories) | [`identity-model-user-stories.md`](identity-model-user-stories.md) |
 | The re-association algorithm (the ladder) | [`../../ai/identity-and-reassociation.md`](../../ai/identity-and-reassociation.md) |
-| The schema (two Deep Lake tables) | [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md) |
+| The schema (two Deep Lake tables) | [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md) |
 | The portable projection (the lockfile) | [`../../data/portable-registry.md`](../../data/portable-registry.md) |
 | The prior-art survey (Aura, Mimir, et al.) | [`../../reference/prior-art-crosswalk.md`](../../reference/prior-art-crosswalk.md) |
 

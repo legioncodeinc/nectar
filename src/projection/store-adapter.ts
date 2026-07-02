@@ -1,5 +1,5 @@
 /**
- * Thin adapter over {@link SourceGraphStore} for projection generation (PRD-011).
+ * Thin adapter over {@link HiveGraphStore} for projection generation (PRD-011).
  *
  * The exported store lists each nectar's absolute latest version via
  * `listLatestVersions`. When that latest row is `described`, it is projected
@@ -9,13 +9,13 @@
  * store extension (`listVersionsForNectar` or equivalent); until wired, only
  * the absolute latest is considered.
  */
-import type { SourceGraphRow, SourceGraphVersionRow, Tenancy } from "../source-graph/model.js";
-import type { AsyncSourceGraphStore, SourceGraphStore } from "../source-graph/store.js";
+import type { HiveGraphRow, HiveGraphVersionRow, Tenancy } from "../hive-graph/model.js";
+import type { AsyncHiveGraphStore, HiveGraphStore } from "../hive-graph/store.js";
 
 /** One nectar row selected for projection output. */
 export interface ProjectionNectarSource {
-  readonly identity: SourceGraphRow;
-  readonly version: SourceGraphVersionRow;
+  readonly identity: HiveGraphRow;
+  readonly version: HiveGraphVersionRow;
 }
 
 export interface CollectProjectionSourcesOptions {
@@ -24,13 +24,13 @@ export interface CollectProjectionSourcesOptions {
    * absolute latest is not described. Integration can supply this once the
    * store exposes per-nectar version history.
    */
-  readonly getLatestDescribedVersion?: (nectar: string) => SourceGraphVersionRow | undefined;
+  readonly getLatestDescribedVersion?: (nectar: string) => HiveGraphVersionRow | undefined;
 }
 
 function pickVersion(
-  latest: SourceGraphVersionRow,
-  getLatestDescribed: ((nectar: string) => SourceGraphVersionRow | undefined) | undefined,
-): SourceGraphVersionRow {
+  latest: HiveGraphVersionRow,
+  getLatestDescribed: ((nectar: string) => HiveGraphVersionRow | undefined) | undefined,
+): HiveGraphVersionRow {
   if (latest.describeStatus === "described") return latest;
   const described = getLatestDescribed?.(latest.nectar);
   if (described !== undefined) return described;
@@ -39,7 +39,7 @@ function pickVersion(
 
 /** Collect nectar/version pairs from the store, scoped to `tenancy`. */
 export function collectProjectionSources(
-  store: SourceGraphStore,
+  store: HiveGraphStore,
   tenancy: Tenancy,
   opts: CollectProjectionSourcesOptions = {},
 ): ProjectionNectarSource[] {
@@ -52,7 +52,7 @@ export function collectProjectionSources(
 
 /**
  * The async twin of {@link collectProjectionSources} for the durable
- * {@link AsyncSourceGraphStore} (Deep Lake). The sync store's synchronous
+ * {@link AsyncHiveGraphStore} (Deep Lake). The sync store's synchronous
  * `getLatestDescribedVersion` hook cannot be honored over HTTP, so this reads
  * both the latest version per nectar and the latest DESCRIBED version per nectar
  * from the async store and overlays them: a nectar with a described version
@@ -63,14 +63,14 @@ export function collectProjectionSources(
  * described version per nectar, scoped to the project).
  */
 export async function collectProjectionSourcesAsync(
-  store: AsyncSourceGraphStore,
+  store: AsyncHiveGraphStore,
   tenancy: Tenancy,
 ): Promise<ProjectionNectarSource[]> {
   const [latest, described] = await Promise.all([
     store.listLatestVersions(tenancy),
     store.listLatestDescribedVersions(tenancy),
   ]);
-  const describedByNectar = new Map<string, SourceGraphVersionRow>();
+  const describedByNectar = new Map<string, HiveGraphVersionRow>();
   for (const { identity, version } of described) describedByNectar.set(identity.nectar, version);
   return latest.map(({ identity, version }) => ({
     identity,

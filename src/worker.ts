@@ -11,7 +11,7 @@
  */
 import { PollLoop, type Timer } from "./poll-loop.js";
 
-/** hivenectar's own job kinds (distinct from honeycomb's memory_* kinds). */
+/** nectar's own job kinds (distinct from honeycomb's memory_* kinds). */
 export type JobKind =
   | "brood"
   | "reassociate"

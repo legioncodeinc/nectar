@@ -14,7 +14,7 @@
  *   - Every observation is filtered through the injected ignore contract before
  *     it reaches the debounce scheduler, so ignored paths (`.git/`,
  *     `node_modules/`, the per-repo `graph-ignore.json` set) never trigger a
- *     cycle (AC-5). No hivenectar-specific ignore list is invented.
+ *     cycle (AC-5). No nectar-specific ignore list is invented.
  *
  * The timer seam is injected so tests are deterministic under a manual clock.
  */

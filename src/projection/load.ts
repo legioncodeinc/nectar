@@ -14,8 +14,8 @@
  * these keys never reach a bare `obj[key] = value` assignment.
  */
 import { readFileSync, statSync } from "node:fs";
-import { isValidNectar } from "../source-graph/ulid.js";
-import type { Tenancy } from "../source-graph/model.js";
+import { isValidNectar } from "../hive-graph/ulid.js";
+import type { Tenancy } from "../hive-graph/model.js";
 import {
   PROJECTION_SCHEMA_VERSION,
   isValidContentHash,

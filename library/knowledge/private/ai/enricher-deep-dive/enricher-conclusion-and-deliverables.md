@@ -11,7 +11,7 @@ The deliverable of the enricher deep dive: a lazy, debounced, cost-capped enrich
 - [`enricher-user-stories.md`](enricher-user-stories.md)
 - [`enricher-ecosystem-story-arc.md`](enricher-ecosystem-story-arc.md)
 - [`../brooding-pipeline.md`](../brooding-pipeline.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 - [`../../data/recall-integration.md`](../../data/recall-integration.md)
 - [`../../overview.md`](../../overview.md)
 
@@ -19,7 +19,7 @@ The deliverable of the enricher deep dive: a lazy, debounced, cost-capped enrich
 
 ## The deliverable
 
-The enricher deep dive describes a single deliverable: a lazy, debounced, cost-capped enrichment loop that keeps file descriptions fresh in steady state, without re-describing on every save. The loop is the steady-state counterpart to brooding's one-time bootstrap, and it is the component that makes Hivenectar's semantic memory layer survive active editing of a codebase.
+The enricher deep dive describes a single deliverable: a lazy, debounced, cost-capped enrichment loop that keeps file descriptions fresh in steady state, without re-describing on every save. The loop is the steady-state counterpart to brooding's one-time bootstrap, and it is the component that makes Nectar's semantic memory layer survive active editing of a codebase.
 
 The deliverable decomposes into four properties, each of which is non-negotiable and each of which is grounded in the contract documented across this deep dive.
 
@@ -41,7 +41,7 @@ The first leg is **Pareto-optimality, not cheapness.** The comparison table — 
 
 The second leg is **configurability, not hardcoding.** The model is a default in the provider router, set via `agent.yaml` / Portkey config. A swap to Haiku, GPT-4.1, GPT-4o-mini, or a local Ollama model requires no code changes. The system never codes itself into one provider; the real contract is the capability tier — long context, single-file code understanding, structured JSON output, function calling NOT required, multilingual tolerance — and any model satisfying the tier is acceptable.
 
-The third leg is **auditability, not implicitness.** The `describe_model` column on every `source_graph_versions` row records which model produced each description. After a swap, old-model rows are filterable, which makes selective re-description surgical rather than all-or-nothing. The system answers "which descriptions came from which model" from the data, not from inference.
+The third leg is **auditability, not implicitness.** The `describe_model` column on every `hive_graph_versions` row records which model produced each description. After a swap, old-model rows are filterable, which makes selective re-description surgical rather than all-or-nothing. The system answers "which descriptions came from which model" from the data, not from inference.
 
 ---
 
@@ -69,9 +69,9 @@ This deep dive covers the enricher in isolation. Four sibling documents complete
 
 **Brooding pipeline** (`../brooding-pipeline.md`) is the one-time bootstrap that takes a codebase from no nectars to every file described. The enricher is its steady-state counterpart: brooding owns the first pass and the projection bootstrap; the enricher owns everything after. The two share the same LLM call shape, the same embedding step, and the same model choice, but they differ in workload shape — brooding batches aggressively across the whole codebase; the enricher drains a trickle of pending rows.
 
-**Source graph schema** (`../../data/source-graph-schema.md`) is the row contract the enricher writes to. Every column the enricher touches — `describe_status`, `describe_model`, `described_at`, `title`, `description`, `concepts`, `embedding` — is defined there, with its type, its lifecycle, and its participation in the indexes recall reads. The schema is the ground truth; this deep dive is the behavioral spec layered on top of it.
+**Hive graph schema** (`../../data/hive-graph-schema.md`) is the row contract the enricher writes to. Every column the enricher touches — `describe_status`, `describe_model`, `described_at`, `title`, `description`, `concepts`, `embedding` — is defined there, with its type, its lifecycle, and its participation in the indexes recall reads. The schema is the ground truth; this deep dive is the behavioral spec layered on top of it.
 
-**Recall integration** (`../../data/recall-integration.md`) is the arm that consumes the enricher's output. It documents the guarded arm over `source_graph_versions` filtered to the latest described version per nectar, the BM25-and-vector scoring, and the RRF fusion that sits Hivenectar hits alongside session, memory, and skill hits. The enricher's `describe_status = 'described'` gate is what makes a row eligible for this arm.
+**Recall integration** (`../../data/recall-integration.md`) is the arm that consumes the enricher's output. It documents the guarded arm over `hive_graph_versions` filtered to the latest described version per nectar, the BM25-and-vector scoring, and the RRF fusion that sits Nectar hits alongside session, memory, and skill hits. The enricher's `describe_status = 'described'` gate is what makes a row eligible for this arm.
 
 **Overview** (`../../overview.md`) is the entry point that frames the three design pillars, of which lazy LLM description through a cheap long-context model is the second. The enricher is the steady-state expression of that pillar — brooding is the bootstrap expression. Read the overview first for the why; read this deep dive for the how the loop behaves in steady state.
 

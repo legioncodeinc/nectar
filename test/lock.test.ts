@@ -13,11 +13,11 @@ import {
 import { DaemonAlreadyRunningError } from "../dist/errors.js";
 
 function tmpPaths() {
-  const dir = mkdtempSync(join(tmpdir(), "hivenectar-lock-"));
+  const dir = mkdtempSync(join(tmpdir(), "nectar-lock-"));
   return {
     dir,
-    lockFilePath: join(dir, "hivenectar.lock"),
-    pidFilePath: join(dir, "hivenectar.pid"),
+    lockFilePath: join(dir, "nectar.lock"),
+    pidFilePath: join(dir, "nectar.pid"),
   };
 }
 

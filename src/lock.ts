@@ -1,5 +1,5 @@
 /**
- * Single-instance PID/lock guard for the hivenectar daemon.
+ * Single-instance PID/lock guard for the nectar daemon.
  *
  * Mirrors honeycomb's `acquireSingleInstanceLock` / `releaseSingleInstanceLock`
  * (honeycomb/src/daemon/runtime/assemble.ts:715-756) per PRD-002d:
@@ -7,7 +7,7 @@
  *   - a stale lock (dead PID) is reclaimed so a crashed daemon never wedges the
  *     next start,
  *   - the lock file is the guard; the PID file is operator-facing convenience
- *     (`cat ~/.honeycomb/hivenectar.pid`).
+ *     (`cat ~/.honeycomb/nectar.pid`).
  */
 import {
   closeSync,

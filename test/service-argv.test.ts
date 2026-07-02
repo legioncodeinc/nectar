@@ -8,7 +8,7 @@ function plan(overrides: Partial<Parameters<typeof resolveServicePlan>[0]> = {})
     platform: "linux" as NodeJS.Platform,
     home: "/home/op",
     privileged: false,
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     ...overrides,
   });
 }

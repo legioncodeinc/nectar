@@ -2,7 +2,7 @@
 
 > Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
 
-How the projection composes with the rest of Hivenectar: the fresh-clone journey from boot to live recall, the bidirectional relationship between Deep Lake and the projection (regeneration one-directional, inheritance only on fresh clone), and how brooding, the enricher, and `rebuild-projection` all feed it.
+How the projection composes with the rest of Nectar: the fresh-clone journey from boot to live recall, the bidirectional relationship between Deep Lake and the projection (regeneration one-directional, inheritance only on fresh clone), and how brooding, the enricher, and `rebuild-projection` all feed it.
 
 **Related:**
 - [`../portable-registry.md`](../portable-registry.md)
@@ -10,7 +10,7 @@ How the projection composes with the rest of Hivenectar: the fresh-clone journey
 - [`portable-registry-technical-specification.md`](portable-registry-technical-specification.md)
 - [`portable-registry-user-stories.md`](portable-registry-user-stories.md)
 - [`portable-registry-conclusion-and-deliverables.md`](portable-registry-conclusion-and-deliverables.md)
-- [`../source-graph-schema.md`](../source-graph-schema.md)
+- [`../hive-graph-schema.md`](../hive-graph-schema.md)
 - [`../recall-integration.md`](../recall-integration.md)
 - [`../../ai/identity-and-reassociation.md`](../../ai/identity-and-reassociation.md)
 - [`../../ai/brooding-pipeline.md`](../../ai/brooding-pipeline.md)
@@ -45,7 +45,7 @@ flowchart TD
 
 Step by step:
 
-1. **Boot.** The daemon starts on a checkout whose local Deep Lake has no `source_graph` rows. The clone has the source tree and the committed `.honeycomb/nectars.json`.
+1. **Boot.** The daemon starts on a checkout whose local Deep Lake has no `hive_graph` rows. The clone has the source tree and the committed `.honeycomb/nectars.json`.
 2. **Load and validate.** The daemon loads the projection and validates four properties atomically: version ≤ schema, project triple match, every nectar a valid ULID, every hash a valid sha256 (contract in [`portable-registry-technical-specification.md`](portable-registry-technical-specification.md)). A failed validation falls back to full brooding — the clone is never stuck.
 3. **Build the content-hash index.** The validated `files` map is inverted into a `content_hash -> nectar` (plus description) index. This is the lookup structure the clone matches against.
 4. **Scan disk and hash.** The daemon walks the source tree, hashing each file.
@@ -65,7 +65,7 @@ The projection has a relationship with Deep Lake in both directions, but the two
 ```mermaid
 flowchart LR
     subgraph dl[Deep Lake]
-        sg["source_graph_versions"]
+        sg["hive_graph_versions"]
     end
     sg -->|"regeneration - one-directional, scheduled"| proj[".honeycomb/nectars.json"]
     proj -->|"inheritance - fresh clone only, for nectars local DL lacks"| local["local Deep Lake on clone"]
@@ -73,7 +73,7 @@ flowchart LR
 
 ### Deep Lake → projection (regeneration)
 
-This direction is **one-directional and scheduled**. The projection is regenerated from Deep Lake at three points: end of brooding, end of an enricher cycle that wrote new descriptions, and explicitly via `honeycomb hivenectar rebuild-projection`. The regeneration scans `source_graph_versions` (latest described version per nectar, scoped to the project), denormalizes into the projection format, and writes atomically. This is the only way the projection is written during normal operation. Deep Lake is the source; the projection is the derived view.
+This direction is **one-directional and scheduled**. The projection is regenerated from Deep Lake at three points: end of brooding, end of an enricher cycle that wrote new descriptions, and explicitly via `honeycomb nectar rebuild-projection`. The regeneration scans `hive_graph_versions` (latest described version per nectar, scoped to the project), denormalizes into the projection format, and writes atomically. This is the only way the projection is written during normal operation. Deep Lake is the source; the projection is the derived view.
 
 ### Projection → Deep Lake (inheritance, fresh clone only)
 
@@ -91,7 +91,7 @@ Three independent daemon activities all terminate by regenerating the projection
 flowchart TD
     brood["brooding - full scan"] -->|"end of brood"| regen["regenerate nectars.json - complete"]
     enrich["enricher cycle - new descriptions written"] -->|"end of cycle"| regen2["regenerate nectars.json - incremental"]
-    rebuild["honeycomb hivenectar rebuild-projection"] -->|"explicit"| regen3["regenerate nectars.json - full from Deep Lake"]
+    rebuild["honeycomb nectar rebuild-projection"] -->|"explicit"| regen3["regenerate nectars.json - full from Deep Lake"]
     regen --> file[".honeycomb/nectars.json"]
     regen2 --> file
     regen3 --> file
@@ -104,11 +104,11 @@ Brooding (documented in [`../../ai/brooding-pipeline.md`](../../ai/brooding-pipe
 
 ### The enricher feeds it
 
-After brooding, the daemon is in live-watch mode. The enricher (documented in the main Hivenectar corpus) fills descriptions lazily as the watcher notices edits or as recall might surface an undescribed file. At the end of an enricher cycle that wrote new descriptions, the projection is regenerated as an incremental update — the newly-described latest versions are substituted in, unchanged entries are retained. A cycle that wrote no descriptions produces no projection write; the file is not churned for no-ops.
+After brooding, the daemon is in live-watch mode. The enricher (documented in the main Nectar corpus) fills descriptions lazily as the watcher notices edits or as recall might surface an undescribed file. At the end of an enricher cycle that wrote new descriptions, the projection is regenerated as an incremental update — the newly-described latest versions are substituted in, unchanged entries are retained. A cycle that wrote no descriptions produces no projection write; the file is not churned for no-ops.
 
 ### rebuild-projection feeds it
 
-The explicit command `honeycomb hivenectar rebuild-projection` performs a full regeneration from Deep Lake. It is the recovery path for a corrupt, lost, or suspected-stale projection, and it is the proof of Rule 3 of the projection invariant: the file is regenerable from Deep Lake alone, byte-identical modulo `generated_at`, with no other inputs. If rebuild could not reproduce the file, the projection would be a sidecar.
+The explicit command `honeycomb nectar rebuild-projection` performs a full regeneration from Deep Lake. It is the recovery path for a corrupt, lost, or suspected-stale projection, and it is the proof of Rule 3 of the projection invariant: the file is regenerable from Deep Lake alone, byte-identical modulo `generated_at`, with no other inputs. If rebuild could not reproduce the file, the projection would be a sidecar.
 
 ---
 

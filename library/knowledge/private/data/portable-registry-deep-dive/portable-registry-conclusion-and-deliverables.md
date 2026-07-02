@@ -10,7 +10,7 @@ The deliverable restated as a single sentence, the four-rule hard contract that 
 - [`portable-registry-technical-specification.md`](portable-registry-technical-specification.md)
 - [`portable-registry-user-stories.md`](portable-registry-user-stories.md)
 - [`portable-registry-ecosystem-story-arc.md`](portable-registry-ecosystem-story-arc.md)
-- [`../source-graph-schema.md`](../source-graph-schema.md)
+- [`../hive-graph-schema.md`](../hive-graph-schema.md)
 - [`../recall-integration.md`](../recall-integration.md)
 - [`../../ai/brooding-pipeline.md`](../../ai/brooding-pipeline.md)
 - [`../../ai/identity-and-reassociation.md`](../../ai/identity-and-reassociation.md)
@@ -20,7 +20,7 @@ The deliverable restated as a single sentence, the four-rule hard contract that 
 
 ## The deliverable, restated
 
-The portable registry is a **committed, reviewable, regenerable lockfile** that gives a fresh `git clone` offline identity inheritance. It is generated from Deep Lake at the end of every brood and every enricher cycle that wrote new descriptions, committed to the repo like `package-lock.json`, and inherited on clone through content-hash matching — yielding zero LLM calls and zero fuzzy matches when current. It is a projection, not a sidecar: delete it and `honeycomb hivenectar rebuild-projection` regenerates it from Deep Lake alone.
+The portable registry is a **committed, reviewable, regenerable lockfile** that gives a fresh `git clone` offline identity inheritance. It is generated from Deep Lake at the end of every brood and every enricher cycle that wrote new descriptions, committed to the repo like `package-lock.json`, and inherited on clone through content-hash matching — yielding zero LLM calls and zero fuzzy matches when current. It is a projection, not a sidecar: delete it and `honeycomb nectar rebuild-projection` regenerates it from Deep Lake alone.
 
 The single sentence: **the projection exists for portability and reviewability, not because Deep Lake is insufficient.**
 
@@ -79,7 +79,7 @@ The churn cost is manageable. The projection changes only when a new file is add
 
 The diff is reviewable: a reviewer can see "this PR added `src/auth/login.ts` with the description 'User login route handler'" and sanity-check that the description is reasonable. This is a real benefit — the descriptions become a reviewable artifact, not an opaque database blob.
 
-Some teams may prefer not to commit the projection. Hivenectar supports this: if `.honeycomb/nectars.json` is gitignored, the daemon still writes it locally (for the clone's own use during boot) but it is not shared. The tradeoff is that every clone broods from scratch, paying the LLM cost each time, and loses the offline-fresh-clone property that is the projection's purpose. The recommendation is to commit it, but the system works either way.
+Some teams may prefer not to commit the projection. Nectar supports this: if `.honeycomb/nectars.json` is gitignored, the daemon still writes it locally (for the clone's own use during boot) but it is not shared. The tradeoff is that every clone broods from scratch, paying the LLM cost each time, and loses the offline-fresh-clone property that is the projection's purpose. The recommendation is to commit it, but the system works either way.
 
 | Choice | Offline fresh-clone | LLM cost per clone | Reviewable descriptions |
 |---|---|---|---|
@@ -90,11 +90,11 @@ Some teams may prefer not to commit the projection. Hivenectar supports this: if
 
 ## Forward pointers
 
-The portable registry is one component of Hivenectar's identity and recall model. The decisions and mechanisms that surround it live in the source documents below. This deep-dive does not duplicate them; it links to them.
+The portable registry is one component of Nectar's identity and recall model. The decisions and mechanisms that surround it live in the source documents below. This deep-dive does not duplicate them; it links to them.
 
 ### To the schema it projects from
 
-[`../source-graph-schema.md`](../source-graph-schema.md) documents the two tables the projection denormalizes. `source_graph` carries identity and provenance (`nectar` as primary key, `derived_from_nectar` and `fork_content_hash` for copy-paste provenance, the tenancy triple). `source_graph_versions` is the append-only content-and-description chain, keyed by the composite `(nectar, content_hash)` with a monotonic `seq` for latest-version lookups. The projection selects the latest described version per nectar from this table and denormalizes it into the `files` map, with the `derived` map carrying copy-paste provenance. Without this schema there is nothing to project; the projection is the lockfile view of it.
+[`../hive-graph-schema.md`](../hive-graph-schema.md) documents the two tables the projection denormalizes. `hive_graph` carries identity and provenance (`nectar` as primary key, `derived_from_nectar` and `fork_content_hash` for copy-paste provenance, the tenancy triple). `hive_graph_versions` is the append-only content-and-description chain, keyed by the composite `(nectar, content_hash)` with a monotonic `seq` for latest-version lookups. The projection selects the latest described version per nectar from this table and denormalizes it into the `files` map, with the `derived` map carrying copy-paste provenance. Without this schema there is nothing to project; the projection is the lockfile view of it.
 
 ### To the brooding pipeline that bootstraps it
 
@@ -106,7 +106,7 @@ The portable registry is one component of Hivenectar's identity and recall model
 
 ### To the recall integration it feeds
 
-[`../recall-integration.md`](../recall-integration.md) documents how the inherited rows (written to local Deep Lake from the projection at clone boot) participate in hybrid recall. The projection's purpose on clone is to seed the local Deep Lake with enough described rows that recall is live immediately, before network or cloud sync. The `files` map carries exactly the `title`, `description`, and `concepts` that the guarded recall arm over `source_graph_versions` queries.
+[`../recall-integration.md`](../recall-integration.md) documents how the inherited rows (written to local Deep Lake from the projection at clone boot) participate in hybrid recall. The projection's purpose on clone is to seed the local Deep Lake with enough described rows that recall is live immediately, before network or cloud sync. The `files` map carries exactly the `title`, `description`, and `concepts` that the guarded recall arm over `hive_graph_versions` queries.
 
 ### To the identity-model decision
 

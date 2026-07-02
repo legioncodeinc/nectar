@@ -2,7 +2,7 @@
 
 > Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
 
-How brooding composes with the rest of Hivenectar: a traced first brood from trigger through projection handoff, the content-hash fresh-clone shortcut that lets a teammate's clone skip the LLM cost entirely, and the points where brooding feeds the enricher's pending queue and writes the projection that subsequent clones inherit.
+How brooding composes with the rest of Nectar: a traced first brood from trigger through projection handoff, the content-hash fresh-clone shortcut that lets a teammate's clone skip the LLM cost entirely, and the points where brooding feeds the enricher's pending queue and writes the projection that subsequent clones inherit.
 
 **Related:**
 - [`brooding-introduction-and-theory.md`](brooding-introduction-and-theory.md)
@@ -13,7 +13,7 @@ How brooding composes with the rest of Hivenectar: a traced first brood from tri
 - [`../identity-and-reassociation.md`](../identity-and-reassociation.md)
 - [`../enricher-and-llm-model.md`](../enricher-and-llm-model.md)
 - [`../../data/portable-registry.md`](../../data/portable-registry.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 
 ---
 
@@ -25,11 +25,11 @@ Brooding is not an island. It is the bootstrap event that hands off to two other
 
 ## The first brood: trigger through handoff
 
-The arc begins the first time hiveantennae runs against a project that has no `source_graph` rows and no committed `.honeycomb/nectars.json`. The daemon reaches readiness, then starts brooding in the background. What follows is the full pipeline, annotated at the points where brooding touches another component.
+The arc begins the first time hiveantennae runs against a project that has no `hive_graph` rows and no committed `.honeycomb/nectars.json`. The daemon reaches readiness, then starts brooding in the background. What follows is the full pipeline, annotated at the points where brooding touches another component.
 
 ```mermaid
 flowchart TD
-    trigger["trigger: no source_graph rows AND no nectars.json"] --> ready["daemon reaches readiness, brood runs in background"]
+    trigger["trigger: no hive_graph rows AND no nectars.json"] --> ready["daemon reaches readiness, brood runs in background"]
     ready --> discover["discover: reuse CodeGraph git ls-files"]
     discover --> precheck["content-hash pre-check against projection (if any)"]
     precheck -->|"hash matches projection entry"| inherit["inherit nectar + description, write Deep Lake row, no LLM call"]
@@ -37,7 +37,7 @@ flowchart TD
     bucket --> skip["skip-binary / skip-too-large: mint nectar, no LLM"]
     bucket --> batch["batch: 30-50 files per Gemini call"]
     bucket --> solo["solo: 1 file per Gemini call (richer prompt)"]
-    skip --> write["append source_graph + source_graph_versions rows"]
+    skip --> write["append hive_graph + hive_graph_versions rows"]
     batch --> write
     solo --> write
     inherit --> write
@@ -49,11 +49,11 @@ flowchart TD
 
 ### Trigger
 
-Brooding fires when the daemon boots against a project with no `source_graph` rows and no valid projection. It also fires on explicit invocation (`honeycomb hivenectar brood`, with `--force`, `--limit`, or `--dry-run`). The automatic trigger is non-blocking: the daemon accepts requests before the brood completes, and recall during the brood returns whatever has been described so far.
+Brooding fires when the daemon boots against a project with no `hive_graph` rows and no valid projection. It also fires on explicit invocation (`honeycomb nectar brood`, with `--force`, `--limit`, or `--dry-run`). The automatic trigger is non-blocking: the daemon accepts requests before the brood completes, and recall during the brood returns whatever has been described so far.
 
 ### Discovery, reusing the CodeGraph
 
-Discovery is deliberately not Hivenectar's own code. It reuses the CodeGraph's `git ls-files --cached --others --exclude-standard -z` logic, with the same `~/.honeycomb/graph-ignore.json` ignore file and the same manual recursive walk fallback when git is unavailable. The invariant is that Hivenectar and the CodeGraph never disagree on what counts as a file; a separate ignore list would be a drift source.
+Discovery is deliberately not Nectar's own code. It reuses the CodeGraph's `git ls-files --cached --others --exclude-standard -z` logic, with the same `~/.honeycomb/graph-ignore.json` ignore file and the same manual recursive walk fallback when git is unavailable. The invariant is that Nectar and the CodeGraph never disagree on what counts as a file; a separate ignore list would be a drift source.
 
 ### The content-hash pre-check
 
@@ -109,7 +109,7 @@ When the projection is stale — files on disk have content hashes not in the pr
 
 ## The two handoffs, restated
 
-Brooding composes with the rest of Hivenectar through exactly two handoffs, and they are worth isolating because they are the points where a bug would be most visible.
+Brooding composes with the rest of Nectar through exactly two handoffs, and they are worth isolating because they are the points where a bug would be most visible.
 
 **Handoff to the enricher's pending queue.** Files minted but not described during brooding (`describe_status = 'pending'`) become the enricher's work. The enricher's latest-pending-per-nectar semantics guarantee that only the most recent content state of each file is described, so intermediate saves within an enricher cycle are never described. This handoff is what makes `--limit` safe: a capped brood leaves pending rows that the enricher drains over time.
 

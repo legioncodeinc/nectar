@@ -1,5 +1,5 @@
 /**
- * hivenectar's OS-service manager (PRD-003b) - the module the CLI's `install` /
+ * nectar's OS-service manager (PRD-003b) - the module the CLI's `install` /
  * `uninstall` commands delegate to.
  *
  * It does the three things PRD-003b's Goals describe:
@@ -13,8 +13,8 @@
  * Crash-safe: every shell-out is the injected {@link CommandRunner} (execFile, no
  * shell) which never throws; every fs call is behind the injected {@link ServiceFs}
  * and wrapped, so a permission error becomes a returned {@link ServiceResult}, never
- * a thrown stack. Mirrors hivedoctor's service module (hivedoctor/src/service/index.ts)
- * with hivenectar's own templates/argv/run command.
+ * a thrown stack. Mirrors doctor's service module (doctor/src/service/index.ts)
+ * with nectar's own templates/argv/run command.
  *
  * Built-ins only: the production fs uses node:fs, the runner uses node:child_process.
  */
@@ -39,7 +39,7 @@ import {
 } from "./platform.js";
 import { renderUnit } from "./templates.js";
 
-/** A coarse, classified service status (what `hivenectar service-status` reports). */
+/** A coarse, classified service status (what `nectar service-status` reports). */
 export type ServiceStatus = "running" | "not-running" | "unknown";
 
 /** The outcome of an install/uninstall call. */
@@ -80,7 +80,7 @@ export function createNodeServiceFs(): ServiceFs {
 
 /** Construction deps for {@link createServiceModule}. All have production defaults. */
 export interface ServiceModuleDeps {
-  /** The absolute path to the `hivenectar` bin the unit execs. */
+  /** The absolute path to the `nectar` bin the unit execs. */
   readonly execPath: string;
   /** Opt into a system-scoped unit when privileged (enterprise path). Default false. */
   readonly preferSystemScope?: boolean;
@@ -193,7 +193,7 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
       } catch (error) {
         return {
           ok: false,
-          message: `Could not register the hivenectar service: ${error instanceof Error ? error.message : "unknown error"}.`,
+          message: `Could not register the nectar service: ${error instanceof Error ? error.message : "unknown error"}.`,
         };
       }
 
@@ -217,14 +217,14 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
       if (needsFile) {
         try {
           if (p.manager === "schtasks" && unitTarget === "") {
-            unitTarget = `${p.home}/.honeycomb/hivenectar/hivenectar-task.xml`;
+            unitTarget = `${p.home}/.honeycomb/nectar/nectar-task.xml`;
           }
           fs.mkdirp(dirname(unitTarget));
           fs.writeFile(unitTarget, renderUnit(p));
         } catch (error) {
           return {
             ok: false,
-            message: `Could not write the hivenectar unit file at ${unitTarget}: ${error instanceof Error ? error.message : "unknown error"}.`,
+            message: `Could not write the nectar unit file at ${unitTarget}: ${error instanceof Error ? error.message : "unknown error"}.`,
           };
         }
       }
@@ -243,14 +243,14 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
         });
         return {
           ok: false,
-          message: `Registered the hivenectar unit but a service-manager command failed (${firstFailure?.command ?? "unknown"}): ${detail}. It will start at next login/boot; run \`hivenectar service-status\` to check.`,
+          message: `Registered the nectar unit but a service-manager command failed (${firstFailure?.command ?? "unknown"}): ${detail}. It will start at next login/boot; run \`nectar service-status\` to check.`,
         };
       }
 
       log({ level: "info", scope: "service", msg: "installed", manager: p.manager, scope2: p.scope });
       return {
         ok: true,
-        message: `hivenectar registered as a ${p.manager} service (${scopePhrase(p)}) and started. It will restart on crash and start on boot.`,
+        message: `nectar registered as a ${p.manager} service (${scopePhrase(p)}) and started. It will restart on crash and start on boot.`,
       };
     },
 
@@ -261,13 +261,13 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
       } catch (error) {
         return {
           ok: false,
-          message: `Could not unregister the hivenectar service: ${error instanceof Error ? error.message : "unknown error"}.`,
+          message: `Could not unregister the nectar service: ${error instanceof Error ? error.message : "unknown error"}.`,
         };
       }
 
       const { allOk, firstFailure, firstFailureResult } = await runAll(runner, uninstallCommands(p, uid));
 
-      const stagedXml = p.manager === "schtasks" ? `${p.home}/.honeycomb/hivenectar/hivenectar-task.xml` : "";
+      const stagedXml = p.manager === "schtasks" ? `${p.home}/.honeycomb/nectar/nectar-task.xml` : "";
       try {
         if (p.unitPath !== "") fs.removeFile(p.unitPath);
         if (stagedXml !== "") fs.removeFile(stagedXml);
@@ -291,13 +291,13 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
         });
         return {
           ok: false,
-          message: `Removed the hivenectar unit file; a deregister command (${firstFailure?.command ?? "unknown"}) reported an error (often because it was already gone): ${detail}.`,
+          message: `Removed the nectar unit file; a deregister command (${firstFailure?.command ?? "unknown"}) reported an error (often because it was already gone): ${detail}.`,
         };
       }
       log({ level: "info", scope: "service", msg: "uninstalled", manager: p.manager, scope2: p.scope });
       return {
         ok: true,
-        message: `hivenectar service unregistered (${p.manager}, ${scopePhrase(p)}). It will not start on next boot.`,
+        message: `nectar service unregistered (${p.manager}, ${scopePhrase(p)}). It will not start on next boot.`,
       };
     },
   };
@@ -341,7 +341,7 @@ export {
   LEGACY_WINDOWS_TASK_NAME,
   legacyUnitPath,
 } from "./platform.js";
-export { HIVENECTAR_RUN_COMMAND, RESTART_SEC, WINDOWS_RESTART_INTERVAL, renderUnit } from "./templates.js";
+export { NECTAR_RUN_COMMAND, RESTART_SEC, WINDOWS_RESTART_INTERVAL, renderUnit } from "./templates.js";
 export { installCommands, uninstallCommands, legacyUninstallCommands, statusCommand } from "./argv.js";
 export type { ServiceCommand } from "./argv.js";
 export { createExecFileRunner } from "./command-runner.js";

@@ -7,8 +7,8 @@
  */
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Tenancy } from "../source-graph/model.js";
-import type { AsyncSourceGraphStore, SourceGraphStore } from "../source-graph/store.js";
+import type { Tenancy } from "../hive-graph/model.js";
+import type { AsyncHiveGraphStore, HiveGraphStore } from "../hive-graph/store.js";
 import {
   DEFAULT_PROJECTION_REL_PATH,
   canonicalSerialize,
@@ -157,7 +157,7 @@ export interface RebuildProjectionOptions extends WriteProjectionOptions, BuildP
  * nectar and writes immediately, bypassing debounce (AC-3).
  */
 export function rebuildProjection(
-  store: SourceGraphStore,
+  store: HiveGraphStore,
   tenancy: Tenancy,
   opts: RebuildProjectionOptions,
 ): { doc: PortableProjection; path: string } {
@@ -169,14 +169,14 @@ export function rebuildProjection(
 export interface RebuildProjectionAsyncOptions extends WriteProjectionOptions, BuildProjectionOptions {}
 
 /**
- * Full regeneration from the durable {@link AsyncSourceGraphStore} (Deep Lake),
+ * Full regeneration from the durable {@link AsyncHiveGraphStore} (Deep Lake),
  * trigger #3 (PRD-011c). The async twin of {@link rebuildProjection}: it scans
  * the latest described version per nectar (scoped to the project) and writes
- * immediately, bypassing debounce (AC-3). The `hivenectar rebuild-projection`
- * CLI verb calls this against the real `DeepLakeSourceGraphStore`.
+ * immediately, bypassing debounce (AC-3). The `nectar rebuild-projection`
+ * CLI verb calls this against the real `DeepLakeHiveGraphStore`.
  */
 export async function rebuildProjectionAsync(
-  store: AsyncSourceGraphStore,
+  store: AsyncHiveGraphStore,
   tenancy: Tenancy,
   opts: RebuildProjectionAsyncOptions,
 ): Promise<{ doc: PortableProjection; path: string }> {

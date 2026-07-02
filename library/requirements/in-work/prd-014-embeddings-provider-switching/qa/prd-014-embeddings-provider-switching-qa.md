@@ -2,13 +2,13 @@
 
 > Category: QA Report | Version: 1.0 | Date: July 2026 | Status: Active
 
-Conformance audit of PRD-014 (index + 014a/014b/014c) against the Hivenectar knowledge corpus and the cited Honeycomb code, armed with quality-stinger + hivenectar-stinger. This is a PRD-vs-corpus/code pass (no Hivenectar implementation exists yet), matching the bar and format of the consolidated PRD-001-004 report and the PRD-005 report. Every acceptance criterion and load-bearing claim was traced to `ai/enricher-and-llm-model.md` (the embeddings layer + 768-dim contract + BM25 fallback), `ADR-0001` (768-dim tied to schema), `MASTER-PRD-INDEX.md` decision #5, and the real Honeycomb files under `honeycomb/embeddings/src/` and `honeycomb/src/daemon/runtime/`.
+Conformance audit of PRD-014 (index + 014a/014b/014c) against the Nectar knowledge corpus and the cited Honeycomb code, armed with quality-stinger + hivenectar-stinger. This is a PRD-vs-corpus/code pass (no Nectar implementation exists yet), matching the bar and format of the consolidated PRD-001-004 report and the PRD-005 report. Every acceptance criterion and load-bearing claim was traced to `ai/enricher-and-llm-model.md` (the embeddings layer + 768-dim contract + BM25 fallback), `ADR-0001` (768-dim tied to schema), `MASTER-PRD-INDEX.md` decision #5, and the real Honeycomb files under `honeycomb/embeddings/src/` and `honeycomb/src/daemon/runtime/`.
 
 **Related:**
 - [`prd-014-embeddings-provider-switching-index.md`](../prd-014-embeddings-provider-switching-index.md)
 - [`../../../knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md)
 - [`2026-07-01-prd-001-004-corpus-conformance-qa.md`](../../../reports/2026-07-01-prd-001-004-corpus-conformance-qa.md)
-- [`../../completed/prd-005-source-graph-catalog-tables/qa/prd-005-source-graph-catalog-tables-qa.md`](../../completed/prd-005-source-graph-catalog-tables/qa/prd-005-source-graph-catalog-tables-qa.md)
+- [`../../completed/prd-005-hive-graph-catalog-tables/qa/prd-005-hive-graph-catalog-tables-qa.md`](../../completed/prd-005-hive-graph-catalog-tables/qa/prd-005-hive-graph-catalog-tables-qa.md)
 
 ---
 

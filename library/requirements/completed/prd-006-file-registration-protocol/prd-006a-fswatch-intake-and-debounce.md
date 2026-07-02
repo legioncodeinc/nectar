@@ -6,11 +6,11 @@
 
 ## Overview
 
-This sub-PRD owns the **disk-observation signal**: how hivenectar attaches `node:fs.watch` to the workspace, how each `(eventType, filename)` observation is filtered and routed, and how a burst of observations coalesces into one settled cycle through `setTimeout`/`clearTimeout` debounce. It mirrors Honeycomb's `file-watcher.ts` pattern deliberately and exclusively — `chokidar` is not a dependency (locked decision #4 in [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md)).
+This sub-PRD owns the **disk-observation signal**: how nectar attaches `node:fs.watch` to the workspace, how each `(eventType, filename)` observation is filtered and routed, and how a burst of observations coalesces into one settled cycle through `setTimeout`/`clearTimeout` debounce. It mirrors Honeycomb's `file-watcher.ts` pattern deliberately and exclusively — `chokidar` is not a dependency (locked decision #4 in [`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md)).
 
 `fs.watch` delivers uncorrelated observations: an editor save that rewrites a file in place, a rename, a delete-then-recreate, and a copy all arrive as `(eventType, filename)` tuples with no inherent move/copy semantics. This sub-PRD's job is only to (a) capture those observations, (b) coalesce a burst into one settled cycle, and (c) hand the set of touched paths to the classifier (006b). It does **not** decide nectar outcomes — that is the ladder's job (006d). The corpus is explicit that "the watcher is only the signal that work is needed" ([`identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) § "Live watch vs cold catch-up").
 
-> **Correction noted.** Several prose passages in the Hivenectar corpus say "chokidar." That is wrong against both decision #4 and the Honeycomb code: the watcher is `node:fs.watch` (`honeycomb/src/daemon/runtime/services/file-watcher.ts:341, 370`). This PRD uses `fs.watch` throughout; the corpus's "chokidar" references are to be corrected before implementation.
+> **Correction noted.** Several prose passages in the Nectar corpus say "chokidar." That is wrong against both decision #4 and the Honeycomb code: the watcher is `node:fs.watch` (`honeycomb/src/daemon/runtime/services/file-watcher.ts:341, 370`). This PRD uses `fs.watch` throughout; the corpus's "chokidar" references are to be corrected before implementation.
 
 ## Goals
 
@@ -18,7 +18,7 @@ This sub-PRD owns the **disk-observation signal**: how hivenectar attaches `node
 - Mirror the `setTimeout`/`clearTimeout` debounce scheduler (`file-watcher.ts:300-316`) so a burst of observations coalesces into one settled cycle.
 - Pin the debounce window default at `500 ms` (`file-watcher.ts:177`), flagged as a default pending implementation confirmation.
 - Mirror the "fire-and-forget with intent" settled handler (`file-watcher.ts:234-293`): all errors are caught internally and the watcher keeps running; the running cycle's promise is tracked so it can be drained.
-- Define the workspace-scope and ignore contract (reuse CodeGraph discovery's ignore rules — no hivenectar-specific ignore list).
+- Define the workspace-scope and ignore contract (reuse CodeGraph discovery's ignore rules — no nectar-specific ignore list).
 
 ## Non-Goals
 
@@ -33,11 +33,11 @@ This sub-PRD owns the **disk-observation signal**: how hivenectar attaches `node
 
 `file-watcher.ts:333-352` attaches `fs.watch` to the **directory**, not individual files, with a `watchedFiles` filter on the emitted `filename`. The comment block at `file-watcher.ts:320-331` states the rationale: a directory-level watch catches a "delete then recreate" write pattern (common in editors) even when the original inode is gone, and on Node 22 / Linux it is inotify-backed while Windows uses `ReadDirectoryChangesW`, "both stable enough for our use case given the 500ms debounce absorbs any missed events."
 
-Hivenectar mirrors this. The chosen implementation is a **single recursive watcher** at the project workspace root: `watch(root, { recursive: true }, ...)` (`src/registration/fs-watch.ts`). This is a deliberate, cleaner variant of Honeycomb's per-directory-array shape (`file-watcher.ts:188` keeps one `fs.FSWatcher` per watched directory in an array): `recursive: true` covers the whole subtree with one handle on Node 22's supported platforms, and the 500 ms debounce absorbs the same missed-event window. A per-directory array of watchers remains the documented fallback for any platform where `recursive: true` is unreliable; the intake contract (normalize, ignore-filter, debounce, settle) is identical either way. Each emitted `(eventType, filename)` is normalized to a repo-relative forward-slashed path and filtered through the ignore contract (below) before being routed to the debounce scheduler. Observations whose `filename` is `null`/`undefined` (some platforms emit null filenames on directory-level events, per `file-watcher.ts:342-345`) trigger a full resync settle rather than a single-path classification.
+Nectar mirrors this. The chosen implementation is a **single recursive watcher** at the project workspace root: `watch(root, { recursive: true }, ...)` (`src/registration/fs-watch.ts`). This is a deliberate, cleaner variant of Honeycomb's per-directory-array shape (`file-watcher.ts:188` keeps one `fs.FSWatcher` per watched directory in an array): `recursive: true` covers the whole subtree with one handle on Node 22's supported platforms, and the 500 ms debounce absorbs the same missed-event window. A per-directory array of watchers remains the documented fallback for any platform where `recursive: true` is unreliable; the intake contract (normalize, ignore-filter, debounce, settle) is identical either way. Each emitted `(eventType, filename)` is normalized to a repo-relative forward-slashed path and filtered through the ignore contract (below) before being routed to the debounce scheduler. Observations whose `filename` is `null`/`undefined` (some platforms emit null filenames on directory-level events, per `file-watcher.ts:342-345`) trigger a full resync settle rather than a single-path classification.
 
 ### Why NOT chokidar
 
-Decision #4 ([`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md)) records the rejection: chokidar is a new dependency, it diverges from Honeycomb's deliberate choice, and the marginal benefit is nil because the re-association ladder (006d) already reconstructs moves from uncorrelated events plus a missing-files set. Honeycomb's `file-watcher.ts` is the established, in-repo `fs.watch` pattern; importing Honeycomb's file-watcher module directly is also rejected (it would couple across the process boundary ADR-0002 established). Hivenectar therefore **mirrors the pattern** — same `fs.watch` + `setTimeout` shape, separate implementation, no cross-process import.
+Decision #4 ([`MASTER-PRD-INDEX.md`](../../MASTER-PRD-INDEX.md)) records the rejection: chokidar is a new dependency, it diverges from Honeycomb's deliberate choice, and the marginal benefit is nil because the re-association ladder (006d) already reconstructs moves from uncorrelated events plus a missing-files set. Honeycomb's `file-watcher.ts` is the established, in-repo `fs.watch` pattern; importing Honeycomb's file-watcher module directly is also rejected (it would couple across the process boundary ADR-0002 established). Nectar therefore **mirrors the pattern** — same `fs.watch` + `setTimeout` shape, separate implementation, no cross-process import.
 
 ### The `fs.watch` contract — what it does and does not give
 
@@ -67,7 +67,7 @@ function scheduleSyncCycle(): void {
 }
 ```
 
-Hivenectar mirrors this exactly. Every qualifying observation calls the scheduler; the scheduler always (re)sets a single `setTimeout(debounceMs)` handle. The touched path is appended to a per-cycle "pending paths" set (Hivenectar's addition over Honeycomb's identity-file sync, which keys off a fixed canonical set). When the timer fires, the settled handler runs once over the accumulated set.
+Nectar mirrors this exactly. Every qualifying observation calls the scheduler; the scheduler always (re)sets a single `setTimeout(debounceMs)` handle. The touched path is appended to a per-cycle "pending paths" set (Nectar's addition over Honeycomb's identity-file sync, which keys off a fixed canonical set). When the timer fires, the settled handler runs once over the accumulated set.
 
 ### Debounce window — DEFAULT
 
@@ -77,27 +77,27 @@ The default mirrors `file-watcher.ts:177` (`debounceMs = 500` in the `createFile
 
 ### The settled handler — fire-and-forget with intent
 
-`file-watcher.ts:234-293` (`runSyncCycle`) is the settled handler. Its shape is the template Hivenectar mirrors:
+`file-watcher.ts:234-293` (`runSyncCycle`) is the settled handler. Its shape is the template Nectar mirrors:
 
 1. Log the cycle start (`file-watcher.ts:239-240`).
-2. Do the work (Honeycomb: sync harness copies + git commit; Hivenectar: classify the pending paths per 006b, then resolve each via the ladder per 006d).
+2. Do the work (Honeycomb: sync harness copies + git commit; Nectar: classify the pending paths per 006b, then resolve each via the ladder per 006d).
 3. Catch every error internally and log it; **the watcher keeps running** (`file-watcher.ts:254-258, 288-292` comment: "Commit failure logged, watcher keeps running").
 
-The running cycle's promise is stored in `currentCyclePromise` (`file-watcher.ts:186, 312-314`) "so tests can await it via `_waitForIdle()`" — in production it is fire-and-forget because `runSyncCycle` catches all errors. Hivenectar keeps the same pattern: the daemon worker's `_waitForIdle()` drains I/O in tests; in production the settled handler's internal try/catch is the only error surface. This is the "fire-and-forget with intent" discipline the code comment cites.
+The running cycle's promise is stored in `currentCyclePromise` (`file-watcher.ts:186, 312-314`) "so tests can await it via `_waitForIdle()`" — in production it is fire-and-forget because `runSyncCycle` catches all errors. Nectar keeps the same pattern: the daemon worker's `_waitForIdle()` drains I/O in tests; in production the settled handler's internal try/catch is the only error surface. This is the "fire-and-forget with intent" discipline the code comment cites.
 
 ## The "respond to file change" handler mirrors `runGraphBuild`
 
-The settled handler's body — discover → resolve → persist — mirrors `honeycomb/src/daemon/runtime/codebase/api.ts:234-261` (`runGraphBuild`), the parallel "respond to file change" template in the CodeGraph surface. `runGraphBuild` composes already-built pieces end-to-end and returns the result as data; it adds no new graph logic. The shape Hivenectar mirrors:
+The settled handler's body — discover → resolve → persist — mirrors `honeycomb/src/daemon/runtime/codebase/api.ts:234-261` (`runGraphBuild`), the parallel "respond to file change" template in the CodeGraph surface. `runGraphBuild` composes already-built pieces end-to-end and returns the result as data; it adds no new graph logic. The shape Nectar mirrors:
 
 1. **Aggregate** (analogous to `buildAggregateSnapshot`, `api.ts:248`) — for each pending path: stat the file, read content, compute `sha256(content)` and the TLSH fingerprint, and fetch the latest known version of that path + the missing-files set from Deep Lake (PRD-005 tables).
 2. **Classify + resolve** (006b → 006c/006d) — map each path to new/changed/missing, then run the ladder per path.
-3. **Persist atomically** (analogous to `writeSnapshotAtomic`, `api.ts:253`) — append the resulting `source_graph_versions` rows and update `source_graph` via the PRD-005 write patterns; regenerate the projection (PRD-011) at cycle end.
+3. **Persist atomically** (analogous to `writeSnapshotAtomic`, `api.ts:253`) — append the resulting `hive_graph_versions` rows and update `hive_graph` via the PRD-005 write patterns; regenerate the projection (PRD-011) at cycle end.
 
 The handler never throws out of the cycle: a persist failure for one path is logged and the cycle continues with the next path, mirroring `runSyncCycle`'s per-target error logging at `file-watcher.ts:247-253`.
 
 ## Workspace scope and the ignore contract
 
-Hivenectar does not maintain its own ignore list. Discovery (brooding, PRD-007) reuses the CodeGraph's `git ls-files --cached --others --exclude-standard -z` discovery plus the `~/.honeycomb/graph-ignore.json` per-repo ignore file (carried from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "File discovery"). The live-watch intake honors the **same** ignore contract: an observation whose path matches the CodeGraph ignore rules (or sits outside the project workspace root) is dropped before reaching the scheduler — it never triggers a ladder cycle. "If a file is in the CodeGraph's discovery set, it is in Hivenectar's; if it is not, it is not" (`brooding-pipeline.md`). A hivenectar-specific ignore list would be a drift source and is a non-goal.
+Nectar does not maintain its own ignore list. Discovery (brooding, PRD-007) reuses the CodeGraph's `git ls-files --cached --others --exclude-standard -z` discovery plus the `~/.honeycomb/graph-ignore.json` per-repo ignore file (carried from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "File discovery"). The live-watch intake honors the **same** ignore contract: an observation whose path matches the CodeGraph ignore rules (or sits outside the project workspace root) is dropped before reaching the scheduler — it never triggers a ladder cycle. "If a file is in the CodeGraph's discovery set, it is in Nectar's; if it is not, it is not" (`brooding-pipeline.md`). A nectar-specific ignore list would be a drift source and is a non-goal.
 
 The watch root is the project workspace directory resolved by the daemon's tenancy scope (PRD-001/PRD-003 resolve `org`/`workspace`/`project_id`); re-association never crosses project boundaries (`identity-and-reassociation.md` § "What re-association explicitly does not do").
 
@@ -109,7 +109,7 @@ The watch root is the project workspace directory resolved by the daemon's tenan
 - [ ] `debounceMs` defaults to `500` (mirrors `file-watcher.ts:177`), is injectable via the service deps, and is flagged **DEFAULT — confirm before implementation**.
 - [ ] The settled handler catches all errors internally and the watcher keeps running (mirrors `runSyncCycle` at `file-watcher.ts:234-293`); the running cycle promise is tracked for test drain (`currentCyclePromise` pattern, `file-watcher.ts:312-314`).
 - [ ] The settled handler follows the `runGraphBuild` discover→resolve→persist shape (`codebase/api.ts:234-261`); a per-path persist failure is logged and the cycle continues.
-- [ ] Observations are filtered through the CodeGraph ignore contract before reaching the scheduler; no hivenectar-specific ignore list exists.
+- [ ] Observations are filtered through the CodeGraph ignore contract before reaching the scheduler; no nectar-specific ignore list exists.
 - [ ] Re-association never crosses the `project_id` boundary (`identity-and-reassociation.md`).
 
 ## Related

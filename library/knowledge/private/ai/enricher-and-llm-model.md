@@ -8,7 +8,7 @@ The lazy enrichment path that fills titles and descriptions after brooding: why 
 - [`../overview.md`](../overview.md)
 - [`brooding-pipeline.md`](brooding-pipeline.md)
 - [`identity-and-reassociation.md`](identity-and-reassociation.md)
-- [`../data/source-graph-schema.md`](../data/source-graph-schema.md)
+- [`../data/hive-graph-schema.md`](../data/hive-graph-schema.md)
 - [`../data/recall-integration.md`](../data/recall-integration.md)
 - [`../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md)
 - [`../reference/prior-art-crosswalk.md`](../reference/prior-art-crosswalk.md)
@@ -19,7 +19,7 @@ The lazy enrichment path that fills titles and descriptions after brooding: why 
 
 Brooding describes every file once. The enricher's job is everything after: re-describing a file when its content meaningfully changes, describing a file that was minted but skipped during brooding (cost cap hit, or `--limit` was used), and describing genuinely new files the watcher detected. The enricher is the steady-state description maintenance loop; brooding is the one-time bootstrap.
 
-The enricher runs as a background loop inside the hiveantennae daemon, polling a work queue of `source_graph_versions` rows where `describe_status = 'pending'`. It is lazy in two senses:
+The enricher runs as a background loop inside the hiveantennae daemon, polling a work queue of `hive_graph_versions` rows where `describe_status = 'pending'`. It is lazy in two senses:
 
 1. **Time-lazy.** A version row can sit with `describe_status = 'pending'` for hours or days. Recall simply does not surface undescribed rows (the recall query filters on `describe_status = 'described'` OR falls back to filename-only matching). Nothing breaks while a description is pending.
 2. **Change-lazy.** The enricher does not re-describe on every save. It debounces (next section) and, even after debouncing, applies a "meaningful change" heuristic — if the new content hash produces a structural delta below a threshold (e.g., only whitespace or only comment changes, detectable via a fast AST-light diff), the existing description is re-attached to the new version row and no LLM call is made.
@@ -28,9 +28,9 @@ The enricher runs as a background loop inside the hiveantennae daemon, polling a
 
 ## Why Gemini 2.5 Flash specifically
 
-The model choice for Hivenectar is **Gemini 2.5 Flash**, routed through the existing Portkey gateway (documented in the main Honeycomb corpus at `ai/portkey-gateway.md` and `ai/model-provider-router.md`). The choice is driven by one property above all others: the **1-million-token context window at frontier-tier quality and price**.
+The model choice for Nectar is **Gemini 2.5 Flash**, routed through the existing Portkey gateway (documented in the main Honeycomb corpus at `ai/portkey-gateway.md` and `ai/model-provider-router.md`). The choice is driven by one property above all others: the **1-million-token context window at frontier-tier quality and price**.
 
-Long context is load-bearing for Hivenectar in a way it is not for most LLM applications. The brooding batch call packs 30–50 small files into a single LLM round-trip; the per-file cost collapses roughly linearly with batch size up to the context limit. A model with a 200K-token window (Claude Haiku, Claude Sonnet, GPT-4o) caps the batch at ~6–10 small files per call, quintupling the call count and the per-file overhead. A model with a 1M-token window fits ~200 small files per call in principle, though batch size is capped at 40–50 in practice for output-token and reliability reasons.
+Long context is load-bearing for Nectar in a way it is not for most LLM applications. The brooding batch call packs 30–50 small files into a single LLM round-trip; the per-file cost collapses roughly linearly with batch size up to the context limit. A model with a 200K-token window (Claude Haiku, Claude Sonnet, GPT-4o) caps the batch at ~6–10 small files per call, quintupling the call count and the per-file overhead. A model with a 1M-token window fits ~200 small files per call in principle, though batch size is capped at 40–50 in practice for output-token and reliability reasons.
 
 The comparison, for the 2000-file brood from `brooding-pipeline.md`:
 
@@ -43,11 +43,11 @@ The comparison, for the 2000-file brood from `brooding-pipeline.md`:
 
 GPT-4o-mini is price-competitive but its single-file summarization quality is measurably worse on code understanding benchmarks, and its 128K window forces tiny batches that increase call overhead and failure-retry cost. Gemini 2.5 Flash is the Pareto-optimal point: frontier-tier quality, 1M context, lowest price at that quality.
 
-The model is not hardcoded. It is the **default** in the model provider router, configurable via the same `agent.yaml` / Portkey config that routes every other LLM call in Honeycomb. An operator who wants to swap to Haiku (smaller batches, higher cost, no infrastructure change) or to a local Ollama model (zero marginal cost, local GPU footprint, smaller batches) can do so without code changes. The `describe_model` column on every `source_graph_versions` row records which model produced each description, so a model swap can trigger selective re-description of files described by the old model if quality demands it.
+The model is not hardcoded. It is the **default** in the model provider router, configurable via the same `agent.yaml` / Portkey config that routes every other LLM call in Honeycomb. An operator who wants to swap to Haiku (smaller batches, higher cost, no infrastructure change) or to a local Ollama model (zero marginal cost, local GPU footprint, smaller batches) can do so without code changes. The `describe_model` column on every `hive_graph_versions` row records which model produced each description, so a model swap can trigger selective re-description of files described by the old model if quality demands it.
 
-Portkey semantic caching and guardrails are upstream configuration, not Hivenectar client switches. Brooding and enricher calls route through Portkey with the configured virtual key / `portkey.config`; cache behavior is enabled and tuned in the Portkey dashboard. Hivenectar records and accounts for cached-token effects when Portkey reports them, but it does not maintain a client-side semantic cache and it does not introduce a separate "cache-enabled" vault key.
+Portkey semantic caching and guardrails are upstream configuration, not Nectar client switches. Brooding and enricher calls route through Portkey with the configured virtual key / `portkey.config`; cache behavior is enabled and tuned in the Portkey dashboard. Nectar records and accounts for cached-token effects when Portkey reports them, but it does not maintain a client-side semantic cache and it does not introduce a separate "cache-enabled" vault key.
 
-### What Hivenectar needs from the model (capability tier)
+### What Nectar needs from the model (capability tier)
 
 The model does not need to be a frontier reasoner. It needs:
 
@@ -57,13 +57,13 @@ The model does not need to be a frontier reasoner. It needs:
 - **Function calling is NOT required.** The enricher does not use tools; it sends content and receives descriptions.
 - **Multilingual tolerance** — the codebase may contain files with non-English comments or identifiers. Flash and Haiku handle this; very small local models may not.
 
-A model that satisfies these is acceptable. Gemini 2.5 Flash is the default because it satisfies them at the lowest cost-per-file for the batch sizes Hivenectar uses.
+A model that satisfies these is acceptable. Gemini 2.5 Flash is the default because it satisfies them at the lowest cost-per-file for the batch sizes Nectar uses.
 
 ---
 
 ## Debouncing and rate limiting
 
-The watcher fires events on every save. A developer hitting Cmd-S ten times in ten seconds should not trigger ten enricher calls (or even ten re-association ladders). Hivenectar applies two layers of debouncing:
+The watcher fires events on every save. A developer hitting Cmd-S ten times in ten seconds should not trigger ten enricher calls (or even ten re-association ladders). Nectar applies two layers of debouncing:
 
 ### Watcher intake debounce
 
@@ -76,7 +76,7 @@ After re-association appends a new version row, the enricher does not immediatel
 ```sql
 -- The enricher's pending-work query (simplified; real query is sqlStr-guarded)
 SELECT nectar, MAX(seq) AS seq
-FROM source_graph_versions
+FROM hive_graph_versions
 WHERE describe_status = 'pending'
   AND org_id = :org
   AND workspace_id = :workspace
@@ -98,14 +98,14 @@ The enricher respects the model provider's rate limits through Portkey's built-i
 
 Not every content change warrants a re-description. A developer who reformats a file (Prettier, gofmt, rustfmt) has not changed its meaning, and re-describing it wastes LLM calls and produces an artificially-churned description (the LLM will phrase the new description slightly differently even for identical semantic content, which pollutes the version chain).
 
-Hivenectar applies a fast pre-LLM diff to decide whether to re-describe:
+Nectar applies a fast pre-LLM diff to decide whether to re-describe:
 
 1. **Tokenize both versions** with a lightweight, language-aware tokenizer (the same one the structural CodeGraph uses for its parse-error reporting — not a full AST, just a token stream).
 2. **Compute a Jaccard similarity** over the token multisets.
 3. **If similarity ≥ REDESCRIBE_THRESHOLD** (default 0.85), the change is deemed cosmetic. The new version row inherits the previous version's `title`, `description`, `concepts`, and `embedding`, and `describe_status` is set to `described` with a `describe_model` marker of `inherited-from:<prev_content_hash>`.
 4. **If similarity < threshold**, the change is deemed meaningful and the new version row enters the pending queue.
 
-This is the same intuition Smith uses (`Hash != Described-Against-Hash` triggers re-description; equality skips it), adapted to token similarity rather than raw hash equality so that a reformat (which changes the hash but not the tokens meaningfully) does not trigger re-description. The threshold is configurable and tunable per-repo via `~/.honeycomb/hivenectar.json`.
+This is the same intuition Smith uses (`Hash != Described-Against-Hash` triggers re-description; equality skips it), adapted to token similarity rather than raw hash equality so that a reformat (which changes the hash but not the tokens meaningfully) does not trigger re-description. The threshold is configurable and tunable per-repo via `~/.honeycomb/nectar.json`.
 
 ---
 
@@ -138,6 +138,6 @@ Every enricher cycle logs: files described, files inherited, files failed, token
 
 - **It does not describe directories.** Folders are derived from file paths in v1; a directory's "description" is synthesized on demand from its files' descriptions.
 - **It does not describe symbols.** Symbol-level description is a future possibility that would multiply row counts 10–100×; v1 is file-granular.
-- **It does not run on files the CodeGraph is building.** The two workers are independent; they may run concurrently against the same file without coordination, because they write to different tables (`codebase` vs `source_graph_versions`).
+- **It does not run on files the CodeGraph is building.** The two workers are independent; they may run concurrently against the same file without coordination, because they write to different tables (`codebase` vs `hive_graph_versions`).
 - **It does not block recall.** A query during enrichment sees whatever has been described so far. There is no read-lock, no "enrichment in progress" state.
-- **It does not re-describe on model swap automatically.** Existing descriptions are valid until proven otherwise. An operator who swaps models and wants to re-describe everything runs `honeycomb hivenectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`.
+- **It does not re-describe on model swap automatically.** Existing descriptions are valid until proven otherwise. An operator who swaps models and wants to re-describe everything runs `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`.

@@ -23,7 +23,7 @@ The LLM calls route through Portkey (transport + model selection owned by [PRD-0
 - The discovery + content-hash pre-check that produces the files entering bucketing — [007a](./prd-007a-discovery-and-content-hash-precheck.md).
 - The Portkey transport, model selection (Gemini 2.5 Flash), `describe_model` audit, and semantic-cache story — [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md). This sub-PRD assumes the batch/solo calls are made through Portkey; PRD-010 owns how.
 - The embeddings provider switch (local nomic default vs Cohere-via-Portkey) and the 768-dim-must-match-schema rule — [PRD-014](../../in-work/prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md). This sub-PRD states that embedding happens after description; PRD-014 owns the provider.
-- The tables the descriptions land in (`source_graph_versions`) — [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md).
+- The tables the descriptions land in (`hive_graph_versions`) — [PRD-005b](../../completed/prd-005-hive-graph-catalog-tables/prd-005b-hive-graph-versions-table.md).
 - The resumability rules that span the bucketing flow — [007c](./prd-007c-resumability-state-machine.md).
 - The `--dry-run` cost *preview* output format (it consumes the cost math here but owns its own surface) — [007d](./prd-007d-cli-surface-and-dry-run.md).
 
@@ -36,7 +36,7 @@ Files are bucketed by size and parsability **before any LLM call is made**. The 
 | Bucket | Criteria | LLM call shape |
 |---|---|---|
 | **Skip-binary** | First 8 KB contains NUL bytes, or extension is in a known-binary list (`.png`, `.jpg`, `.pdf`, `.woff2`, …) | No LLM call. Mint nectar, set `describe_status = 'skipped-binary'`, leave `title = filename`, `description = ''`. |
-| **Skip-too-large** | `size_bytes > MAX_DESCRIBE_SIZE` (default 256 KB) | No LLM call. Mint nectar, set `describe_status = 'skipped-too-large'`, leave `title = filename`. The structural CodeGraph still extracts symbols; Hivenectar just does not describe it semantically. |
+| **Skip-too-large** | `size_bytes > MAX_DESCRIBE_SIZE` (default 256 KB) | No LLM call. Mint nectar, set `describe_status = 'skipped-too-large'`, leave `title = filename`. The structural CodeGraph still extracts symbols; Nectar just does not describe it semantically. |
 | **Batch** | Text, `size_bytes <= BATCH_FILE_SIZE` (default 4 KB), and the cumulative batch size is under `BATCH_TOTAL_SIZE` (default 100 KB) | 30–50 files per LLM call. |
 | **Solo** | Text, `size_bytes > BATCH_FILE_SIZE` but `<= MAX_DESCRIBE_SIZE` | One file per LLM call. |
 
@@ -82,7 +82,7 @@ Respond as a JSON array, one object per input file, in input order.
 
 ### Validation + failure handling
 
-The response is parsed, validated against the expected shape, and written to the corresponding `source_graph_versions` rows. [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) states: "malformed entries are re-tried solo or marked `describe_status = 'failed'`." A malformed entry in a batch is therefore not fatal to the whole batch — the well-formed entries are written, and the malformed ones fall back to a solo retry or a `failed` status.
+The response is parsed, validated against the expected shape, and written to the corresponding `hive_graph_versions` rows. [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) states: "malformed entries are re-tried solo or marked `describe_status = 'failed'`." A malformed entry in a batch is therefore not fatal to the whole batch — the well-formed entries are written, and the malformed ones fall back to a solo retry or a `failed` status.
 
 ---
 
@@ -101,12 +101,12 @@ Large files (`size_bytes > BATCH_FILE_SIZE` but `<= MAX_DESCRIBE_SIZE`) get a so
 
 ## Skip buckets (no LLM call)
 
-The skip buckets mint a nectar and record metadata but make **no LLM call**, leaving `title` as the filename and `description` empty. They exist so the source graph still *indexes* binary and oversized files (they have an identity row and a version row, just not a semantic description) without paying description cost.
+The skip buckets mint a nectar and record metadata but make **no LLM call**, leaving `title` as the filename and `description` empty. They exist so the hive graph still *indexes* binary and oversized files (they have an identity row and a version row, just not a semantic description) without paying description cost.
 
 - **skip-binary** — `describe_status = 'skipped-binary'`, `title = filename`, `description = ''`.
-- **skip-too-large** — `describe_status = 'skipped-too-large'`, `title = filename`. The structural CodeGraph still extracts symbols from these files; Hivenectar simply does not describe them semantically.
+- **skip-too-large** — `describe_status = 'skipped-too-large'`, `title = filename`. The structural CodeGraph still extracts symbols from these files; Nectar simply does not describe them semantically.
 
-The four valid `describe_status` terminal values a brood produces are therefore `described`, `failed`, `skipped-too-large`, and `skipped-binary` — matching the column contract in [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md).
+The four valid `describe_status` terminal values a brood produces are therefore `described`, `failed`, `skipped-too-large`, and `skipped-binary` — matching the column contract in [PRD-005b](../../completed/prd-005-hive-graph-catalog-tables/prd-005b-hive-graph-versions-table.md).
 
 ---
 
@@ -200,7 +200,7 @@ Then persist rows (PRD-005) and regenerate the projection (PRD-011). Resumabilit
 - All four buckets + thresholds + the two prompts are carried verbatim from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md). The batch system prompt is reproduced character-for-character above.
 - The batch call's "re-try malformed solo or mark `failed`" failure path feeds the resumability state machine in [007c](./prd-007c-resumability-state-machine.md) — a `failed` row is re-enqueueable.
 - The LLM calls go through Portkey; the model is Gemini 2.5 Flash by default (configurable via `agent.yaml` / Portkey per [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md)). The transport + model selection is owned by [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md); this sub-PRD owns only the call *shape* (batch vs solo, prompt, output fields).
-- The `describe_model` column ([PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md)) records which model produced each description; brooding sets it to the model the call used.
+- The `describe_model` column ([PRD-005b](../../completed/prd-005-hive-graph-catalog-tables/prd-005b-hive-graph-versions-table.md)) records which model produced each description; brooding sets it to the model the call used.
 - The describe→embed→persist composition mirrors `runGraphBuild`'s extract→finalize→persist at `honeycomb/src/daemon/runtime/codebase/api.ts:247-253`: brooding extracts a description, embeds it, and persists atomically.
 
 No open questions. The bucketing + prompts + cost math are all carried verbatim from [`brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md); batch packing is resolved by locked decision #22 (dynamic token-budget packing within the 30–50 band, 100 KB cumulative cap).
@@ -213,7 +213,7 @@ No open questions. The bucketing + prompts + cost math are all carried verbatim 
 - [PRD-007d](./prd-007d-cli-surface-and-dry-run.md) — `--dry-run` consumes the cost math here.
 - [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) — the authoritative bucketing + prompts + cost math.
 - [`knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) — the Gemini 2.5 Flash rationale + `describe_model`.
-- [PRD-005b](../../completed/prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — the `describe_status` / `describe_model` columns this stage writes.
+- [PRD-005b](../../completed/prd-005-hive-graph-catalog-tables/prd-005b-hive-graph-versions-table.md) — the `describe_status` / `describe_model` columns this stage writes.
 - [PRD-010](../../in-work/prd-010-portkey-gateway/prd-010-portkey-gateway-index.md) — the Portkey transport + model selection.
 - [PRD-014](../../in-work/prd-014-embeddings-provider-switching/prd-014-embeddings-provider-switching-index.md) — the embeddings provider switch + BM25 fallback.
 - `honeycomb/src/daemon/runtime/codebase/api.ts:234-261` — `runGraphBuild`, the extract→persist composition to mirror.

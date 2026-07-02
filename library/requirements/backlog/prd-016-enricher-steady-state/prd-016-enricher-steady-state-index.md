@@ -3,13 +3,13 @@
 > **Status:** Backlog
 > **Priority:** P1
 > **Effort:** L (1-3d)
-> **Schema changes:** None (operates on the existing `source_graph_versions` rows owned by PRD-005)
+> **Schema changes:** None (operates on the existing `hive_graph_versions` rows owned by PRD-005)
 
 ---
 
 ## Overview
 
-Brooding describes every file once. The enricher is everything after: the steady-state description-maintenance loop that re-describes a file when its content meaningfully changes, describes a file that was minted but skipped during brooding (cost cap or `--limit`), and describes genuinely new files the watcher detected. It runs as a background loop inside the hiveantennae daemon, polling a work queue of `source_graph_versions` rows where `describe_status = 'pending'` on a 30s interval, coalescing rapid-fire edits via the 500ms watcher intake debounce, applying a meaningful-change heuristic (Jaccard ≥ 0.85 = cosmetic → inherit), calling the model via Portkey, embedding, and updating `describe_status` — with a `failed` → retry-solo path and a persistent-failure alert. This PRD owns the loop's three concerns: the queue poll + debounce + heuristic, the model call + `describe_model` audit, and the failure handling + alert. **This index covers the module scope.** Sub-feature PRDs cover each concern separately.
+Brooding describes every file once. The enricher is everything after: the steady-state description-maintenance loop that re-describes a file when its content meaningfully changes, describes a file that was minted but skipped during brooding (cost cap or `--limit`), and describes genuinely new files the watcher detected. It runs as a background loop inside the hiveantennae daemon, polling a work queue of `hive_graph_versions` rows where `describe_status = 'pending'` on a 30s interval, coalescing rapid-fire edits via the 500ms watcher intake debounce, applying a meaningful-change heuristic (Jaccard ≥ 0.85 = cosmetic → inherit), calling the model via Portkey, embedding, and updating `describe_status` — with a `failed` → retry-solo path and a persistent-failure alert. This PRD owns the loop's three concerns: the queue poll + debounce + heuristic, the model call + `describe_model` audit, and the failure handling + alert. **This index covers the module scope.** Sub-feature PRDs cover each concern separately.
 
 ---
 
@@ -47,7 +47,7 @@ Brooding describes every file once. The enricher is everything after: the steady
 
 | ID | Criterion |
 |---|---|
-| AC-1 | Given `source_graph_versions` rows with `describe_status = 'pending'`, when the enricher cycle runs, then it selects the latest pending version per nectar (grouped by nectar, ordered by `MIN(observed_at)`) scoped to the project. |
+| AC-1 | Given `hive_graph_versions` rows with `describe_status = 'pending'`, when the enricher cycle runs, then it selects the latest pending version per nectar (grouped by nectar, ordered by `MIN(observed_at)`) scoped to the project. |
 | AC-2 | Given multiple `(eventType, filename)` events on the same path within the 500ms window, then they collapse to a single "the file at this path changed" signal entering re-association. |
 | AC-3 | Given a new version row whose token Jaccard similarity to the prior version is ≥ 0.85, then the change is deemed cosmetic: the new row inherits the prior `title`/`description`/`concepts`/`embedding` and `describe_model = inherited-from:<prev_content_hash>`, with no LLM call. |
 | AC-4 | Given a new version row whose token Jaccard similarity to the prior version is < 0.85, then the change is deemed meaningful and the row enters the pending queue. |
@@ -59,13 +59,13 @@ Brooding describes every file once. The enricher is everything after: the steady
 
 ## Data model changes
 
-None at the table level. The enricher operates on the existing `source_graph_versions` rows owned by PRD-005 (`data/source-graph-schema.md`), reading and updating `describe_status`, `describe_model`, `title`, `description`, `concepts`, and the embedding column. The `describe_status` lifecycle values it exercises — `pending`, `described`, `failed`, `skipped-deleted` — are defined by PRD-005's schema.
+None at the table level. The enricher operates on the existing `hive_graph_versions` rows owned by PRD-005 (`data/hive-graph-schema.md`), reading and updating `describe_status`, `describe_model`, `title`, `description`, `concepts`, and the embedding column. The `describe_status` lifecycle values it exercises — `pending`, `described`, `failed`, `skipped-deleted` — are defined by PRD-005's schema.
 
 ---
 
 ## API changes
 
-None at the endpoint level. The enricher is an internal background loop. Its per-cycle observability (files described, files inherited, files failed, tokens consumed, estimated cost; a rolling 24-hour cost counter and a queue-depth gauge) is surfaced to the dashboard via PRD-008's `/api/source-graph/status` endpoint, not a new endpoint of its own.
+None at the endpoint level. The enricher is an internal background loop. Its per-cycle observability (files described, files inherited, files failed, tokens consumed, estimated cost; a rolling 24-hour cost counter and a queue-depth gauge) is surfaced to the dashboard via PRD-008's `/api/hive-graph/status` endpoint, not a new endpoint of its own.
 
 ---
 
@@ -84,7 +84,7 @@ All four enricher cadence/threshold values are carried from the corpus (`ai/enri
 - [`../../../requirements/MASTER-PRD-INDEX.md`](../../../requirements/MASTER-PRD-INDEX.md) — PRD-016 entry; DECISION #4 (`node:fs.watch` watcher, not chokidar).
 - [`../../../knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) — AUTHORITATIVE: the enricher contract, the two debounce layers, the meaningful-change heuristic, rate limiting, failure modes, and the 30s/500ms/0.85/5 values.
 - [`../../../knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) — brooding is the bootstrap the enricher follows.
-- [`../../../knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md) — the `source_graph_versions` rows + `describe_status` lifecycle the enricher drives.
+- [`../../../knowledge/private/data/hive-graph-schema.md`](../../../knowledge/private/data/hive-graph-schema.md) — the `hive_graph_versions` rows + `describe_status` lifecycle the enricher drives.
 - [`../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md`](../../in-work/prd-011-portable-projection/prd-011-portable-projection-index.md) — the projection whose trigger #2 (end of an enricher cycle that wrote new descriptions) this loop invokes; co-dependent per the dependency map.
 - `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts` — the lease → route → run → complete/fail worker harness the loop mirrors.
 - `honeycomb/src/daemon/runtime/services/poll-loop.ts` — the adaptive poll loop the cadence mirrors.

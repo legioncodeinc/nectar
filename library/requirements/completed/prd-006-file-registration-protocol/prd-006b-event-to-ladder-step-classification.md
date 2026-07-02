@@ -31,9 +31,9 @@ The ladder (006d) consumes exactly three classes. This sub-PRD defines how a set
 
 | Class | Definition | Disk state | Deep Lake state | Ladder steps that consume it |
 |---|---|---|---|---|
-| **new path** | A path on disk with no known nectar at that path. | file exists | no `source_graph` row whose latest-version path equals this path | step 3 (exact-hash-to-missing), step 4 (TLSH-fuzzy-to-missing), step 5 (mint), copy detector (006c) |
-| **changed path** | A path on disk with a known nectar, whose content (mtime/size, then hash) differs from the latest version. | file exists | a `source_graph` row exists at this path | step 1 (exact path+mtime+size), step 2 (path match, content changed) |
-| **missing path** | A known nectar whose latest-version path no longer exists on disk. | file absent | a `source_graph` row exists whose latest-version path is this path | feeds the **missing-files set** consulted by steps 3–4 |
+| **new path** | A path on disk with no known nectar at that path. | file exists | no `hive_graph` row whose latest-version path equals this path | step 3 (exact-hash-to-missing), step 4 (TLSH-fuzzy-to-missing), step 5 (mint), copy detector (006c) |
+| **changed path** | A path on disk with a known nectar, whose content (mtime/size, then hash) differs from the latest version. | file exists | a `hive_graph` row exists at this path | step 1 (exact path+mtime+size), step 2 (path match, content changed) |
+| **missing path** | A known nectar whose latest-version path no longer exists on disk. | file absent | a `hive_graph` row exists whose latest-version path is this path | feeds the **missing-files set** consulted by steps 3–4 |
 
 A path is in exactly one class after a settle. The "known nectar at that path" lookup is scoped by the project tenancy filter (`org_id` + `workspace_id` + `project_id`, per PRD-005c) — re-association never crosses project boundaries (`identity-and-reassociation.md` § "What re-association explicitly does not do").
 

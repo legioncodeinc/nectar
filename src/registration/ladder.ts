@@ -16,15 +16,15 @@
  * separate, explicit operation, `prune --confirm`, PRD-006d / prune-cli.ts).
  */
 import type {
-  SourceGraphRow,
-  SourceGraphVersionRow,
+  HiveGraphRow,
+  HiveGraphVersionRow,
   Tenancy,
-} from "../source-graph/model.js";
-import { inTenancy } from "../source-graph/model.js";
-import type { LatestVersion, SourceGraphStore } from "../source-graph/store.js";
-import { mintNectar, nectarCreatedAt } from "../source-graph/ulid.js";
-import { sha256Hex } from "../source-graph/hash.js";
-import { filenameOf, extOf } from "../source-graph/paths.js";
+} from "../hive-graph/model.js";
+import { inTenancy } from "../hive-graph/model.js";
+import type { LatestVersion, HiveGraphStore } from "../hive-graph/store.js";
+import { mintNectar, nectarCreatedAt } from "../hive-graph/ulid.js";
+import { sha256Hex } from "../hive-graph/hash.js";
+import { filenameOf, extOf } from "../hive-graph/paths.js";
 import { classifyNewFile } from "./copy-detect.js";
 // Value import; tlsh's back-edge to this module is `import type` (erased), so there is no runtime cycle.
 import { computeFingerprint } from "./tlsh.js";
@@ -42,7 +42,7 @@ export interface ObservedFile {
  * {@link LatestVersion} (so it still carries `.identity` and `.version`, keeping
  * every existing injected fuzzy step working) plus the missing nectar's latest
  * TLSH fingerprint. The fingerprint is read from the PERSISTED
- * `source_graph_versions.fingerprint` column of the candidate's latest version,
+ * `hive_graph_versions.fingerprint` column of the candidate's latest version,
  * so step 4 can match against a now-gone file without re-reading it AND survive a
  * daemon restart: this is how the missing-files set "carries each missing
  * nectar's latest content hash AND its TLSH fingerprint" (PRD-006b AC /
@@ -85,7 +85,7 @@ export interface ReviewCandidate {
 }
 
 export interface LadderDeps {
-  readonly store: SourceGraphStore;
+  readonly store: HiveGraphStore;
   readonly tenancy: Tenancy;
   /** ISO 8601 "now"; injectable for deterministic tests. */
   now(): string;
@@ -234,7 +234,7 @@ function baseVersion(
   hash: string,
   seq: number,
   fingerprint: string | null,
-): SourceGraphVersionRow {
+): HiveGraphVersionRow {
   return {
     nectar: "",
     contentHash: hash,
@@ -288,7 +288,7 @@ function appendEditVersion(
  * to a fresh mint.
  */
 function writeCarriedRow(
-  store: SourceGraphStore,
+  store: HiveGraphStore,
   tenancy: Tenancy,
   now: string,
   source: LatestVersion,
@@ -327,7 +327,7 @@ function writeCarriedRow(
  * nullable-column contract.
  */
 export function carryNectar(
-  store: SourceGraphStore,
+  store: HiveGraphStore,
   tenancy: Tenancy,
   now: string,
   sourceNectar: string,
@@ -356,7 +356,7 @@ function mintOrCopy(deps: LadderDeps, file: ObservedFile, hash: string, fingerpr
   const nectar = mintNectar();
   const now = deps.now();
 
-  const identity: SourceGraphRow = {
+  const identity: HiveGraphRow = {
     nectar,
     kind: "file",
     createdAt: nectarCreatedAt(nectar),

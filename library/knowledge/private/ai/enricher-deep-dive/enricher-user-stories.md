@@ -17,7 +17,7 @@ Engineering and operator user stories for the lazy enrichment loop — the perso
 
 ## How to read these stories
 
-These are engineering-scope stories, not product requirements. They describe what the enricher loop, the operator, and the reviewer must be able to observe and do. Each story is phrased from the perspective of a concrete persona and carries lettered acceptance criteria that reference the enricher's observable behavior on `source_graph_versions`. They are the executable checklist a developer or operator uses to confirm the enrichment loop behaves as specified.
+These are engineering-scope stories, not product requirements. They describe what the enricher loop, the operator, and the reviewer must be able to observe and do. Each story is phrased from the perspective of a concrete persona and carries lettered acceptance criteria that reference the enricher's observable behavior on `hive_graph_versions`. They are the executable checklist a developer or operator uses to confirm the enrichment loop behaves as specified.
 
 The personas recur across the stories:
 
@@ -64,11 +64,11 @@ The personas recur across the stories:
 **Acceptance criteria:**
 (a) A reformatted file (Prettier, gofmt, rustfmt) that changes hash but not tokens meaningfully does not trigger re-description.
 (b) A genuine semantic edit (renamed function, changed logic) does trigger re-description.
-(c) The threshold is tunable per-repo via `~/.honeycomb/hivenectar.json`.
+(c) The threshold is tunable per-repo via `~/.honeycomb/nectar.json`.
 
 **US-EN-006** — As the operator, I can tune `REDESCRIBE_THRESHOLD` to make the heuristic more or less aggressive, so I can trade description churn for LLM cost on a per-repo basis.
 **Acceptance criteria:**
-(a) The threshold is read from `~/.honeycomb/hivenectar.json`.
+(a) The threshold is read from `~/.honeycomb/nectar.json`.
 (b) A lower threshold re-describes more eagerly; a higher threshold skips more edits.
 (c) Changing the threshold does not retroactively re-evaluate already-described rows.
 
@@ -85,8 +85,8 @@ The personas recur across the stories:
 **US-EN-008** — As the watcher, my debounce window is shorter than Cartog's AST-rebuild debounce, because re-association is cheaper than a full AST re-extraction.
 **Acceptance criteria:**
 (a) The watcher debounce is configurable and mirrors Honeycomb's `fs.watch` + timer pattern rather than Cartog's richer watcher dependency.
-(b) The two workers (CodeGraph and Hivenectar) run concurrently against the same file without coordination.
-(c) Each writes to its own table (`codebase` vs `source_graph_versions`).
+(b) The two workers (CodeGraph and Nectar) run concurrently against the same file without coordination.
+(c) Each writes to its own table (`codebase` vs `hive_graph_versions`).
 
 ---
 
@@ -154,11 +154,11 @@ The personas recur across the stories:
 
 **US-EN-016** — As the operator, a model swap does not automatically re-describe existing rows, because existing descriptions remain valid until proven otherwise.
 **Acceptance criteria:**
-(a) Swapping the configured model does not touch any existing `source_graph_versions` row.
+(a) Swapping the configured model does not touch any existing `hive_graph_versions` row.
 (b) New pending rows pick up the new `describe_model` on next enrichment.
 (c) Recall continues to surface old-model descriptions unchanged.
 
-**US-EN-017** — As the operator, when I want to re-describe everything under the new model I run `honeycomb hivenectar brood --force --model <new>`, which sets all non-skipped rows back to pending.
+**US-EN-017** — As the operator, when I want to re-describe everything under the new model I run `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to pending.
 **Acceptance criteria:**
 (a) The command resets non-skipped rows to `describe_status = 'pending'`.
 (b) Skipped rows (`skipped-binary`, `skipped-too-large`) are not reset.
@@ -170,9 +170,9 @@ The personas recur across the stories:
 
 **US-EN-018** — As the cost-bound operator, I can cap the cost of a *brood* with `--limit N` and preview it with `--dry-run`, so the one-time bootstrap cannot exceed a known cost.
 **Acceptance criteria:**
-(a) `honeycomb hivenectar brood --limit N` describes at most N pending files per invocation (a `brood` flag, documented in `../brooding-pipeline.md`).
+(a) `honeycomb nectar brood --limit N` describes at most N pending files per invocation (a `brood` flag, documented in `../brooding-pipeline.md`).
 (b) Remaining pending files stay pending for a subsequent brood or for the enricher loop to pick up.
-(c) `honeycomb hivenectar brood --dry-run` reports the estimated call count and cost without making LLM calls.
+(c) `honeycomb nectar brood --dry-run` reports the estimated call count and cost without making LLM calls.
 (d) The steady-state enricher loop is not separately cost-capped per invocation; its cost is bounded by the pending-queue depth and the 30-second poll interval.
 
 **US-EN-019** — As the enricher loop, I rely on Portkey's built-in rate-limit handling for 429s and 5xxs rather than implementing my own retry, so that double-retry pathologies are avoided.

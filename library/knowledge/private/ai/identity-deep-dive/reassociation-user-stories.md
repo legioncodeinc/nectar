@@ -11,7 +11,7 @@ Engineering and operator user stories for the re-association ladder, scoped to t
 - [`reassociation-ecosystem-story-arc.md`](reassociation-ecosystem-story-arc.md)
 - [`reassociation-conclusion-and-deliverables.md`](reassociation-conclusion-and-deliverables.md)
 - [`../enricher-and-llm-model.md`](../enricher-and-llm-model.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 
 ---
 
@@ -22,7 +22,7 @@ These are engineering-scope user stories, not a PRD. They describe the behaviors
 - **The daemon** — the hiveantennae process performing cold catch-up at boot or re-associating on watcher events.
 - **The `node:fs.watch` intake** — the live-mode event source that reports path observations and triggers debounced re-association work.
 - **The reviewer** — a human adjudicating low-confidence TLSH matches surfaced by the review surface.
-- **The operator** — a human running `honeycomb hivenectar prune --confirm`.
+- **The operator** — a human running `honeycomb nectar prune --confirm`.
 - **The teammate** — a developer whose copy-paste, edit, or fresh clone exercises the ladder.
 
 Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
@@ -45,7 +45,7 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 ## Step 2 — path match, content changed
 
 **US-RA-004** — As the daemon, when a file's path matches a known nectar but its content hash differs from the latest version, I append a new version row without changing the nectar.
-**Acceptance criteria:** (a) A new `source_graph_versions` row is appended with `seq = prev_seq + 1`, the new `content_hash`, and `title/description/embedding = NULL`, `describe_status = 'pending'`. (b) The previous version row is retained unchanged. (c) `source_graph.last_update_date` is updated. (d) A lazy enrich job is enqueued for the new version.
+**Acceptance criteria:** (a) A new `hive_graph_versions` row is appended with `seq = prev_seq + 1`, the new `content_hash`, and `title/description/embedding = NULL`, `describe_status = 'pending'`. (b) The previous version row is retained unchanged. (c) `hive_graph.last_update_date` is updated. (d) A lazy enrich job is enqueued for the new version.
 
 **US-RA-005** — As the `node:fs.watch` intake in live mode, step 2 is my dominant path because normal edits keep the path stable and change only the content.
 **Acceptance criteria:** (a) A save event on a tracked path produces a step-2 resolution. (b) The configured watcher intake debounce collapses rapid-fire saves on the same path into a single step-2 append. (c) Intermediate saves within an enricher cycle are never described — only `MAX(seq) per nectar WHERE describe_status = 'pending'` enters the enricher queue.
@@ -58,7 +58,7 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 ## Step 3 — exact content-hash match to a missing file (move detector)
 
 **US-RA-007** — As the `node:fs.watch` intake in live mode, when a new path's content hash matches a missing file's latest content hash, I carry the nectar from the missing path to the new path via step 3.
-**Acceptance criteria:** (a) The debounced intake refreshes the new/changed path set and the missing-files set. (b) The new path's content hash exactly matches the missing file's latest `content_hash`. (c) A new `source_graph_versions` row is appended for the existing nectar with the new `path` and the same `content_hash` (composite key collision avoided by incremented `seq`). (d) No enrich job is enqueued — the content is unchanged.
+**Acceptance criteria:** (a) The debounced intake refreshes the new/changed path set and the missing-files set. (b) The new path's content hash exactly matches the missing file's latest `content_hash`. (c) A new `hive_graph_versions` row is appended for the existing nectar with the new `path` and the same `content_hash` (composite key collision avoided by incremented `seq`). (d) No enrich job is enqueued — the content is unchanged.
 
 **US-RA-008** — As the daemon performing cold catch-up, when an offline rename produces a new path whose content hash exactly matches a missing file's latest hash, I carry the nectar.
 **Acceptance criteria:** (a) The daemon computes the set difference between Deep Lake's known paths and disk's current paths to build the missing-files map. (b) The new path's hash is compared against missing files' latest version hashes. (c) An exact sha256 match carries the nectar; the previous version row's stale path is retained as history.
@@ -80,13 +80,13 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 **Acceptance criteria:** (a) `confidence = 1 − normalizedTLSHDistance` falls above the configurable high band (default tuned during brooding — no concrete value is committed by the spec). (b) A new version row is appended for the carried nectar with the `confidence` field populated. (c) An enrich job is enqueued (the content changed). (d) No human review is required.
 
 **US-RA-013** — As the daemon, when a fuzzy match falls in the review band, I do not auto-claim the nectar; I surface the candidate for review and provisionally mint.
-**Acceptance criteria:** (a) `confidence` is between the low and high bounds. (b) The candidate is added to the `honeycomb hivenectar review-matches` queue. (c) The file on disk is associated to a provisional fresh nectar so recall keeps working pending adjudication. (d) The nectar is not carried until the reviewer accepts.
+**Acceptance criteria:** (a) `confidence` is between the low and high bounds. (b) The candidate is added to the `honeycomb nectar review-matches` queue. (c) The file on disk is associated to a provisional fresh nectar so recall keeps working pending adjudication. (d) The nectar is not carried until the reviewer accepts.
 
 **US-RA-014** — As the daemon, when a fuzzy match falls below the low-confidence band, I do not surface it; I fall through to step 5 and mint.
 **Acceptance criteria:** (a) `confidence` falls at or below the low band (default tuned during brooding — no concrete value is committed by the spec). (b) No candidate is added to the review queue. (c) A fresh nectar is minted for the file. (d) No history corruption occurs — the would-be source nectar's chain is untouched.
 
 **US-RA-015** — As the reviewer, I can list, accept, or reject pending low-confidence candidates via the review surface.
-**Acceptance criteria:** (a) `honeycomb hivenectar review-matches` lists candidates with their `confidence`, the on-disk path, and the candidate source nectar. (b) The reviewer can accept a candidate, which rewrites the provisional nectar's rows to point at the carried nectar and records the decision. (c) The reviewer can reject a candidate, which leaves the provisional mint in place and removes it from the queue. (d) Review decisions are auditable on the version row. (The exact accept/reject flag syntax is an implementation detail the source spec does not pin.)
+**Acceptance criteria:** (a) `honeycomb nectar review-matches` lists candidates with their `confidence`, the on-disk path, and the candidate source nectar. (b) The reviewer can accept a candidate, which rewrites the provisional nectar's rows to point at the carried nectar and records the decision. (c) The reviewer can reject a candidate, which leaves the provisional mint in place and removes it from the queue. (d) Review decisions are auditable on the version row. (The exact accept/reject flag syntax is an implementation detail the source spec does not pin.)
 
 **US-RA-016** — As the `node:fs.watch` intake in live mode, I rarely reach step 4 because ordinary moves resolve through step 3 exact-hash reconstruction.
 **Acceptance criteria:** (a) Step 4 fires in live mode only for move-and-edit cases or incomplete event evidence. (b) The review surface is not populated by normal live operation. (c) Cold catch-up after offline move-and-edit is the primary source of review-band candidates.
@@ -96,17 +96,17 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 ## Step 5 — mint new nectar
 
 **US-RA-017** — As the daemon, when no step 1–4 match resolves a file, I mint a fresh ULID nectar.
-**Acceptance criteria:** (a) `mintNectar()` returns a 26-char Crockford-base32 ULID. (b) A `source_graph` row is written with the nectar as primary key, `created_at` set to the decoded ULID timestamp. (c) An initial `source_graph_versions` row is appended. (d) An enrich job is enqueued.
+**Acceptance criteria:** (a) `mintNectar()` returns a 26-char Crockford-base32 ULID. (b) A `hive_graph` row is written with the nectar as primary key, `created_at` set to the decoded ULID timestamp. (c) An initial `hive_graph_versions` row is appended. (d) An enrich job is enqueued.
 
 **US-RA-018** — As the teammate whose genuinely new file appears, I get a fresh nectar with no `derived_from_nectar`.
-**Acceptance criteria:** (a) The new file's content hash matches no existing file's current content (copy detection returns `action: 'mint'`). (b) `source_graph.derived_from_nectar` is empty. (c) The nectar is an original mint.
+**Acceptance criteria:** (a) The new file's content hash matches no existing file's current content (copy detection returns `action: 'mint'`). (b) `hive_graph.derived_from_nectar` is empty. (c) The nectar is an original mint.
 
 ---
 
 ## Copy-paste as provenance
 
 **US-RA-019** — As the teammate who copy-pastes file A to a new path B, the daemon mints B a fresh nectar with `derived_from_nectar` pointing at A.
-**Acceptance criteria:** (a) B's content hash matches A's current content hash. (b) `classifyNewFile()` returns `action: 'copy', sourceNectar: A.nectar`. (c) B gets a fresh ULID nectar N2. (d) `source_graph` for N2 sets `derived_from_nectar = N1` and `fork_content_hash = H1` (A's content at copy time). (e) A's nectar N1 is unchanged.
+**Acceptance criteria:** (a) B's content hash matches A's current content hash. (b) `classifyNewFile()` returns `action: 'copy', sourceNectar: A.nectar`. (c) B gets a fresh ULID nectar N2. (d) `hive_graph` for N2 sets `derived_from_nectar = N1` and `fork_content_hash = H1` (A's content at copy time). (e) A's nectar N1 is unchanged.
 
 **US-RA-020** — As the teammate, when I later edit B so its content diverges from A, the `derived_from_nectar` link survives.
 **Acceptance criteria:** (a) B's edit appends a version row to N2's chain (step 2). (b) `derived_from_nectar` on N2 is write-once and is not cleared or updated by the edit. (c) The Obsidian-style interlink view continues to render "B was forked from A" indefinitely.
@@ -122,7 +122,7 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 **Acceptance criteria:** (a) Step 5 always mints a fresh nectar; it never scans for orphaned nectars and reassigns them. (b) Orphaned nectars (file deleted, not moved) remain in Deep Lake as history. (c) A nectar, once minted, is immutable in its identity; the re-association ladder only appends version rows or carries the nectar to a new path.
 
 **US-RA-023** — As the operator, deletion of nectar records is a separate, explicit, human-triggered operation with a grace period.
-**Acceptance criteria:** (a) `honeycomb hivenectar prune --confirm` is the only path that removes nectar records. (b) Only nectars whose *latest* version path has been missing longer than the grace period (default 30 days) are eligible. (c) `--confirm` is required; pruning never runs automatically. (d) A nectar with any version pointing at a live path is never pruned.
+**Acceptance criteria:** (a) `honeycomb nectar prune --confirm` is the only path that removes nectar records. (b) Only nectars whose *latest* version path has been missing longer than the grace period (default 30 days) are eligible. (c) `--confirm` is required; pruning never runs automatically. (d) A nectar with any version pointing at a live path is never pruned.
 
 **US-RA-024** — As the operator, the grace period absorbs branch switches and unmerged feature work so I do not destroy history prematurely.
 **Acceptance criteria:** (a) A file absent because it lives on an unmerged branch is not pruned within the grace window. (b) The default 30-day window covers a typical branch lifecycle. (c) The grace period is configurable.

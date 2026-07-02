@@ -1,12 +1,12 @@
 /**
  * The `describe_model` audit seam (PRD-010b).
  *
- * Stamps which model produced a description on a `source_graph_versions` row and
+ * Stamps which model produced a description on a `hive_graph_versions` row and
  * computes which rows `brood --force --model <new>` must reset to `pending` before
  * re-description (AC-3). The CLI verb itself is owned by PRD-007; this module is
  * the pure field logic the integrator wires.
  */
-import type { DescribeStatus, SourceGraphVersionRow } from "../source-graph/model.js";
+import type { DescribeStatus, HiveGraphVersionRow } from "../hive-graph/model.js";
 
 /** The three skip statuses that `--force` must not reset (AC-3). */
 export const SKIPPED_DESCRIBE_STATUSES: readonly DescribeStatus[] = [
@@ -93,9 +93,9 @@ export function resetForRedescribe(rows: readonly RedescribeRow[]): RedescribeRe
 
 /** Apply a describe stamp onto a full version row (immutable return for tests/adapters). */
 export function applyDescribeModelStamp(
-  row: SourceGraphVersionRow,
+  row: HiveGraphVersionRow,
   stamp: DescribeModelStamp,
-): SourceGraphVersionRow {
+): HiveGraphVersionRow {
   return {
     ...row,
     title: stamp.title,

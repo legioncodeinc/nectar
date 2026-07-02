@@ -1,10 +1,10 @@
 {
   "name": "@legioncodeinc/nectar",
   "version": "0.0.1",
-  "description": "Hivenectar: a semantic memory layer over a source tree. The hiveantennae daemon mints a stable identity (a nectar) and an LLM-minted description for every file, served through the hybrid recall Honeycomb already uses.",
+  "description": "Nectar: a semantic memory layer over a source tree. The hiveantennae daemon mints a stable identity (a nectar) and an LLM-minted description for every file, served through the hybrid recall Honeycomb already uses.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "//publishConfig": "PRD-001c: minimum fix needed for a valid scoped-package publish, mirroring honeycomb/hivedoctor. `access: public` is required because scoped packages default to restricted; `provenance` pairs with release.yaml's `id-token: write` OIDC identity.",
+  "//publishConfig": "PRD-001c: minimum fix needed for a valid scoped-package publish, mirroring honeycomb/doctor. `access: public` is required because scoped packages default to restricted; `provenance` pairs with release.yaml's `id-token: write` OIDC identity.",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -13,7 +13,7 @@
     "node": ">=22"
   },
   "bin": {
-    "hivenectar": "dist/cli.js"
+    "nectar": "dist/cli.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -31,7 +31,7 @@
     "prepack": "npm run build"
   },
   "keywords": [
-    "hivenectar",
+    "nectar",
     "honeycomb",
     "semantic-memory",
     "code-graph",

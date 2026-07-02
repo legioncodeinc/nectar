@@ -5,10 +5,10 @@
  * `src/portkey/`, `src/projection/`, and `src/embeddings/` modules:
  *
  *   - MEDIUM: none of the three HTTP transports (`portkey/transport.ts`,
- *     `embeddings/cohere-portkey.ts`, `embeddings/local-nomic.ts`) bounded a
+ *     `embeddings/hosted-portkey.ts`, `embeddings/local-nomic.ts`) bounded a
  *     request with an `AbortController`, so an unresponsive peer could hang the
  *     caller indefinitely. Each now aborts on its configured timeout, mirroring
- *     `source-graph/deeplake-transport.ts`'s established pattern.
+ *     `hive-graph/deeplake-transport.ts`'s established pattern.
  *   - MEDIUM: `projection/load.ts#loadProjectionFromFile` read an untrusted
  *     `.honeycomb/nectars.json` (a committed file that travels with a cloned
  *     repo) with no upper size bound (CWE-400), and `parsePortableProjection`
@@ -30,10 +30,10 @@ import { describeViaPortkey, PortkeyTransportError } from "../dist/portkey/trans
 import { DEFAULT_ACTIVE_MODEL } from "../dist/portkey/config.js";
 import { createLocalNomicHttpTransport } from "../dist/embeddings/local-nomic.js";
 import {
-  createCoherePortkeyProvider,
-  DEFAULT_COHERE_EMBED_MODEL,
-  DEFAULT_COHERE_OUTPUT_DIMENSION,
-} from "../dist/embeddings/cohere-portkey.js";
+  createHostedPortkeyProvider,
+  DEFAULT_HOSTED_EMBED_MODEL,
+  DEFAULT_HOSTED_OUTPUT_DIMENSION,
+} from "../dist/embeddings/hosted-portkey.js";
 import type { FetchLike } from "../dist/embeddings/http.js";
 import {
   loadProjectionFromFile,
@@ -43,7 +43,7 @@ import {
 const TEN = { orgId: "legion", workspaceId: "engineering", projectId: "honeycomb" };
 
 function tempRoot(): string {
-  return mkdtempSync(join(tmpdir(), "hivenectar-secwaveb-"));
+  return mkdtempSync(join(tmpdir(), "nectar-secwaveb-"));
 }
 
 /**
@@ -79,13 +79,13 @@ test(
 );
 
 test(
-  "PRD-014b Cohere-via-Portkey transport aborts on requestTimeoutMs instead of hanging forever",
+  "PRD-014b hosted-via-Portkey transport aborts on requestTimeoutMs instead of hanging forever",
   { timeout: 3000 },
   async () => {
-    const provider = createCoherePortkeyProvider(
+    const provider = createHostedPortkeyProvider(
       {
-        model: DEFAULT_COHERE_EMBED_MODEL,
-        outputDimension: DEFAULT_COHERE_OUTPUT_DIMENSION,
+        model: DEFAULT_HOSTED_EMBED_MODEL,
+        outputDimension: DEFAULT_HOSTED_OUTPUT_DIMENSION,
         apiKey: "pk-secret",
         configId: "pcfg-1",
         url: "https://example.invalid/v1/embeddings",

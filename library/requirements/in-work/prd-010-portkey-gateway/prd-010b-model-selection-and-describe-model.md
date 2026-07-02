@@ -9,14 +9,14 @@
 
 ## Overview
 
-The model that produces Hivenectar's file descriptions is **Gemini 2.5 Flash** by default — the Pareto-optimal point on the model comparison table (1M-token context at frontier-tier quality and price). It is the **default** in the model provider router, configurable via the `activeModel` vault setting and the Portkey config; it is not hardcoded. Swapping models is never automatic: the operator runs `honeycomb hivenectar brood --force --model <new>` to force re-description, and the `describe_model` column on every `source_graph_versions` row records which model produced each description so the swap is auditable.
+The model that produces Nectar's file descriptions is **Gemini 2.5 Flash** by default — the Pareto-optimal point on the model comparison table (1M-token context at frontier-tier quality and price). It is the **default** in the model provider router, configurable via the `activeModel` vault setting and the Portkey config; it is not hardcoded. Swapping models is never automatic: the operator runs `honeycomb nectar brood --force --model <new>` to force re-description, and the `describe_model` column on every `hive_graph_versions` row records which model produced each description so the swap is auditable.
 
 ---
 
 ## Goals
 
 - The default requested model resolves to Gemini 2.5 Flash (`activeModel` default) for both brooding and enricher calls.
-- `brood --force --model <new>` resets every non-skipped `source_graph_versions` row to `pending` and re-describes under the new model.
+- `brood --force --model <new>` resets every non-skipped `hive_graph_versions` row to `pending` and re-describes under the new model.
 - The `describe_model` column records the producing model on every described row (including the `inherited-from:<prev_content_hash>` marker for cosmetic changes that inherit a prior description).
 
 ## Non-Goals
@@ -54,10 +54,10 @@ The 2000-file brood cost comparison, verbatim from `ai/enricher-and-llm-model.md
 
 ### US-010b.2 — Force re-description under a swapped model
 
-**As a** operator who swapped models, **I want to** run `honeycomb hivenectar brood --force --model <new>`, **so that** every non-skipped row is re-described under the new model rather than carrying stale descriptions.
+**As a** operator who swapped models, **I want to** run `honeycomb nectar brood --force --model <new>`, **so that** every non-skipped row is re-described under the new model rather than carrying stale descriptions.
 
 **Acceptance criteria:**
-- AC-010b.2.1 Given `brood --force --model <new>`, then every non-skipped `source_graph_versions` row is reset to `describe_status = 'pending'`.
+- AC-010b.2.1 Given `brood --force --model <new>`, then every non-skipped `hive_graph_versions` row is reset to `describe_status = 'pending'`.
 - AC-010b.2.2 Given the forced re-description completes for a row, then `describe_model` is stamped to the new model id.
 
 ### US-010b.3 — Audit which model produced each description
@@ -72,7 +72,7 @@ The 2000-file brood cost comparison, verbatim from `ai/enricher-and-llm-model.md
 
 ## Implementation notes
 
-- **Model flows as `activeModel`.** The factory builds the Portkey config with `model` = the vault `activeModel` (D-2: `model-client-factory.ts:97-98`, `:404-406`); the transport sends `call.target.model` as the `model` body field (`transport-portkey.ts:198`). Hivenectar's default for `activeModel` is Gemini 2.5 Flash.
+- **Model flows as `activeModel`.** The factory builds the Portkey config with `model` = the vault `activeModel` (D-2: `model-client-factory.ts:97-98`, `:404-406`); the transport sends `call.target.model` as the `model` body field (`transport-portkey.ts:198`). Nectar's default for `activeModel` is Gemini 2.5 Flash.
 - **`--force` resets to pending; `--model` sets the target.** `--force` re-describes all non-skipped rows (`ai/brooding-pipeline.md` CLI flags on `brood` only); `--model <new>` overrides the target model for that run. The two combine as `brood --force --model <new>` (spec'd CLI surface, MASTER-PRD-INDEX.md). PRD-007 owns the `--force`/`--limit`/`--dry-run` flags; this PRD owns the `--model` interaction.
 - **`describe_model` is the audit surface.** The column records the producing model per row (`ai/enricher-and-llm-model.md` § Why Gemini 2.5 Flash specifically). Cosmetic-change inheritance writes the `inherited-from:<prev_content_hash>` marker (default `REDESCRIBE_THRESHOLD` 0.85, `ai/enricher-and-llm-model.md` § The "meaningful change" heuristic). PRD-016 owns the heuristic mechanics.
 - **Do NOT apply `--limit`/`--dry-run` to the enricher.** Those are `brood`-only flags (a corpus hallucination did this once and was fixed — `ai/brooding-pipeline.md` / guide 04).
@@ -81,7 +81,7 @@ The 2000-file brood cost comparison, verbatim from `ai/enricher-and-llm-model.md
 
 ## Flagged defaults
 
-- **[SIGNED OFF 2026-07-02, decision #29 in `PRD-DECISIONS-AND-DEFAULTS.md`:** Gemini model id `gemini-2.5-flash` is the `activeModel` default Hivenectar ships, overridable per-run via `brood --force --model <new>`. Mechanical check at implementation: verify the literal id string against Portkey's config surface.]
+- **[SIGNED OFF 2026-07-02, decision #29 in `PRD-DECISIONS-AND-DEFAULTS.md`:** Gemini model id `gemini-2.5-flash` is the `activeModel` default Nectar ships, overridable per-run via `brood --force --model <new>`. Mechanical check at implementation: verify the literal id string against Portkey's config surface.]
 
 ---
 

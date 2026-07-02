@@ -1,0 +1,169 @@
+# PRD-001b: Nectar Process, Lock, Health, Deep Lake Client, and Tenancy
+
+> Parent: [`prd-001-three-daemon-topology-index.md`](./prd-001-three-daemon-topology-index.md)
+
+## Overview
+
+This sub-PRD defines nectar's own **process surface** — everything the nectar daemon owns at the process boundary, as opposed to the shared data/infra layer. It is the contract PRD-002 (the daemon bootstrap) conforms to and PRD-003 (doctor supervision) consumes. Specifically: nectar is a standalone OS process with its own HTTP bind, a single-instance PID/lock guard, a `/health` endpoint, its own Deep Lake client (not honeycomb's), and its own auth/scoping — all modeled on honeycomb's existing composition root and lifecycle, but instantiated separately so the two workload daemons never share in-process state.
+
+The defining constraint, carried from ADR-0002, is that **independence is process-layer only**. nectar obtains its own Deep Lake client, auth context, scoping, and observability rather than inheriting the host's (this was ADR-0002's negative consequence #1 and is now the contract), while reading and writing the **same** Deep Lake tables under the **same** `org`/`workspace`/`project` tenancy honeycomb uses. The data layer is shared; the process surface is not.
+
+## Goals
+
+- Specify nectar's **HTTP bind** (host + port) and confirm it does not collide with the occupied ports (3850/3851/3852).
+- Specify nectar's **single-instance PID/lock guard**, mirroring honeycomb's pattern, with distinct file names so the two daemons' locks never collide.
+- Specify nectar's **`/health` endpoint contract**, modeled on honeycomb's `PipelineStatus` coarse bit, so doctor can probe it the same way it probes honeycomb.
+- Specify that nectar obtains its **own Deep Lake client** (org resolution, scoped queries, timeout, tracing, redaction) following honeycomb's client surface, and scopes every query by `org`/`workspace` (with `project_id` as a column filter inside the workspace partition — PRD-005's locked tenancy model).
+- Specify nectar's **graceful shutdown** behavior so a restart (by doctor or an operator) never leaves a stale lock.
+
+## Non-Goals
+
+- The daemon's composition root and bootstrap sequence (config load → client init → auth → worker start → bind → signal handlers) — **PRD-002a**.
+- The hiveantennae worker harness (watch → re-associate → mint/enrich) — **PRD-002b**.
+- The CLI surface (`nectar daemon`, `brood`, etc.) — **PRD-002c**.
+- The OS service unit + watchdog-war guards against the single-instance lock — **PRD-003b/003c**.
+- The Deep Lake table schemas — **PRD-005**. This PRD states the tables are shared and the client is nectar's own; the DDL is PRD-005's.
+- The embeddings client (how nectar reaches the embeddings daemon) — [`prd-001c`](./prd-001c-shared-infra-consumption.md).
+
+---
+
+## HTTP bind
+
+nectar binds a loopback HTTP socket, mirroring honeycomb's loopback-only posture (the embeddings daemon binds `127.0.0.1` at `honeycomb/embeddings/src/index.ts:67-68` `EMBED_HOST = "127.0.0.1"`).
+
+| Property | Value | Citation / status |
+|---|---|---|
+| Host | `127.0.0.1` (loopback) | mirrors `honeycomb/embeddings/src/index.ts:67` |
+| Port | **3854** | **CONFIRMED** (next free after hive=3853; 3850/3851/3852 occupied — see parent index) |
+
+The port is distinct from every occupied port: 3850 (honeycomb, `honeycomb/src/shared/constants.ts:14`), 3851 (embeddings, `honeycomb/embeddings/src/index.ts:68`), 3852 (doctor status page, `doctor/src/status-page/server.ts:93`). See the parent index's port contract table.
+
+## Single-instance PID/lock guard
+
+nectar reuses honeycomb's single-instance lock pattern: write `<name>.pid` + `<name>.lock` under the runtime dir; if a lock exists and its recorded PID is alive, refuse to double-bind; a stale lock (dead PID) is reclaimed so a crashed daemon never wedges the next start.
+
+| Property | Value | Citation / status |
+|---|---|---|
+| Runtime dir | `~/.honeycomb` | `honeycomb/src/daemon/runtime/auth/credentials-store.ts:71` `LEGACY_CREDENTIALS_DIR_NAME = ".honeycomb"`; resolved at `honeycomb/src/daemon/runtime/assemble.ts:688-690` |
+| PID file | `~/.honeycomb/nectar.pid` | **DEFAULT — confirm before implementation** |
+| Lock file | `~/.honeycomb/nectar.lock` | **DEFAULT — confirm before implementation** |
+
+The pattern to mirror is `acquireSingleInstanceLock` (`honeycomb/src/daemon/runtime/assemble.ts:715-732`): `mkdirSync(runtimeDir, { recursive: true })`, read the existing PID via `readPidFile`, `isPidAlive` (signal-0 probe; `ESRCH` → stale, `EPERM` → alive-but-other-user), and on a live PID throw a `DaemonAlreadyRunningError` **before binding** so the port is never double-bound. nectar's filenames differ from honeycomb's (`daemon.pid`/`daemon.lock`, `honeycomb/src/daemon/runtime/assemble.ts:184,186`) so the two daemons' locks coexist in the same `~/.honeycomb` dir — a single `ls ~/.honeycomb/*.pid` enumerates every live daemon, the same convenience honeycomb's PID file provides (`honeycomb/src/daemon/runtime/assemble.ts:726-727` comment: "`cat ~/.honeycomb/daemon.pid`").
+
+> **Why a distinct lock, not a shared one.** doctor already reads `~/.honeycomb/daemon.pid` to respect honeycomb's lock during restart (`doctor/src/config.ts:53,155` `daemonPidPath` default `~/.honeycomb/daemon.pid`). nectar's supervision entry (PRD-003c) points doctor at `~/.honeycomb/nectar.pid` instead, so doctor's restart rung respects the right daemon's lock. Two daemons cannot share one lock file — that would make the second one refuse to start.
+
+## `/health` endpoint contract
+
+nectar exposes a `/health` endpoint that doctor probes identically to how it probes honeycomb — a `GET /health` over `node:http` with a short timeout (`doctor/src/health-probe.ts:4`). The endpoint is **purpose-built for nectar**, not a parity copy of honeycomb's `/health`: the top-level coarse bit (`ok`/`degraded`) is the field doctor classifies on (modeled on honeycomb's `PipelineStatus` at `honeycomb/src/daemon/runtime/health.ts:42`), but the body carries nectar-native subsystem fields honeycomb's `/health` does not have — because nectar and honeycomb answer *different* operational questions (nectar has brooding, an enricher queue, a projection writer, and per-provider embeddings state; honeycomb does not). Copying honeycomb's body would ship inert fields (nectar has no local/team/hybrid auth modes) while omitting the signal an operator actually needs.
+
+| Property | Value | Citation / status |
+|---|---|---|
+| Path | `/health` | mirrors `honeycomb/src/daemon/runtime/server.ts:72` (the unprotected `/health` route group) |
+| Protection | unprotected (no auth, no session) | mirrors `honeycomb/src/daemon/runtime/server.ts:72` `{ path: "/health", protect: false, session: false }` |
+| doctor probe URL | `http://127.0.0.1:3854/health` | **CONFIRMED** port 3854; modeled on `doctor/src/config.ts:75` `healthUrl: "http://127.0.0.1:3850/health"` |
+
+### Body shape (CONFIRMED — decision #20 revised)
+
+```jsonc
+{
+  "status": "ok" | "degraded",     // the coarse bit doctor classifies on
+  "uptimeMs": 12345,                // process uptime
+
+  "brooding": {                     // brooding subsystem (PRD-007)
+    "active": false,                // is a brood currently running
+    "filesDescribed": 1840,         // progress: files described so far this brood
+    "filesTotal": 2000,             // progress: total files in this brood
+    "lastEventAt": "2026-06-30T..." // last brooding event timestamp
+  },
+
+  "enricher": {                     // enricher subsystem (PRD-016)
+    "queueDepth": 12,               // pending hive_graph_versions rows (describe_status='pending')
+    "lastCycleAt": "2026-06-30T...",
+    "consecutiveFailures": 0,       // so the 5-cycle persistent-failure alert is visible, not just logged
+    "lastFileDescribed": "src/auth/login.ts"  // the "last file read" — operator's #1 triage field
+  },
+
+  "projection": {                   // portable projection (PRD-011)
+    "lastWriteAt": "2026-06-30T...",
+    "lastContentHash": "sha256-abc..."  // so an operator can see if nectars.json is stale vs live
+  },
+
+  "cost": {                         // cost telemetry
+    "broodTotalTokens": 2150000,
+    "broodTotalUsd": 3.05           // rolling counter for the current brood
+  },
+
+  "embeddings": {                   // provider state (PRD-014)
+    "provider": "local-nomic"        // local-nomic | cohere | off
+  },
+
+  "portkey": {
+    "enabled": true                 // PRD-010
+  }
+}
+```
+
+> **HTTP status gating:** `/health` returns `200` when `status === "ok"` and `503` when `status === "degraded"` (so a client distinguishes daemon-down from a degraded sub-dependency, exactly as honeycomb gates at `honeycomb/src/daemon/runtime/server.ts:318-341`). doctor only reads the top-level `status`; every other field is operator-facing detail surfaced for hive dashboard and CLI triage, not for doctor's classification.
+
+## Deep Lake client (nectar's own)
+
+nectar instantiates its **own** Deep Lake client — it does not import or share honeycomb's in-process client. ADR-0002 negative consequence #1 names this as required configuration surface. The client surface nectar mirrors is the single Deep Lake entry point honeycomb uses: org resolution on every query, a forced `QueryScope`, a per-statement timeout, SQL tracing, result-union mapping, and token redaction (`honeycomb/src/daemon/storage/client.ts:1-60`).
+
+The load-bearing scoping contract: `QueryScope` carries **only `org` + `workspace`** (`honeycomb/src/daemon/storage/client.ts:41-46`). There is no `query(sql)` overload that omits the scope — the API forces the caller to pass `org`, guaranteeing no tenant query goes out unscoped. `project_id` is **not** part of `QueryScope`; per PRD-005's locked tenancy model (decision #3), it is a **column-level soft `WHERE` filter within the workspace partition**, never a partition.
+
+| Property | Value | Citation |
+|---|---|---|
+| Client ownership | nectar's own (not honeycomb's) | ADR-0002 negative consequence #1 |
+| Scope shape | `{ org: string; workspace?: string }` | `honeycomb/src/daemon/storage/client.ts:41-46` |
+| Per-statement timeout | bounded (abortable race) | `honeycomb/src/daemon/storage/client.ts:19-21` |
+| Tracing | gated at call time | `honeycomb/src/daemon/storage/client.ts:22-23` |
+| Redaction | org/token never echoed in full | `honeycomb/src/daemon/storage/client.ts:24-25` |
+
+## Tenancy scope
+
+nectar writes the `hive_graph` and `hive_graph_versions` rows under the **same** `org_id` / `workspace_id` / `project_id` tenancy honeycomb uses for its tenant-scoped tables (mirroring the `codebase` table, `honeycomb/src/daemon/storage/catalog/product.ts`). The scope is `org` + `workspace` at the storage layer; `project_id` filters rows inside the workspace partition. This is PRD-005's locked model, restated here only because it is the deploy-time invariant the shared-infra contract (PRD-001c) depends on.
+
+## Graceful shutdown
+
+nectar installs `SIGINT`/`SIGTERM` handlers that drain services, close the socket, and **remove the PID/lock files** so no stale lock survives a restart — mirroring honeycomb's `runAssembledDaemon` close path (`honeycomb/src/daemon/index.ts:166-187` — the idempotent `close`, the `onSignal` handler, `process.once("SIGINT"/"SIGTERM", …)`). The handlers are registered once; a second signal is ignored (close is idempotent). This is the contract doctor's restart rung relies on: a clean restart leaves no `nectar.lock` behind, so the next `acquireSingleInstanceLock` does not falsely report "already running."
+
+---
+
+## User stories
+
+### US-001b.1 — nectar binds a free port and serves /health
+**As** doctor, **when** I probe `GET http://127.0.0.1:3854/health`, **I** receive a coarse `ok`/`degraded`/`unconfigured` status, **so that** I can supervise nectar exactly as I supervise honeycomb.
+
+- Acceptance: nectar binds `127.0.0.1:3854` (DEFAULT) and does not collide with 3850/3851/3852.
+- Acceptance: `/health` is unprotected and returns the coarse `PipelineStatus` bit.
+
+### US-001b.2 — A second nectar start refuses to double-bind
+**As an** operator, **when** I start a second nectar while one is running, **the** second start throws before binding the port, **so that** the port is never double-bound.
+
+- Acceptance: a live `~/.honeycomb/nectar.lock` PID causes the second start to throw a `DaemonAlreadyRunningError`-equivalent before the socket bind (mirroring `honeycomb/src/daemon/runtime/assemble.ts:720-723`).
+- Acceptance: a stale lock (dead PID) is reclaimed, so a crashed daemon does not wedge the next start.
+
+### US-001b.3 — nectar reads/writes Deep Lake through its own scoped client
+**As a** maintainer, **when** nectar writes a `hive_graph_versions` row, **it** does so through its own Deep Lake client carrying `org` + `workspace` scope, **so that** honeycomb's recall engine can read the row under the same tenancy.
+
+- Acceptance: nectar instantiates its own Deep Lake client (not honeycomb's in-process client).
+- Acceptance: every query carries `QueryScope` (`org` + `workspace`); `project_id` is a column filter, not a partition.
+
+### US-001b.4 — A restart leaves no stale lock
+**As** doctor, **when** I restart nectar, **the** graceful shutdown removes `~/.honeycomb/nectar.lock`, **so that** the next start is not falsely blocked.
+
+- Acceptance: `SIGINT`/`SIGTERM` drain services, close the socket, and remove the PID/lock files (mirroring `honeycomb/src/daemon/index.ts:166-187`).
+- Acceptance: close is idempotent; a second signal is ignored.
+
+---
+
+## Implementation notes
+
+- HTTP bind pattern (loopback + lifecycle): `honeycomb/src/daemon/index.ts:117-187` (`runDaemon`, `runAssembledDaemon`, `startDaemonListener`, signal handlers).
+- Single-instance lock: `honeycomb/src/daemon/runtime/assemble.ts:184,186,692-732` (`LOCK_FILE_NAME`, `PID_FILE_NAME`, `isPidAlive`, `acquireSingleInstanceLock`, `readPidFile`).
+- `/health` coarse bit + route group: `honeycomb/src/daemon/runtime/health.ts:42` (`PipelineStatus`); `honeycomb/src/daemon/runtime/server.ts:72` (unprotected `/health` route).
+- doctor's probe target + read of the daemon PID: `doctor/src/config.ts:36-38,53,75,155`; `doctor/src/health-probe.ts:4`.
+- Deep Lake client surface: `honeycomb/src/daemon/storage/client.ts:1-60` (org resolution, forced scope, timeout, tracing, redaction).
+- Runtime dir resolution: `honeycomb/src/daemon/runtime/auth/credentials-store.ts:71` (`.honeycomb`); `honeycomb/src/daemon/runtime/assemble.ts:688-690`.
+
+No open questions. The port (3854), PID/lock filenames, and the `reasons`-block scope are flagged defaults above.

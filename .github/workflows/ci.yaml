@@ -3,11 +3,11 @@ name: CI
 # The quality gate on every push to main and every PR into main for
 # @legioncodeinc/nectar. It runs the SAME recipe a developer runs locally
 # (typecheck + test, where `npm test` builds first by design) so a green local
-# gate predicts a green CI. This is the FIRST test CI hivenectar has ever had;
+# gate predicts a green CI. This is the FIRST test CI nectar has ever had;
 # before this, the only automated gate was the release pipeline's read-only
 # gate job, which never ran on PRs.
 #
-# WHY THREE OPERATING SYSTEMS: hivenectar's telemetry layer writes to a local
+# WHY THREE OPERATING SYSTEMS: nectar's telemetry layer writes to a local
 # SQLite database via node:sqlite with POSIX-only permission enforcement
 # (chmod 0o700 branches that skip on win32), and its service/registration
 # code touches per-platform paths. Running the FULL suite on ubuntu + macos +
@@ -48,7 +48,7 @@ permissions:
 
 jobs:
   gate:
-    name: hivenectar gate (${{ matrix.os }})
+    name: nectar gate (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +74,7 @@ jobs:
         run: npm ci
 
       # Discrete steps (not one aggregate script) so a failure points at the
-      # exact gate stage. hivenectar has no `npm run ci` aggregate; these are
+      # exact gate stage. nectar has no `npm run ci` aggregate; these are
       # its two real checks, mirroring the release pipeline's gate job.
       - name: Typecheck
         run: npm run typecheck
@@ -117,7 +117,7 @@ jobs:
           fi
 
   # Real-world Deep Lake round-trip (nightly HARD canary + manual). The suite
-  # contains one live test (test/source-graph-deeplake.test.ts, "live
+  # contains one live test (test/hive-graph-deeplake.test.ts, "live
   # round-trip") that reads `~/.deeplake/credentials.json` and skips
   # gracefully when it is absent, which is exactly what happens on every PR
   # gate leg above. THIS job materializes that credentials file from the
@@ -153,7 +153,7 @@ jobs:
         run: npm ci
 
       # Materialize the shared credentials file the live test reads
-      # (src/source-graph/deeplake-credentials.ts contract: token, orgId,
+      # (src/hive-graph/deeplake-credentials.ts contract: token, orgId,
       # workspaceId required; apiUrl optional with a documented default).
       # Written 0600 under the runner's throwaway HOME; the runner VM is
       # destroyed after the job, and the values never echo to the log (the

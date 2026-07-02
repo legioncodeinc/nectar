@@ -2,7 +2,7 @@
 
 > Category: QA Report | Version: 1.0 | Date: July 2026 | Status: Active
 
-Wave-0 corpus-conformance audit of PRD-007 (index + 007a/007b/007c/007d) against the Hivenectar knowledge corpus, the decisions ledger, and the dependency map, armed with quality-stinger + hivenectar-stinger. This is the spec-QA gate before implementation (wave plan Wave 0, blocker B-1): there is no implementation code for this PRD yet, so this audit verifies the DOCUMENT against its cited corpus sources, matching the bar and format of the PRD-005 and PRD-010 corpus-conformance reports. Every acceptance criterion and load-bearing claim was traced to `ai/brooding-pipeline.md` (the authoritative pipeline, buckets, prompts, and cost math), `ai/enricher-and-llm-model.md` (the `--force --model <new>` re-describe path), `PRD-DECISIONS-AND-DEFAULTS.md` (the locked decisions, especially #22), and `PRD-003-016-DEPENDENCY-MAP.md` (PRD-007's dependency profile).
+Wave-0 corpus-conformance audit of PRD-007 (index + 007a/007b/007c/007d) against the Nectar knowledge corpus, the decisions ledger, and the dependency map, armed with quality-stinger + hivenectar-stinger. This is the spec-QA gate before implementation (wave plan Wave 0, blocker B-1): there is no implementation code for this PRD yet, so this audit verifies the DOCUMENT against its cited corpus sources, matching the bar and format of the PRD-005 and PRD-010 corpus-conformance reports. Every acceptance criterion and load-bearing claim was traced to `ai/brooding-pipeline.md` (the authoritative pipeline, buckets, prompts, and cost math), `ai/enricher-and-llm-model.md` (the `--force --model <new>` re-describe path), `PRD-DECISIONS-AND-DEFAULTS.md` (the locked decisions, especially #22), and `PRD-003-016-DEPENDENCY-MAP.md` (PRD-007's dependency profile).
 
 **Related:**
 - [`prd-007-brooding-process-index.md`](../prd-007-brooding-process-index.md)
@@ -96,7 +96,7 @@ None open. All Warning-tier findings from this audit were clear mechanical defec
 | US-007d.1 `--dry-run` previews bucket counts + cost with zero LLM calls | `brooding-pipeline.md` "Triggering brooding" | PASS |
 | US-007d.2 `--limit N` caps pending files brooded per invocation | `brooding-pipeline.md` "Triggering brooding" | PASS |
 | US-007d.3 `--force --model <new>` is the model-swap re-describe path | `enricher-and-llm-model.md`:143 (exact quote verified) | PASS |
-| US-007d.4 brooding triggers automatically on a fresh project (no `source_graph` rows / no projection) | `brooding-pipeline.md` "Triggering brooding" | PASS |
+| US-007d.4 brooding triggers automatically on a fresh project (no `hive_graph` rows / no projection) | `brooding-pipeline.md` "Triggering brooding" | PASS |
 | US-007d.5 `--force` (no model swap) re-describes every non-skipped file | `brooding-pipeline.md` "Triggering brooding" | PASS |
 
 ## 7. High-risk surfaces verified verbatim / against source
@@ -106,8 +106,8 @@ None open. All Warning-tier findings from this audit were clear mechanical defec
 - **Cost math table** (2000-file breakdown): file counts (~200/~20/~1500/~280/2000), avg sizes (2 KB/20 KB), tokens/file (~500/~5000), calls (38/280/318), total input tokens (~750K/~1.4M/~2.15M) all match `brooding-pipeline.md:99-105` exactly.
 - **Dollar figures**: $0.65 input (2.15M × $0.30/M), $2.40 output (~950K × $2.50/M), $0 embedding-by-default, $3.05 total, $15/10000-file, $0.30/200-file; all match `brooding-pipeline.md:109-116` exactly, including the pricing-tier rationale parenthetical.
 - **Resumability quotes**: the three rules ("Files already brooded have `describe_status != 'pending'` and are skipped," etc.) match `brooding-pipeline.md:128-130` verbatim.
-- **CLI command block**: all four `honeycomb hivenectar brood [flags]` invocations and their one-line comments match `brooding-pipeline.md:141-144` verbatim.
-- **`--force --model <new>` citation**: `enricher-and-llm-model.md:143` states "An operator who swaps models and wants to re-describe everything runs `honeycomb hivenectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`." Matches the PRD-007d:74/:82 citation exactly.
+- **CLI command block**: all four `honeycomb nectar brood [flags]` invocations and their one-line comments match `brooding-pipeline.md:141-144` verbatim.
+- **`--force --model <new>` citation**: `enricher-and-llm-model.md:143` states "An operator who swaps models and wants to re-describe everything runs `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`." Matches the PRD-007d:74/:82 citation exactly.
 - **Honeycomb code citations** (all verified against `honeycomb/src/daemon/runtime/codebase/api.ts` and `honeycomb/src/daemon/storage/catalog/projects.ts` on disk):
   - `api.ts:234-261`: contains the `runGraphBuild` doc-comment + the full aggregate→finalize→persist→push body; matches the "discover→extract→persist composition" claim (with one extra step, the cloud push, not misleading).
   - `api.ts:247-248`: exactly the "1. Aggregate: discover → tree-sitter extract" comment + its statement; matches PRD-007a's specific claim with zero drift (unlike the analogous PRD-010 W-1 finding, no drift found here).
@@ -123,8 +123,8 @@ Per the audit's remediation policy, clear mechanical defects (stale lifecycle-fo
 
 | Finding | Files affected | Count | Fix |
 |---|---|---|---|
-| Stale lifecycle-folder cross-links: `../prd-002-hivenectar-daemon/` (now `completed/`) | index, 007c, 007d | 17 | Rewritten to `../../completed/prd-002-hivenectar-daemon/` |
-| Stale lifecycle-folder cross-links: `../prd-005-source-graph-catalog-tables/` (now `completed/`) | index, 007a, 007b, 007c | 17 | Rewritten to `../../completed/prd-005-source-graph-catalog-tables/` |
+| Stale lifecycle-folder cross-links: `../prd-002-nectar-daemon/` (now `completed/`) | index, 007c, 007d | 17 | Rewritten to `../../completed/prd-002-nectar-daemon/` |
+| Stale lifecycle-folder cross-links: `../prd-005-hive-graph-catalog-tables/` (now `completed/`) | index, 007a, 007b, 007c | 17 | Rewritten to `../../completed/prd-005-hive-graph-catalog-tables/` |
 | Stale lifecycle-folder cross-links: `../prd-006-file-registration-protocol/` (now `completed/`) | index, 007d | 5 | Rewritten to `../../completed/prd-006-file-registration-protocol/` |
 | Stale lifecycle-folder cross-links: `../prd-010-portkey-gateway/` (now `in-work/`) | index, 007b, 007d | 11 | Rewritten to `../../in-work/prd-010-portkey-gateway/` |
 | Stale lifecycle-folder cross-links: `../prd-011-portable-projection/` (now `in-work/`) | index, 007a, 007c, 007d | 9 | Rewritten to `../../in-work/prd-011-portable-projection/` |
@@ -145,7 +145,7 @@ No corpus file (`library/knowledge/`), no other PRD folder, and no `src/`/`test/
 
 - **Discovery-command DEFAULT** (`git ls-files --cached --others --exclude-standard -z`, PRD-007a) remains correctly open and unconfirmed. No locked decision supersedes it (unlike the batch-size cap), so its "DEFAULT — confirm before implementation" framing is accurate as written.
 - **The three corpus-wide deliberate spec gaps** (TLSH confidence thresholds, symbol/directory nectars, `review-matches` sub-flag syntax) are correctly named as out-of-scope for PRD-007 (owned by PRD-006d and ADR-0001's v2 deferral) and no value is invented for any of them.
-- **`describe_status` scope discipline**: PRD-007b correctly limits its "four valid terminal values a brood produces" to `described`/`failed`/`skipped-too-large`/`skipped-binary`, correctly excluding `skipped-deleted` (an enricher-only value per `enricher-and-llm-model.md`'s failure-modes table, since a file must exist to be discovered by a full-codebase brood) and `pending` (non-terminal). Verified against the corpus schema's full six-value enum at `data/source-graph-schema.md:109`.
+- **`describe_status` scope discipline**: PRD-007b correctly limits its "four valid terminal values a brood produces" to `described`/`failed`/`skipped-too-large`/`skipped-binary`, correctly excluding `skipped-deleted` (an enricher-only value per `enricher-and-llm-model.md`'s failure-modes table, since a file must exist to be discovered by a full-codebase brood) and `pending` (non-terminal). Verified against the corpus schema's full six-value enum at `data/hive-graph-schema.md:109`.
 - **`api.ts:234-261`'s extra scope**: the cited range includes one step (the 014c cloud push) beyond the "discover→extract→persist" composition the AC claims to mirror. This is over-inclusion, not misattribution: the composition being mirrored is genuinely present in the cited range, so it is not flagged as a citation defect.
 
 ## 10. Files Audited

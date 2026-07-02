@@ -9,8 +9,8 @@
  *
  * The real runner uses `node:child_process.execFile` (NOT `exec`): execFile takes
  * an argv array and does NOT spawn a shell, so a unit path or label can never be
- * interpreted as a shell metacharacter. Mirrors hivedoctor's `CommandRunner` seam
- * (hivedoctor/src/rungs/command-runner.ts), scoped to hivenectar's OS-service
+ * interpreted as a shell metacharacter. Mirrors doctor's `CommandRunner` seam
+ * (doctor/src/rungs/command-runner.ts), scoped to nectar's OS-service
  * commands (no npm-launch special-casing needed here).
  *
  * Crash-safety: `run` resolves to a {@link CommandResult} for BOTH success and

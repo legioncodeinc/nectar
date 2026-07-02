@@ -13,7 +13,7 @@
  */
 import type { PipelineStatus } from "../health.js";
 import type { Timer } from "../poll-loop.js";
-import type { SourceGraphStore } from "../source-graph/store.js";
+import type { HiveGraphStore } from "../hive-graph/store.js";
 import { CheckinService, CheckinWriter } from "./checkin.js";
 import { defaultTelemetryDbPath, openTelemetryDb, type SqliteDatabaseLike } from "./db.js";
 import { LogWriter, type LogLevel } from "./logs.js";
@@ -72,8 +72,8 @@ export interface Telemetry {
   startCheckin(health: () => PipelineStatus, opts?: StartCheckinOptions): StopHeartbeat;
   /** Mirror one log line into `service_logs` (PRD-017c). Prefer `createLogTap` to wrap an existing sink. */
   log(level: LogLevel, message: string): void;
-  /** Wrap a `SourceGraphStore` so nectar mints and version writes increment their counters at the real write (PRD-017b). */
-  wrapStore<T extends SourceGraphStore>(store: T): T;
+  /** Wrap a `HiveGraphStore` so nectar mints and version writes increment their counters at the real write (PRD-017b). */
+  wrapStore<T extends HiveGraphStore>(store: T): T;
   /** Close the backing SQLite handle (idempotent, never throws). */
   close(): void;
 }
@@ -106,7 +106,7 @@ export function createNullTelemetry(dbPath: string): Telemetry {
     incrementFilesRegistered() {},
     incrementNectarsMinted() {},
     incrementDescriptionsGenerated() {},
-    incrementSourceGraphVersions() {},
+    incrementHiveGraphVersions() {},
     incrementEmbeddingsComputed() {},
   };
   return {
@@ -117,7 +117,7 @@ export function createNullTelemetry(dbPath: string): Telemetry {
       filesRegistered: 0,
       nectarsMinted: 0,
       descriptionsGenerated: 0,
-      sourceGraphVersions: 0,
+      hiveGraphVersions: 0,
       embeddingsComputed: 0,
     }),
     startCheckin: () => () => {},
@@ -128,7 +128,7 @@ export function createNullTelemetry(dbPath: string): Telemetry {
 }
 
 /**
- * Open hivenectar's telemetry store and return the composed facade. NEVER
+ * Open nectar's telemetry store and return the composed facade. NEVER
  * throws: an open failure is reported ONCE (never per-write) and this returns
  * {@link nullTelemetry} so the caller's boot sequence is completely unaffected
  * (AC-7).
@@ -142,7 +142,7 @@ export function createTelemetry(opts: CreateTelemetryOptions = {}): Telemetry {
     db = openTelemetryDb(dbPath);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    onceFailure(`hivenectar: telemetry unavailable (non-fatal), continuing without it: ${reason}`);
+    onceFailure(`nectar: telemetry unavailable (non-fatal), continuing without it: ${reason}`);
     return createNullTelemetry(dbPath);
   }
 
