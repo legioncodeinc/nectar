@@ -1,6 +1,6 @@
 name: Release
 
-# The npm-publish workflow for @legioncodeinc/hivenectar. Mirrors honeycomb's
+# The npm-publish workflow for @legioncodeinc/nectar. Mirrors honeycomb's
 # and hivedoctor's OIDC Trusted Publishing release.yaml pattern EXACTLY
 # (PRD-001c c-AC-2), adjusted only for hivenectar's actual build/test
 # scripts: `build` here is a plain `tsc` (no esbuild bundling step in this
@@ -23,7 +23,7 @@ name: Release
 # AUTH: npm TRUSTED PUBLISHING (OIDC) — no NPM_TOKEN. GitHub Actions presents
 # a short-lived OIDC identity (the `id-token: write` permission below) that
 # npm verifies against the trusted publisher configured on the
-# @legioncodeinc/hivenectar package (org + repo `hivenectar` + this workflow
+# @legioncodeinc/nectar package (org + repo `nectar` + this workflow
 # filename `release.yaml`). There is NO long-lived automation token anywhere
 # in this workflow or in repo secrets. Provenance stays ON (the same OIDC
 # identity signs the supply-chain attestation). Trusted Publishing REQUIRES
@@ -33,7 +33,7 @@ name: Release
 # BOOTSTRAP (read before the first real tag): the trusted publisher must be
 # configured on npm BEFORE the first CI publish, and that configuration
 # requires the package to already exist on the registry — so the FIRST
-# publish of @legioncodeinc/hivenectar is necessarily a one-time MANUAL
+# publish of @legioncodeinc/nectar is necessarily a one-time MANUAL
 # publish (2FA), exactly like honeycomb's and hivedoctor's RELEASING.md
 # bootstrap. Every subsequent CI publish (from a pushed `vX.Y.Z` tag) is
 # tokenless. Until that manual bootstrap + npm trusted-publisher registration
@@ -42,7 +42,7 @@ name: Release
 #
 # FAILS CLOSED: the publishability preflight aborts if the version is the
 # `0.0.0` not-cut-yet sentinel or if the package name is not the scoped
-# `@legioncodeinc/hivenectar`, mirroring hivedoctor's guard. A real `npm
+# `@legioncodeinc/nectar`, mirroring hivedoctor's guard. A real `npm
 # publish` only happens on a tag push AND when this is not a dry run; a
 # workflow_dispatch always rehearses (`npm publish --dry-run`) and defaults
 # `dry_run` to true so the manual button is safe by default.
@@ -165,8 +165,8 @@ jobs:
             echo "::error::package.json version is the 0.0.0 not-cut-yet sentinel. Bump it (npm version <x.y.z>) and tag v<x.y.z> to cut a real release."
             FAIL=1
           fi
-          if [ "$PKG_NAME" != "@legioncodeinc/hivenectar" ]; then
-            echo "::error::package.json name is '$PKG_NAME', expected the scoped '@legioncodeinc/hivenectar'."
+          if [ "$PKG_NAME" != "@legioncodeinc/nectar" ]; then
+            echo "::error::package.json name is '$PKG_NAME', expected the scoped '@legioncodeinc/nectar'."
             FAIL=1
           fi
           if [ "$FAIL" = "1" ]; then
@@ -207,7 +207,7 @@ jobs:
   # gate-built dist/ and publishes it verbatim (--ignore-scripts, so
   # prepack's rebuild is skipped and no devDependency ever installs here).
   publish:
-    name: Publish hivenectar to npm
+    name: Publish nectar to npm
     runs-on: ubuntu-latest
     needs: gate
     permissions:

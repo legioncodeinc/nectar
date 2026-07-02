@@ -1,5 +1,5 @@
 /**
- * Public entry point for @legioncodeinc/hivenectar.
+ * Public entry point for @legioncodeinc/nectar.
  *
  * Re-exports the daemon composition root and its building blocks so the package
  * can be embedded (tests, thehive aggregation, future SDK) without going through

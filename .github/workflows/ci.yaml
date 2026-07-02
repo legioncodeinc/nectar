@@ -1,7 +1,7 @@
 name: CI
 
 # The quality gate on every push to main and every PR into main for
-# @legioncodeinc/hivenectar. It runs the SAME recipe a developer runs locally
+# @legioncodeinc/nectar. It runs the SAME recipe a developer runs locally
 # (typecheck + test, where `npm test` builds first by design) so a green local
 # gate predicts a green CI. This is the FIRST test CI hivenectar has ever had;
 # before this, the only automated gate was the release pipeline's read-only

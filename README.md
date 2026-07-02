@@ -1,161 +1,288 @@
-# Hivenectar
+<!-- ───────────────────────────────  HERO  ─────────────────────────────── -->
 
-![Status: Design](https://img.shields.io/badge/status-design-draft-orange)
-![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/nectar-wordmark-on-dark.svg">
+    <img src="assets/brand/nectar-wordmark-black.svg" alt="Nectar" height="84">
+  </picture>
+</p>
 
-> *A nectar is the minted identity record for a single file: small, stable, and the raw material from which richer understanding is produced.*
+<h1 align="center">Nectar</h1>
 
-Hivenectar is a **semantic memory layer over a source tree**. It gives every file in a project a stable identity and a human-and-machine-readable description, then serves both back through the same hybrid search an agent already uses to recall conversations — so an agent can ask *"give me everything associated with logins"* and receive files scattered across directories that are not named `login-*`.
+<p align="center">
+  <strong>Every file in your repo gets a stable identity and a meaning your agents can recall.</strong>
+</p>
 
-This repository is the **design and specification home** for Hivenectar. The documents here describe what Hivenectar is, why it is built the way it is, and the exact contract the implementation must meet. They are written README-first: the spec came before the code, and the code that lands later must conform to these pages rather than the other way around.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@legioncodeinc/nectar"><img src="https://img.shields.io/npm/v/@legioncodeinc/nectar?style=flat-square&color=FFD048&label=version" alt="npm version"></a>
+  <img src="https://img.shields.io/badge/harnesses-6-FFD048?style=flat-square" alt="6 harnesses">
+  <img src="https://img.shields.io/badge/OS-windows%20%7C%20macos%20%7C%20linux-6E6A62?style=flat-square" alt="Windows, macOS, Linux">
+</p>
 
----
+<p align="center">
+  <a href="https://linktr.ee/marioaldayuz"><img src="https://img.shields.io/badge/designed%20by-Mario%20Aldayuz-8B7CF0?style=flat-square" alt="Designed by Mario Aldayuz"></a>
+  <a href="https://www.legioncodeinc.com"><img src="https://img.shields.io/badge/built%20by-Legion%20Code%20Inc.-111111?style=flat-square" alt="Built by Legion Code Inc."></a>
+  <a href="https://deeplake.ai"><img src="https://img.shields.io/badge/powered%20by-Deep%20Lake-ff5a1f?style=flat-square" alt="Powered by Deep Lake"></a>
+</p>
 
-## The problem, in one paragraph
+<p align="center">
+  <a href="https://github.com/legioncodeinc/nectar"><img src="https://img.shields.io/github/stars/legioncodeinc/nectar?style=flat-square&color=FFD048" alt="GitHub stars"></a>
+  <a href="https://discord.gg/GX95YTQypQ"><img src="https://img.shields.io/badge/discord-find%20us-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
+</p>
 
-The structural CodeGraph already in Honeycomb answers *"who calls this function"*, *"what is the blast radius of changing this symbol"*, and *"walk me through this subsystem."* It does this by extracting AST facts — `function`, `class`, `calls`, `extends`, `imports` — with tree-sitter. It never consults an LLM, and that is deliberate: the graph is fast, deterministic, and reproducible byte-for-byte from the same source. But the CodeGraph cannot answer *"where is the login logic."* It can find a symbol named `login` or `authenticate`, but it has no concept of what those symbols *mean*, and no way to surface a file like `src/middleware/session-refresh.ts` (which implements a critical piece of login behavior) unless the agent already knows to look for it by name. **Structural identity is about *how code is wired*. Semantic identity is about *what code is for*.** Hivenectar provides the second without compromising the first.
+<!-- ──────────────────────────────  PARTNERS  ────────────────────────────── -->
 
----
+<p align="center">
+  <a href="https://github.com/legioncodeinc">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/brand/legion-logo-dark.svg">
+      <img src="assets/brand/legion-logo-light.svg" alt="Legion Code" height="34">
+    </picture>
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://github.com/activeloopai">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/brand/activeloop-full-mark-logo-on-dark.svg">
+      <img src="assets/brand/activeloop-full-mark-logo.svg" alt="Activeloop" height="26">
+    </picture>
+  </a>
+</p>
 
-## The three design pillars
+<p align="center"><em>A <a href="https://github.com/legioncodeinc">Legion Code Inc.</a> × <a href="https://github.com/activeloopai">Activeloop</a> collaboration.</em></p>
 
-### 1. Stable identity via a daemon-minted nectar, never embedded in source
+<img src="assets/brand/divider-major.svg" width="100%" height="6">
 
-Every file gets a **nectar**: a 26-character ULID minted once by the `hiveantennae` worker and persisted in Deep Lake. The nectar never lives inside the file. It survives edits (because it is not derived from content), renames and moves (because re-association follows the file on disk, not a comment marker), and copy-paste (because the copy gets a fresh nectar with a `derived_from` pointer back to the original).
+Files get renamed and agents lose the thread. You refactor, a file moves three directories over, and every memory keyed to its old path is dead weight. Grep finds strings, not meaning, so *"where is the login logic"* comes back empty when the file is called `session-refresh.ts`. **Nectar fixes that.** The daemon mints every file a stable 26-character identity (a *nectar*) plus an LLM-minted description of what the file is for, then tracks that identity through renames, moves, edits, and copy-paste. Ask *"what is this file and why does it exist"* and get an answer. Ask *"everything associated with logins"* and get files scattered across directories that are not named `login-*`. Recall that keys off paths breaks on every refactor; recall that keys off identity does not break at all.
 
-The rejected alternative — embedding a serial number in a first-line comment of every source file — fails for four concrete reasons documented in [ADR-0001](library/knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md): it collides with the AGPL license header that owns line 1 of every file, it makes line 1 the most conflict-prone line in the repo under multi-author edits, it cannot represent files without a comment syntax (JSON, `.env`, lockfiles, binaries), and it converts copy-paste from a recoverable event into an ambiguous one (two files claiming the same serial). The short version: *identity is a daemon concept, not a file property.* A file on disk has no stable identity of its own — its path changes, its content changes, its inode changes. The only thing that persists is the fact that an observer once decided this is the same logical file it saw before. That decision is the nectar.
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
-### 2. Lazy LLM description through a cheap long-context model
+> **New here?** One command and you're on a dashboard. [Jump to Install](#-install-one-command). · **Want the docs?** Everything lives at **[theapiary.sh](https://theapiary.sh)**.
 
-Files are described **on demand, not eagerly.** A nectar can exist for hours or days with a null description; the enricher fills it the first time recall might surface it, or on a debounced watch trigger after a meaningful edit. The model is **Gemini 2.5 Flash** routed through the existing Portkey gateway: ~$0.30 per million input tokens for the ≤200K tier and a true 1M-token context window, which lets the brooder batch 30–50 small files per call instead of one-per-call.
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
-Long context is the load-bearing property here, not raw cheapness. A model with a 200K window (Haiku, Sonnet) can describe one large file or a few small ones per call; a model with a 1M window can describe an entire directory of small files in a single round-trip, collapsing the per-file cost by an order of magnitude. This is why Hivenectar specifies Gemini 2.5 Flash *specifically*, not "the cheapest available model." The full brooding pass on a 2000-file repository lands under $3, paid once; every subsequent clone of the same repo pays $0 if its projection is committed.
+<table>
+<tr>
+<td width="50%" valign="top">
 
-### 3. Durable state in Deep Lake, with a portable projection
+#### 🛹 For AI Augmented Devs
+Your agents finally know what every file *means*, not just what it's named. Rename it, move it, gut it and rewrite half of it: the identity and the description follow the file, so recall keeps working after every refactor instead of quietly going stale.
 
-All nectar records, version chains, descriptions, and embeddings live in **Deep Lake** — the same substrate as `sessions`, `memory`, `memories`, and the CodeGraph's `codebase` table. There is no SQLite sidecar, no JSONL log, no parallel store. Deep Lake is the source of truth, enforced by the same **FR-8** rule that governs the rest of Honeycomb: durable state goes in Deep Lake, not in sidecars.
+</td>
+<td width="50%" valign="top">
 
-A single committed, reviewable file — `.honeycomb/nectars.json` at the project root — is a **portable projection** of the Deep Lake table: a lockfile, not a sidecar. It is regenerated from Deep Lake on every successful brood or enrich. A fresh `git clone` re-derives identity by matching on-disk content hashes into this file before falling back to the full re-association ladder, so a new checkout inherits descriptions without re-paying the brooding cost.
+#### 🏢 For Enterprise Teams
+Provenance-tracked file identity across repos and teams. Every file's history chain is append-only and auditable: when it was minted, where it moved, what it was forked from, and who described it. A fresh clone inherits the whole thing from a committed projection.
 
----
+</td>
+</tr>
+</table>
 
-## Why the identity decision is the spine of everything
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
-The identity model is the most consequential and least reversible decision in the design: it determines the database schema, the re-association algorithm, the watcher contract, the fresh-clone story, and the team-share path. Get it wrong and you either corrupt history chains (a mis-association) or lose history entirely (an identity that churns). Three candidate models were weighed, each with real prior art, and each fails in a specific, concrete way under Honeycomb's constraints.
+## ✨ What makes Nectar different
 
-**Candidate A — source-embedded serial in a first-line comment** is the model the original sketch proposed. It has intuitive appeal: the identity is literally in the artifact, visible to humans, no database required to resolve "is this the same file." But it collides with the AGPL header that owns line 1, turns every file's first line into a tool-owned contention point, fails for JSON/`.env`/binaries that have no comment syntax, and — the killer — makes copy-paste *worse*: if file A carries `// nectar:N1` and a developer copy-pastes A to B, then B also carries N1, and the indexer now sees two files claiming the same serial. Source-embedded serials convert "git sometimes loses history on copy-paste" into "our own system has guaranteed duplicate-identity ambiguity."
+- **Identity never lives in your source.** No serial numbers in comments, no sidecar files bolted next to your code. [ADR-0001](library/knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md) kills that idea for four concrete reasons; read it before arguing about serials-in-source.
+- **Daemon-minted ULIDs.** A nectar is a 26-character ULID minted once by the daemon and persisted in Deep Lake. It is not derived from content, so edits don't churn it. It is not derived from path, so moves don't kill it.
+- **The re-association ladder.** Five steps, first match wins: path/mtime/size fast path, path match with changed content, exact content-hash match for clean moves, TLSH fuzzy match for move-and-edit, mint fresh. Low-confidence fuzzy matches go to human review, never auto-claimed, because a mis-association corrupts the history chain.
+- **Copy-paste as provenance, not ambiguity.** Copy a file and the copy gets a fresh nectar with a `derived_from_nectar` edge back to the original. The fork relationship survives forever, even after the copy diverges.
+- **A committed lockfile, not a sidecar.** `.honeycomb/nectars.json` is a regenerable projection of Deep Lake state. A fresh clone re-derives identity from it with zero LLM calls and zero network.
+- **The 4th arm of hybrid recall.** Nectar plugs into Honeycomb's Reciprocal Rank Fusion recall alongside sessions, memories, and skills, so semantic file hits land in the same answer your agent already trusts.
 
-**Candidate B — content hash as identity** is the model the largest family of code-indexing tools uses (Grove, Cartog, synrepo, the CodeRAG family). Content hash is globally unique without coordination and delta indexing falls out for free. But content hash *changes on every edit.* A file saved twice has two different identities, which means identity is not actually stable — it is path-as-identity moved one layer down (where "path" is now "content"). This fails the primary decision driver outright.
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
-**Candidate C — daemon-minted ULID, never in the file (CHOSEN)** is what Hivenectar adopts. A 26-character ULID, minted once, persisted in Deep Lake as the primary key, re-associated to the file on disk by a ladder of exact-match (path/mtime/size, then content hash) and fuzzy-match (TLSH) heuristics. It wins on every driver: stable across edits (not content-derived), stable across moves and renames (re-association follows disk, not a marker), recovers copy-paste as a *first-class provenance edge* (`derived_from_nectar`), never mutates source, applies universally to every file type, satisfies FR-8, and inherits across clones via the committed projection. The cost is real engineering — the re-association ladder, specifically the fuzzy TLSH step, has a confidence-scored review surface — but that cost is paid because every alternative has worse problems. The full decision, alternatives, and reversibility analysis are recorded in [ADR-0001](library/knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md). **Read it before arguing about serials-in-source.**
+## 🍯 Features
 
----
+- 🪪 **Stable file identity.** 26-char ULID per file, minted by the daemon, never reused, never deleted by the ladder. *(registration protocol shipped, PRD-006)*
+- 🪜 **5-step re-association ladder.** Survives renames, moves, offline edits, and cold catch-up after your laptop was closed. TLSH fuzzy matching with a confidence-scored review surface. *(mechanics implemented and tested; durable-store wiring lands with daemon integration)*
+- 🧬 **Copy-paste provenance.** `derived_from_nectar` + `fork_content_hash` record every fork as a first-class edge.
+- 🗄️ **Two Deep Lake tables.** `source_graph` (one row per logical file) + append-only `source_graph_versions` (one row per observed state, carrying 768-dim embeddings). *(shipped, PRD-005)*
+- 🛡️ **Supervised daemon.** `hivenectar daemon` binds `127.0.0.1:3854`, serves `/health`, registers with Doctor, and installs as an OS service on launchd, systemd, and Windows. *(shipped, PRD-002/003/004)*
+- ✍️ **LLM-minted descriptions.** Lazy, batched, cheap: a long-context model describes files on demand, not eagerly, so a full pass on a 2000-file repo lands under $3 and a committed projection makes every subsequent clone free. *(spec stage, PRD-007/010/016)*
+- 🔒 **Portable projection.** `.honeycomb/nectars.json`, regenerated from Deep Lake after every brood and enrich. *(in work, PRD-011)*
+- 🔀 **Hybrid recall arm.** A `UNION ALL` arm over described files inside Honeycomb's BM25 + vector RRF pipeline, with silent BM25 fallback when embeddings are off. *(spec stage, PRD-012/013)*
 
-## The data model, in one paragraph
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
-Two tables. `source_graph` is one row per logical file, keyed by nectar (ULID primary key), carrying creation time, optional provenance (`derived_from_nectar`, `fork_content_hash`), and a `kind` discriminator reserved for future directory support. `source_graph_versions` is append-only, one row per observed state of a file, keyed by `(nectar, content_hash)`: it carries the current path, extension, size, mtime, and the LLM-minted `title`, `description`, `embedding`, and `concepts` (filled lazily, nullable until the enricher runs). *"Current state of file X"* is the latest version row for its nectar. *"History of file X"* is all its version rows. The split mirrors how git works internally — a commit object (stable identity anchor) points at a tree, which points at blobs (content-addressed versions) — and mirrors how Aura separates "identity anchor" from "content hash." A single table cannot cleanly represent both: collapsing them forces an overwrite on every edit (losing history) or an append on every edit (losing the stable-identity key under a pile of versions). The full column-by-column DDL and rationale live in the [source-graph schema](library/knowledge/private/data/source-graph-schema.md).
+## 🚀 Install (one command)
 
----
+No Node? No npm? No problem. The installer detects and sets up everything, then **opens a dashboard in your browser**. The terminal is just a progress log; the product is the first thing you touch.
 
-## The hiveantennae worker
+```bash
+# macOS / Linux
+curl -fsSL https://get.theapiary.sh | sh
+```
 
-`hiveantennae` is a background worker inside the Honeycomb daemon, parallel to the existing codebase-graph worker. It is not a separate process — it shares the daemon's Deep Lake client, auth, scoping, and observability — and it is not a phase of the graph worker: the graph worker is build-triggered and on-demand, while hiveantennae is watch-driven and continuous. The worker has four operating modes:
+```powershell
+# Windows (PowerShell)
+irm https://get.theapiary.sh/install.ps1 | iex
+```
 
-| Mode | Trigger | What it does |
+That single line installs the Apiary stack and brings the **nectar daemon** up on `127.0.0.1:3854`, supervised by Doctor so it survives crashes and reboots without you thinking about it.
+
+<details>
+<summary><strong>Prefer to build from source?</strong></summary>
+
+```bash
+git clone https://github.com/legioncodeinc/nectar.git
+cd nectar
+npm install
+npm run build          # tsc → dist/
+
+npm start              # start the daemon (node dist/cli.js daemon)
+node dist/cli.js install   # register the OS service unit + the Doctor registry entry
+```
+
+Requires Node ≥ 22. `npm run typecheck` and `npm test` are the local gates.
+
+</details>
+
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
+
+## 🖥️ Using the dashboard
+
+<!-- screenshot pending: drop nectar dashboard capture into assets/screenshots/dashboard.png -->
+<img src="assets/screenshots/dashboard.png" alt="Nectar dashboard" width="100%">
+
+Straight talk: Nectar does not ship its own dashboard, and that is by design. The always-on **thehive portal** owns the unified dashboard for the whole Apiary and aggregates from each daemon's API, fail-soft per daemon ([ADR-0004](library/knowledge/private/architecture/ADR-0004-thehive-portal-daemon-role-and-boundaries.md)). The **Source Graph page** (PRD-015, spec stage) renders your file graph, identity search, and brood status by fetching Nectar's `/api/source-graph/*` endpoints through the portal. If the Nectar daemon is down, that page degrades gracefully instead of taking the whole dashboard with it.
+
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
+
+## ⌨️ Using the CLI
+
+The `hivenectar` binary ships with the package. What exists today:
+
+```bash
+hivenectar daemon             # start the daemon (127.0.0.1:3854, /health)
+hivenectar install            # register the OS service unit + Doctor registry entry
+hivenectar uninstall          # deregister the OS service unit
+hivenectar service-status     # report the OS service unit's running state
+hivenectar --help
+```
+
+Verbs that exist but honestly tell you they are not ready: `brood` (mechanics owned by PRD-007), `rebuild-projection` (PRD-011), and `prune --confirm` / `review-matches` (logic implemented and tested, durable-store wiring pending). They exit non-zero with a clear notice instead of silently no-oping, because a destructive verb that pretends to work is worse than no verb at all.
+
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
+
+## 🐝 Identity that survives the refactor
+
+```bash
+# The daemon minted src/auth/session-refresh.ts a nectar and described it.
+# Now gut your directory structure:
+git mv src/auth/session-refresh.ts src/middleware/token-lifecycle.ts
+
+# …then ask recall about it, same as any other memory:
+honeycomb recall "where do we refresh login sessions"
+# → src/middleware/token-lifecycle.ts
+#   "refreshes JWT claims on each authenticated request,
+#    part of the login session lifecycle"
+```
+
+Same nectar, same description, new path. The identity followed the file, so the memory never went stale. (The recall arm lands with PRD-013; the identity tracking underneath it is the shipped part.)
+
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
+
+## 🏗️ How it works
+
+```mermaid
+flowchart TD
+    W["watcher + hiveantennae daemon<br/>127.0.0.1:3854"] --> M["mint 26-char ULID<br/>+ LLM-minted description"]
+    W --> L["re-association ladder<br/>path/mtime/size → hash → TLSH → mint"]
+    M --> DL["Deep Lake<br/>source_graph + source_graph_versions<br/>768-dim embeddings, append-only history"]
+    L --> DL
+    DL --> P[".honeycomb/nectars.json<br/>committed projection (lockfile)"]
+    DL --> R["Honeycomb hybrid recall<br/>4th arm · BM25 + vector · RRF"]
+```
+
+The daemon watches your source tree. New file: mint a nectar, queue a description. Known file: run the ladder, append a version row, keep the chain. Everything durable lands in Deep Lake first; the projection is regenerated from it after every pass; recall unions over the described files alongside sessions, memories, and skills.
+
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
+
+## 🧭 Why identity beats paths
+
+Path-keyed memory is a bet that your repo never changes shape. That bet loses every single sprint. Every rename orphans a memory, every directory reshuffle silently detonates the recall your agents depend on, and nobody notices until an agent confidently cites a file that has not existed for three weeks.
+
+Stable identity flips the failure mode. The nectar is the anchor; the path is just the latest observation attached to it. The file can move, get edited offline, or get forked into a new module, and the daemon re-associates it and keeps writing to the same history chain. Memory attached to identity does not rot when the tree churns.
+
+Meaning is the other half. Structural tools can tell you a symbol named `authenticate` exists; they cannot tell you that `session-refresh.ts` is a critical piece of login behavior. An LLM-minted description per file gives your agents the *what is this for* layer that grep and AST graphs structurally cannot provide. Identity keeps the answer alive; meaning makes it worth recalling.
+
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
+
+## 💎 Why Deep Lake makes the difference
+
+Most code-indexing tools bolt onto a vector-only store, which forces every access pattern through a similarity engine. Nectar needs exact identity joins **and** semantic search, and [**Deep Lake**](https://deeplake.ai), the database for AI, gives it both natively:
+
+- **SQL + vector in one engine.** "Latest version row for this nectar" is a deterministic SQL join; "files that mean login" is a vector search over 768-dim embeddings. One store serves both. No second database, no sync problem, no sidecar.
+- **Versioned and append-only.** `source_graph_versions` never overwrites: every observed state of every file stays on disk. That is what makes re-association *auditable*: you can trace exactly when a nectar was carried across a move, at what confidence, and what the file looked like on both sides.
+- **Identity table + versions table, cleanly split.** `source_graph` anchors the stable key; `source_graph_versions` carries the history. Collapsing them forces you to lose either history or the stable key. Deep Lake makes the split cheap.
+- **Graceful degradation.** Embeddings off? The embedding column stays NULL and recall falls back to BM25 over titles and descriptions. No error, no quality cliff.
+
+> Nectar stands on the same two shoulders as the rest of the Apiary: **[Deep Lake](https://deeplake.ai)** gives identity somewhere durable and queryable to live, and **[Hivemind](https://github.com/activeloopai/hivemind)**, Activeloop's open-source agent-memory project, is the foundation Legion Code extended into Honeycomb.
+
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
+
+## 🔌 Supported harnesses
+
+Nectar's file identity and descriptions reach every harness through Honeycomb's recall integration: same daemon boundary, same shared memory, no per-harness wiring of its own.
+
+| | | |
 |---|---|---|
-| **Brooding** | First run, or fresh checkout with no `nectars.json` | Full scan, batched description, initial projection write |
-| **Live watch** | chokidar event during normal editing | Re-associate, append version, enqueue lazy enrich |
-| **Cold catch-up** | Daemon boot after offline changes | Walk disk, run re-association ladder, batch-enrich drift |
-| **Projection sync** | End of brood/enrich/catch-up | Regenerate `.honeycomb/nectars.json` from Deep Lake |
+| **Claude Code** | **Cursor** | **Codex** |
+| **Hermes** | **pi** | **OpenClaw** |
 
-### The re-association ladder
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
-The hardest problem in Hivenectar is cold catch-up: the daemon boots after the laptop was closed, the user moved and edited a dozen files offline, and now disk does not match Deep Lake. The daemon must look at each file on disk and decide *which existing nectar (if any) it is*, or mint a new one. This is the re-association ladder, evaluated top-down per file — first match wins.
+## 🎛️ Other interfaces
 
-1. **`(path, mtime, size)` exact match.** The fast path. If a file at a known path has the same mtime and size as the last observation, treat it as unchanged without reading or hashing content. This is the same optimization rsync uses and covers the vast majority of files on a typical boot.
-2. **Path match, content changed.** The path exists under some nectar, but the content hash differs. A normal edit: append a new version row, enqueue lazy enrich. The nectar is unchanged; the history chain is append-only.
-3. **Exact content-hash match to a missing file.** The move detector. A new path whose content hash exactly matches a missing file's *latest* version hash → the file was moved or renamed without modification. Carry the nectar, record the new path, no enrich needed. Cryptographically high-confidence.
-4. **Fuzzy content match (TLSH) to a missing file.** The hard case: the file was moved *and* edited offline. Compute a TLSH fingerprint, compare against missing files' fingerprints, score the distance. Matches above a confidence threshold carry the nectar and flag confidence; **matches below the threshold are surfaced for human review, never auto-claimed**, because a mis-association is worse than a new nectar — it corrupts the history chain.
-5. **Nothing matches.** Mint a fresh nectar.
+- **Dashboard.** The thehive portal's Source Graph page (PRD-015, spec stage), fed by Nectar's `/api/source-graph/*` endpoints (PRD-008). Nectar deliberately owns no dashboard of its own.
+- **MCP server.** Nectar does not ship a separate MCP server; its results surface through Honeycomb's existing MCP recall tools once the recall arm (PRD-013) lands. One boundary, not two.
+- **TypeScript SDK.** `@legioncodeinc/nectar` ships a typed `dist/index` entry today. It is early: the daemon and service lifecycle are the real surface right now, and the SDK grows as the API endpoints (PRD-008) land.
 
-During live operation, the chokidar watcher sees moves in real time (a `delete` on path A immediately followed by an `add` on path B with identical content), so step 3 handles it directly and step 4 is rarely reached. Step 4 exists for the case where the daemon was not running when the move-and-edit happened. A nectar, once minted, is **never deleted** by the ladder and **never reused**: orphaned nectars (the file was genuinely deleted) remain in Deep Lake as history, pruned only by an explicit, conservative, human-triggered `prune --confirm` after a 30-day grace period. This append-only-ish behavior is what makes the history chain trustworthy. The full algorithm is in [identity-and-reassociation.md](library/knowledge/private/ai/identity-and-reassociation.md).
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
-### Copy-paste as a first-class provenance edge
+<h2 align="center"><a href="https://ideas.theapiary.sh">📍 Status & Roadmap</a></h2>
 
-Copy-paste is the case that source-embedded serials handle worst and that minted identity handles best. File A exists with nectar N1 and current content hash H1. The user copies A to a new path B. The watcher fires an `add` event for B; B has no nectar; B's content is H1 (identical to A's). The daemon mints B a **fresh nectar N2** and sets `derived_from_nectar = N1` and `fork_content_hash = H1`. B is its own identity, and it is permanently linked to A. When B is later edited and diverges from A, the link survives — the Obsidian-style interlink view can render "B was forked from A at `<time>`" indefinitely. This is the inverse of what content-hash-only identity produces: with pure content hashing, A and B were indistinguishable at copy time, and the moment B was edited, all trace of the A→B relationship was lost. The full pipeline is in [brooding-pipeline.md](library/knowledge/private/ai/brooding-pipeline.md); the steady-state enricher loop is in [enricher-and-llm-model.md](library/knowledge/private/ai/enricher-and-llm-model.md).
+Nectar is **v0.0.1** with a PRD program in flight. Shipped: the daemon, health, single-instance lock, OS service install, Doctor supervision, the Deep Lake catalog tables, and the file registration protocol (PRD-001 through 006). In work: the Portkey gateway, the portable projection, embeddings provider switching, and service check-in telemetry. Spec stage: brooding, the API endpoints, the recall arm, and the dashboard page. We document what's real and flag what isn't; the spec came before the code on purpose.
 
----
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
-## How recall uses it
+## 🛠️ Development
 
-Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank). The recall query adds a `UNION ALL` arm over `source_graph_versions` — filtered to the latest version per nectar where `describe_status = 'described'`, scoped by `org_id`/`workspace_id`/`project_id` — weighted to contribute alongside session, memory, and skill hits. An agent query like *"everything associated with logins"* now returns both structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as *"refreshes JWT claims on each authenticated request, part of the login session lifecycle"*).
+```bash
+npm install
+npm run build        # tsc → dist/
+npm run typecheck    # tsc --noEmit
+npm test             # build + node --experimental-sqlite --test test/**/*.test.ts
+npm run daemon       # run the daemon from dist/
+npm run clean        # rm -rf dist
+```
 
-The two layers are **independent and complementary.** A file can be in the CodeGraph without a nectar (it has structure but no description yet). A file can have a nectar without being in the CodeGraph (a config file, a markdown doc, a `.env.example` — anything with meaning but no AST). Recall unions over both: structural hits tell the agent *how to navigate*; semantic hits tell the agent *what to look at in the first place.* If embeddings are off (the optional dependency was not installed), the embedding is left NULL and recall silently falls back to BM25 over `title` and `description` — no error, no quality cliff, the same graceful degradation the rest of Honeycomb's recall already exhibits. The wiring is in [recall-integration.md](library/knowledge/private/data/recall-integration.md).
+Requires Node ≥ 22. Every change passes typecheck and the test suite before it lands.
 
----
+<img src="assets/brand/divider-major.svg" width="100%" height="6">
 
-## The portable projection
+## 🙏 Credits
 
-Deep Lake is the source of truth, but Deep Lake is not in the git repo. A fresh `git clone` has the source files and no nectars — until either the daemon boots and pulls the workspace's rows from Deep Lake cloud sync (requires network and auth), or broods from scratch (re-pays the LLM cost). The portable registry is a third option: `.honeycomb/nectars.json` carries enough of the Deep Lake state to re-derive identity on a fresh clone *without* network, auth, or LLM calls.
+Nectar exists because two halves fit together:
 
-The registry is a **projection, not a sidecar**, and the distinction is enforced:
+- **[Activeloop](https://activeloop.ai/)** brings **[Deep Lake](https://deeplake.ai/)** (the versioned, multi-modal database for AI with native vector + columnar indexing and hybrid search) and **[Hivemind](https://github.com/activeloopai/hivemind)**, the open-source agent-memory project Honeycomb is built upon.
+- **[Legion Code Inc](https://github.com/legioncodeinc)** brings the **multi-tier memory system** (Tier 1 / 2 / 3 keys, summaries, raw), **code base atlas memory architecture**, **auto healing service**, **session priming**, **automatic skill development & propagation**, the **pollinating loop**, the **knowledge graph**, **cross device cross repository cross team skill sharing**, and the daemon architecture that turns Deep Lake into a shared brain your coding agents read and write on every turn.
 
-- A **sidecar** is a parallel source of truth the system reads from and writes to during normal operation. Sidecars drift, get out of sync, and become liabilities. FR-8 forbids them.
-- A **projection** is a denormalized, regenerable view of the source of truth, written from the source of truth on a defined schedule, never edited directly, deletable and regenerable without loss. A lockfile (`package-lock.json`, `Cargo.lock`) is a projection; an `.env` is a sidecar.
-
-Three rules keep `.honeycomb/nectars.json` on the right side of that line. First, **Deep Lake writes happen first** — every mint, version append, and description write goes to Deep Lake before the projection is regenerated. Second, **the projection is never edited by hand or by external tools** — a hand-edit is overwritten on the next regeneration. Third, **the projection is regenerable from Deep Lake alone** — `honeycomb hivenectar rebuild-projection` produces a byte-identical file (modulo `generated_at`) from a single Deep Lake scan, with no other inputs. If it did not, the projection would be carrying state Deep Lake does not have, which would make it a sidecar. A fresh clone with a current projection typically achieves **zero LLM calls and zero fuzzy matches**: every file's content hash matches the projection, every nectar is inherited, every description is carried over. The mechanics are in [portable-registry.md](library/knowledge/private/data/portable-registry.md).
-
----
-
-## Where Hivenectar sits in the field
-
-Hivenectar is not the first system to give files stable identity, nor the first to describe code with an LLM, nor the first to index a codebase semantically. Each of the three pillars has well-trodden prior art, and the design docs are honest about what is borrowed.
-
-| Pillar | Closest prior art | What Hivenectar borrows | Where it diverges |
-|---|---|---|---|
-| **Stable identity** | Aura (identity anchor + content hash), Mimir (Roslyn-style `SymbolId`) | Two-table identity+version split; minted identity as a first-class operation; explicit non-reuse of IDs | Aura and Mimir are symbol/function-granular and content-derived at minting; Hivenectar is file-granular with a pure minted ULID |
-| **LLM description** | Smith (Hash vs. Described-Against-Hash), codeindex (two-phase AI) | Lazy description with staleness tracking; committed description cache for team inheritance; batch economics | Smith has no stable identity and mutates source via `.meta` sidecars; Hivenectar never mutates source and persists to Deep Lake |
-| **Delta indexing** | Grove, Cartog, synrepo (content-hash trees) | `(path, mtime, size)` fast-path; delta skip of unchanged files | These tools *are* content-hash identity, which Hivenectar rejects as the identity key while keeping it as the version key |
-| **Semantic store** | CodeRAG (LanceDB), Codebase Cortex (FAISS), Grove (SQLite) | Per-file semantic recall | AST-chunk tools produce 10–100× more embeddings and couple to tree-sitter parse quality; Hivenectar is file-granular and composes with the existing CodeGraph instead of duplicating it |
-
-What is genuinely novel is not any single pillar but the **specific composition**: daemon-minted identity (not content-derived, not source-embedded) + LLM-minted per-file description (not AST chunking) + Deep Lake as the durable store (not SQLite, not LanceDB, not a sidecar) + integration into an existing hybrid recall pipeline that already serves session and skill memory + a portable projection as a committed lockfile for fresh-clone inheritance. No single prior system combines all five. The closest is Smith, which covers the description pillar and the committed-cache pillar partially but lacks minted identity, Deep Lake persistence, and union-recall integration entirely. The honest claim is narrower than "first codebase semantic search" — it is *"the first system to combine daemon-minted file identity, LLM file description, Deep Lake persistence, and union-recall with conversation memory, in a single daemon that already serves a multi-harness AI coding memory system."* The full survey, with sources, is in the [prior-art crosswalk](library/knowledge/private/reference/prior-art-crosswalk.md).
-
----
-
-## What Hivenectar is *not*
-
-- **Not a replacement for the CodeGraph.** The CodeGraph answers structural questions deterministically; Hivenectar answers semantic questions probabilistically. Both ship.
-- **Not an LSP.** `hiveantennae` does not resolve types, run compilers, or produce compiler-accurate references. The structural CodeGraph and any future LSP layer own that.
-- **Not eager.** A file can exist in Deep Lake with a null description for as long as nobody asks about it. Description is a cache, not a prerequisite.
-- **Not a source mutation.** No file on disk is ever edited by `hiveantennae`. The only file it writes is the committed `.honeycomb/nectars.json` projection, and even that is regenerable.
-- **Not a separate database.** Deep Lake is the store. The "SQLite would be faster" instinct is addressed and rejected in ADR-0001.
-
----
-
-## Reading guide
-
-The documents in [`library/knowledge/private/`](library/knowledge/private/) are the specification. Start with the [overview](library/knowledge/private/overview.md), then follow the reading order that matches what you are doing:
-
-- **New to Hivenectar:** [overview](library/knowledge/private/overview.md) → [source-graph-schema](library/knowledge/private/data/source-graph-schema.md) → [identity-and-reassociation](library/knowledge/private/ai/identity-and-reassociation.md)
-- **Understanding the identity decision:** [ADR-0001](library/knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md) *(read before arguing about serials-in-source)*
-- **Implementing the worker:** [brooding-pipeline](library/knowledge/private/ai/brooding-pipeline.md), [enricher-and-llm-model](library/knowledge/private/ai/enricher-and-llm-model.md), [identity-and-reassociation](library/knowledge/private/ai/identity-and-reassociation.md)
-- **Integrating with recall:** [recall-integration](library/knowledge/private/data/recall-integration.md)
-- **The portable projection and fresh-clone story:** [portable-registry](library/knowledge/private/data/portable-registry.md)
-- **How this compares to existing tools:** [prior-art-crosswalk](library/knowledge/private/reference/prior-art-crosswalk.md)
-- **The documentation conventions every doc in this repo must follow:** [documentation-framework](library/knowledge/private/standards/documentation-framework.md)
-
----
-
-## Status
-
-This repository contains the design specification only. The implementation target is the Honeycomb daemon (a sibling repository); the documents here are written to be the contract that implementation conforms to, README-first. Until implementation lands, badges for CI, version, and downloads do not exist and would be misleading if added — they will appear when there is something to build, release, and download.
-
-## Contributing
-
-This is the specification surface. Edits to the design docs should preserve the universal header convention (`Category | Version | Date | Status`), relative-path cross-links, and Mermaid-only diagrams documented in the [documentation framework](library/knowledge/private/standards/documentation-framework.md). The load-bearing decisions recorded in ADR-0001 and the data/AI docs were chosen over documented alternatives — read the relevant doc before proposing a change that contradicts one.
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
 ## License
 
-Hivenectar is licensed under the **GNU Affero General Public License v3.0 or later** ([AGPL-3.0-or-later](LICENSE.md)). Use it commercially or privately, free of charge; keep the copyright and license notices intact, and if you modify it, your changes ship under the same AGPL license with source available. The "Affero" clause is the point: run a modified version as a network service and you owe its source to the users who interact with it.
+Nectar is licensed under the **GNU Affero General Public License v3.0 or later** ([AGPL-3.0-or-later](LICENSE.md)).
 
-Copyright © 2026 Mario Aldayuz.
+Use it commercially or privately, free of charge. In return: keep the copyright and license notices intact, and if you modify it, your changes ship under the same AGPL license with source available. The "Affero" part is the point: run a modified version as a network service and you owe its source to the users who interact with it. No locking a fork behind a SaaS wall.
+
+© 2026 Legion Code Inc.
+
+<img src="assets/brand/divider-minor.svg" width="100%" height="3">
+
+<p align="center">
+  <sub><strong>Built by <a href="https://github.com/legioncodeinc">Legion Code Inc</a></strong> · <strong>Powered by <a href="https://deeplake.ai/">Activeloop Deeplake</a></strong> · <strong><a href="https://theapiary.sh/">theapiary.sh</a></strong></sub>
+</p>
+
+<p align="center"><strong>I am Legion. We are Legion.</strong></p>
+
+<p align="center">#vibewithlegion</p>
