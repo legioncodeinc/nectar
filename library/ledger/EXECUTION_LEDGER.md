@@ -564,3 +564,12 @@ QA-009: FAIL (as audited) -> PASS after remediation (report section 10). QA-015:
 | 008-residual | /api/status reconciliation: NOT added (PRD-002 Non-Goal); PRD-008's status surface is the protected /api/hive-graph/status; prefix-match can never shadow a future exact /api/status | VERIFIED (documented in router.ts + server.ts per the QA rider) |
 
 **Wave D exit gate: MET** (445 tests total, +41 AC-named; typecheck clean; Aikido clean on the new API code). Wave E entry gate for 015 now satisfied (008 verified, 004c host ready, 013 verified; QA-015 PASS with W-1 resolved via decision #39).
+
+### Wave E results (2026-07-02 PM)
+
+| ID | Item | Status |
+|---|---|---|
+| 015-ALL | Hive Graph dashboard page (hive repo, branch feature/prd-015-hive-graph-page, commit c105171): one RouteEntry /hive-graph "Hive Graph" (not a third graph on /graph), PageProps + usePoll hydration, projectionToGraphWire client-side transform per decision #39 (nodes from files, edges from derived, capGraphForRender density bound), search panel via hiveGraphSearch wire + degraded footer, status/queue/cost widgets + build trigger (501/409/202 rendered honestly), nectar-down 502-unreachable degradation everywhere | VERIFIED (16 AC-named tests; orchestrator re-ran typecheck + suite 244/244 in the hive worktree; registry entry spot-checked; BFF routing to 127.0.0.1:3854 pre-existing in src/shared/daemon-routing.ts + src/daemon/proxy.ts) |
+| 009-LIFECYCLE | PRD-009 folder -> completed/ | DONE (all five ACs verified earlier this run) |
+
+**Wave E status:** 015 VERIFIED; 009 VERIFIED + completed. Remaining before close-out: the sync/async bridge worker (in flight) closing the Wave D dormancy.
