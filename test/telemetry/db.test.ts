@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { platform } from "node:process";
 import { join } from "node:path";
@@ -57,6 +57,26 @@ test("security: openTelemetryDb creates its directory owner-only (0o700), not wo
 
     const mode = statSync(join(dir, "nested")).mode & 0o777;
     assert.equal(mode, 0o700, `expected the telemetry directory to be owner-only (0o700), got ${mode.toString(8)}`);
+  } finally {
+    rmDirWithRetry(dir);
+  }
+});
+
+test("security: openTelemetryDb tightens a PRE-EXISTING telemetry directory to 0o700 too", { skip: platform === "win32" }, () => {
+  // mkdirSync's mode only applies to directories it creates; a dir left behind
+  // by a pre-fix install with broader bits must still be tightened on open.
+  const dir = tmpDir();
+  try {
+    const telemetryDir = join(dir, "nested");
+    mkdirSync(telemetryDir, { recursive: true });
+    chmodSync(telemetryDir, 0o755); // explicit chmod: mkdirSync's mode is umask-subject, chmod is not
+    assert.equal(statSync(telemetryDir).mode & 0o777, 0o755, "precondition: the dir pre-exists with broad bits");
+
+    const db = openTelemetryDb(join(telemetryDir, "hivenectar.sqlite"));
+    db.close();
+
+    const mode = statSync(telemetryDir).mode & 0o777;
+    assert.equal(mode, 0o700, `expected the pre-existing telemetry directory to be tightened to 0o700, got ${mode.toString(8)}`);
   } finally {
     rmDirWithRetry(dir);
   }

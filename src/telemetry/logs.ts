@@ -37,7 +37,7 @@ export const MAX_LOG_MESSAGE_LENGTH = 2_000;
 
 /** Secret-shaped substrings redacted before a line is written (defense-in-depth; see module doc). */
 const SENSITIVE_PATTERNS: readonly RegExp[] = [
-  /\bBearer\s+[A-Za-z0-9._-]+/gi,
+  /\bBearer\s+[^\s"',}\]]+/gi,
   /"?(authorization|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|secret|password|client[_-]?secret)"?\s*[:=]\s*"?[^",}\s]+"?/gi,
 ];
 

@@ -67,6 +67,20 @@ test("redactLogMessage strips a bearer token and an apikey=... field, leaving th
   assert.ok(redacted.includes("calling deep lake with"));
 });
 
+test("redactLogMessage strips a bearer token containing +, /, and = (base64-ish opaque tokens)", () => {
+  const redacted = redactLogMessage("deeplake call failed with Authorization: Bearer abc+def/ghi== retrying");
+  assert.ok(!redacted.includes("abc+def/ghi=="), "the full opaque token is redacted, not just its URL-safe prefix");
+  assert.ok(!redacted.includes("abc+"), "no partial token survives");
+  assert.ok(redacted.includes("deeplake call failed with"));
+  assert.ok(redacted.includes("retrying"), "text after the token is left intact");
+});
+
+test("redactLogMessage stops a bearer token at a JSON closing quote so surrounding structure survives", () => {
+  const redacted = redactLogMessage('{"authorization":"Bearer sk+live/token=="} sent');
+  assert.ok(!redacted.includes("sk+live/token=="));
+  assert.ok(redacted.includes("sent"));
+});
+
 test("redactLogMessage drops (returns null for) an oversized line rather than writing it (AC-017c.3.2)", () => {
   const hugeFileBody = "x".repeat(5000);
   assert.equal(redactLogMessage(hugeFileBody), null);

@@ -133,7 +133,13 @@ export class CheckinService {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.writer.checkin(this.health());
+    try {
+      // `this.health()` is caller-supplied and can throw; the writer is fail-soft
+      // but the sampler is not, so guard the whole sample-then-write here too.
+      this.writer.checkin(this.health());
+    } catch {
+      // fail-soft (AC-7 / AC-017a): telemetry must never block daemon boot.
+    }
     this.scheduleNext();
   }
 
@@ -149,7 +155,11 @@ export class CheckinService {
   private scheduleNext(): void {
     if (!this.running) return;
     this.handle = this.timer.set(() => {
-      this.writer.heartbeat(this.health());
+      try {
+        this.writer.heartbeat(this.health());
+      } catch {
+        // fail-soft: one bad health sample must not kill the heartbeat loop.
+      }
       this.scheduleNext();
     }, this.intervalMs);
   }

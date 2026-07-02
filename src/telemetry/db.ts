@@ -21,7 +21,7 @@
  * external reader, and it opens read-only; this module is hivenectar's write
  * side only.
  */
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -82,16 +82,32 @@ function loadSqlite(): SqliteModule {
  * ever propagating into daemon boot or the nectar pipeline.
  */
 export function openTelemetryDb(dbPath: string): SqliteDatabaseLike {
+  const dbDir = dirname(dbPath);
   // SECURITY (security-review finding, medium): owner-only mode, matching honeycomb's
   // fleet-store.ts precedent. Without it, the default umask on a multi-user host often
   // yields a world-readable/traversable directory, letting another local user read
   // service_logs (paths, errors, partially-redacted text) and operational metrics.
-  mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
+  mkdirSync(dbDir, { recursive: true, mode: 0o700 });
+  // mkdirSync's mode only applies to directories it CREATES; a telemetry dir
+  // left behind by a pre-fix install keeps its broader bits, so enforce
+  // owner-only explicitly too. POSIX mode bits are meaningless on Windows.
+  if (process.platform !== "win32") chmodSync(dbDir, 0o700);
   const sqlite = loadSqlite();
   const db = new sqlite.DatabaseSync(dbPath);
-  db.exec("PRAGMA journal_mode = WAL");
-  migrateSchema(db);
-  return db;
+  try {
+    db.exec("PRAGMA journal_mode = WAL");
+    migrateSchema(db);
+    return db;
+  } catch (err) {
+    // Close the native handle before rethrowing into the fail-soft fallback,
+    // so a half-initialized open never leaks a descriptor/lock on the db path.
+    try {
+      db.close();
+    } catch {
+      // ignore cleanup failures on the fail-soft path
+    }
+    throw err;
+  }
 }
 
 /**
