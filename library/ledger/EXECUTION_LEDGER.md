@@ -508,3 +508,85 @@ The CodeRabbit Major "Step-4 fingerprints disappear across restarts" is now CLOS
 - **Close-out complete. Ship:** code committed as `5f1a5da` on `feature/smoker-wave-b-impl-and-wave0-qa`, pushed, PR #14 opened (https://github.com/legioncodeinc/nectar/pull/14) with the AC ledger + wave plan + close-out results. **CI GREEN:** secret gate + nectar gate on ubuntu/macos/windows all pass; CodeRabbit review completed; the nightly live Deep Lake canary skipped by design on PRs. Docs/QA/lifecycle delta committed on nectar `main` as `e905d8f` (local, not pushed).
 - **Run close.** Everything dispatchable without user input is VERIFIED and shipped. Remaining items are parked BLOCKED on four user asks (recorded above): the Wave C DEFAULT sign-offs (007/012/013/016), PRD-013 W-1 (`nectar_rrf_multiplier` scope-or-defer), PRD-012 W-4 (CLI name), and the decision #30 Cohere-768 amendment. Wave C (007/016/012a in nectar, 013 in honeycomb), Wave D (008 + 012b), and Wave E (015 in hive, 009 doc) dispatch as those answers land. Watchdog log: zero stalls, zero terminations across 13 sub-agents.
 - **FLAG on decision #30 (verified against Cohere docs 2026-07-02): embed-v4.0's `output_dimension` accepts ONLY [256, 512, 1024, 1536]; 768 is not a valid value.** The decision's "Matryoshka-native 768" premise is wrong: as configured, the live gateway would reject (or mis-dim) the request and the guard would discard, leaving the Cohere opt-in inert. The transport sends config-driven model + output_dimension, so the remedy is a one-line config/default amendment. USER ASK (amend #30), options: (a) request 1024 and truncate+renormalize to 768 client-side (Matryoshka prefixes degrade gracefully), (b) switch the hosted opt-in default to a natively-768 model via the same gateway (e.g. OpenAI text-embedding-3-small with `dimensions: 768`, or Gemini text-embedding-004), (c) keep as-is and document the opt-in as inert until an operator supplies a 768-capable config. Local nomic (the default) is unaffected.
+
+## Wave C/D/E run (2026-07-02 PM, the-smoker, full remaining program)
+
+**Branch topology:** nectar `feature/smoker-wave-c-d-e` (worktree smoker-wave-cde), honeycomb `feature/prd-013-hive-graph-recall-arm` (worktree hive-graph-recall-arm), hive `feature/prd-015-hive-graph-page` (worktree hive-graph-page). All cut from post-rename mains (decision #35 applied).
+
+**Entry-gate check (passed):** 010/011/014 VERIFIED (Wave B ledger) + implementations merged to main via PR #14/#15; QA-007/012/013/016 PASS on disk; R-7 Wave C DEFAULTs signed off (#34), 013 W-1 multiplier scoped (#17 amended), 012 W-4 CLI name signed (#36), #30 amended to hosted text-embedding-3-small 768 (#37). Lifecycle moves committed: 010/011/014 -> completed/, 007/012/013/016 -> in-work/.
+
+**Wave C dispatch (4 implementers, parallel):**
+| Worker | Scope | Ownership | Model |
+|---|---|---|---|
+| Impl-007 | PRD-007 brooding pipeline | nectar src/brooding/** | opus-thinking (plan routing) |
+| Impl-016 | PRD-016 enricher loop | nectar src/enricher/** | composer (plan routing) |
+| Impl-012a | PRD-012a search engine | nectar src/hive-graph/search.ts | composer (plan routing) |
+| Impl-013 | PRD-013 recall arm + #17 multiplier | honeycomb recall.ts + scope surfaces | opus-thinking (plan routing) |
+
+**Wave-0 QA completion (2 quality-worker-bees, parallel):** QA-009 (backlog/prd-009), QA-015 (backlog/prd-015); closes the last two open Wave-0 QA slots.
+
+Shared-file wiring (cli/daemon/index/worker/server) reserved to the orchestrator after workers land.
+
+### Wave C results (2026-07-02 PM)
+
+| ID | Item | Status |
+|---|---|---|
+| 007-ALL | PRD-007 brooding pipeline: fixed order, git ls-files discovery + walk fallback, hash pre-check inherit, 4 buckets + #22 dynamic packing (20k-token budget, 100KB cap, 50-file ceiling), verbatim cost math, verbatim batch prompt, describe_status resumability (no lockfile), --dry-run zero-LLM, --force/--limit, auto-trigger predicate | VERIFIED (29 AC-named tests in `test/brooding.test.ts`; orchestrator re-ran typecheck + full suite 401/0/3; spot-checked #22 constants + dry-run path) |
+| 016-ALL | PRD-016 enricher: MAX(seq) pending selection, 500ms intake debounce, Jaccard 0.85 cosmetic-inherit (inherited-from marker), gemini-2.5-flash stamp, failed->retry-solo, batch split on context error, skipped-deleted, 5-cycle alert + halt + acknowledge + reset, cycle stats, 30s poll, projection trigger #2 | VERIFIED (31 AC-named tests; orchestrator re-ran full suite) |
+| 012a-ALL | PRD-012a search engine: guarded ILIKE lexical arm, latest-described MAX(seq) join, sqlLike escaping, vector-search-then-hydrate `<#>` arm, 768-dim guard, RRF fusion + dedupe, LIMIT 20 (#34), embeds-off lexical-only degraded, missing-table fail-soft `{degraded:true}`, empty-query floor | VERIFIED (15 AC-named tests; orchestrator re-ran full suite; DEFAULT_RECALL_LIMIT=20 spot-checked) |
+| 013-ALL | PRD-013 recall arm (honeycomb): RecallSource member + readSource + kindOfSource memory-class weight 1.0, buildHiveGraphVersionsArmSql (MAX(seq) + described + scope conjunct, all guarded), Promise.all/arms + rowsToRankedArm, SEMANTIC_ARMS embedding entry + dim guard, per-arm fail-soft, #17 nectar_rrf_multiplier (boot read, fail-soft 1.0, clamp [0,10], hive-graph-only application, boot log) | VERIFIED (26 AC-named tests; orchestrator re-ran typecheck + memories/recall suites 496/496 + audit:sql OK in the honeycomb worktree; real-hit end-to-end validation remains data-presence-coupled per the wave plan, separable by design) |
+| INT-C | Wave C integration: brood CLI verb (+classifyBroodInvocation, dry-run local), daemon boot enricher loop start/stop + health sink, background auto-brood, PRD-011b AC-6 boot projection load + inheritance, decision-#20 health slices, index re-exports, DeepLakeEnricherStore adapter | VERIFIED (9 integration tests; suite 401/0/3; `nectar search` verb correctly DEFERRED to Wave D per 012b's thin-loopback AC, exits 2 with notice) |
+
+**Wave C exit gate: MET** (007/016/012a/013 module ACs verified; 013 end-to-end hits pending brooded data by design). Wave D entry gate satisfied (QA-008 PASS on disk). QA-009 returned FAIL (C-1 false transport chain, W-1 stale tenancy prose) -> remediation worker dispatched; QA-015 in flight.
+
+### PRD-009 disposition (2026-07-02 PM)
+
+PRD-009 is a DOC PRD: its deliverable (decision record + per-harness recall-call-site mapping + deploy-time tenancy invariant) IS the PRD-009/009a text. Status: all five ACs VERIFIED via the QA + remediation pair.
+
+| ID | Item | Status |
+|---|---|---|
+| 009-AC-1 | Present-tense decision record: no nectar hooks, exposure solely via the PRD-013 arm, grounded rationale | VERIFIED (QA traced; remediation preserved; index Overview + 009a decision record) |
+| 009-AC-2 | Three-harness mapping (Claude Code, Codex, Cursor): connector + hook-seam + the single `recallMemories` production call site, file:line cited | VERIFIED (QA verified citations line-exact; C-1 remediation corrected column (c) to `POST /api/memories/recall` `api.ts:537`) |
+| 009-AC-3 | Exact insertion point (`recall.ts` `arms` array) + true funnel chain (`server.ts:72` -> `api.ts:537`; MCP tools + CLI consumers) | VERIFIED (post-remediation greps 0 false-linkage; NOTE: line ranges cite honeycomb main pre-013; refresh to post-merge anchors at close-out) |
+| 009-AC-4 | Deploy-time tenancy invariant (same org/workspace, project_id soft filter), PRD-001c cited as owner, failure mode named | VERIFIED (W-1 remediation aligned all sites to locked decision #21; prd-001c mirror corrected under dated note) |
+| 009-AC-5 | Ships no code, changes no table, zero TODO/OPEN QUESTION, no invented gap values | VERIFIED (orchestrator grep: only AC-5's self-referential mention; zero naming residue) |
+
+QA-009: FAIL (as audited) -> PASS after remediation (report section 10). QA-015: PASS-with-warnings; W-1 (unowned nodes/edges endpoint) remediation in flight (decision #39 pending). Wave 0 QA gate: ALL TWELVE of 005-016 now carry on-disk QA passes.
+
+### Wave D results (2026-07-02 PM)
+
+| ID | Item | Status |
+|---|---|---|
+| 008a-ALL | RouteGroup seam over node:http (no Hono, zero-dep, mirrors honeycomb ROUTE_GROUPS): /api/hive-graph mounts protect:true inheriting the permission gate; unfilled paths 501 scaffold; group() accessor; /health stays unprotected; 1 MiB POST cap -> 413 | VERIFIED (orchestrator re-ran typecheck + suite 442/0/3; spot-checked ROUTE_GROUPS/protect/cap in src/api/router.ts) |
+| 008b-ALL | POST /api/hive-graph/search delegates to the 012a engine unchanged shape; limit passthrough; no-scope 400; engine failure 500 | VERIFIED (AC-named tests; shape identity proven byte-identical vs CLI in 012b-AC-2.1/1.3) |
+| 008c-ALL | build handler (in-flight guard, 409 already_running, force passthrough), status (queueDepth + describe_status counts + cost; missing-table degrade; aggregate-only SQL), projection read + rebuild per-request scope | VERIFIED at the handler bar (AC-named tests with injected runner). KNOWN DORMANCY (inherited, not a Wave D defect): the LIVE build endpoint returns 501 build_unavailable and auto-brood stays dormant until the sync/async store bridge lands (runBrood consumes sync HiveGraphStore; DeepLakeHiveGraphStore is async; documented on AsyncHiveGraphStore). Tracked as the program's one open integration work item |
+| 012b-ALL | `nectar search <query> [--limit] [--json]` thin loopback client (node:http, type-only engine import proven by test), daemon-not-running DaemonUnreachableError, table render + degraded footer, --json byte-identical to endpoint | VERIFIED (replaces the Wave C exit-2 stub; AC-012b.3.1/3.2 tests) |
+| 008-residual | /api/status reconciliation: NOT added (PRD-002 Non-Goal); PRD-008's status surface is the protected /api/hive-graph/status; prefix-match can never shadow a future exact /api/status | VERIFIED (documented in router.ts + server.ts per the QA rider) |
+
+**Wave D exit gate: MET** (445 tests total, +41 AC-named; typecheck clean; Aikido clean on the new API code). Wave E entry gate for 015 now satisfied (008 verified, 004c host ready, 013 verified; QA-015 PASS with W-1 resolved via decision #39).
+
+#### Bridge closure (2026-07-02 PM, sync/async brood bridge)
+
+The one tracked Wave D dormancy is CLOSED. `runBrood` consumed the synchronous `HiveGraphStore`; the only durable substrate (`DeepLakeHiveGraphStore` / `AsyncHiveGraphStore`) is async, so the live build endpoint returned 501, auto-brood was dormant, the enricher's production hydration was caller-injected, and the PRD-017 pipeline counters stayed 0 in production.
+
+- **Bridge shape chosen: (a) an async-native brood pipeline.** `runBrood` was already `async` (it awaits the LLM + embed stages); only the store calls were sync. New `src/brooding/pipeline-async.ts` `runBroodAsync` / `planBroodAsync` is the async-native twin that awaits `AsyncHiveGraphStore` and reuses every pure stage verbatim (discovery / precheck / bucketing / #22 packing / describe / embed / cost / resumability) plus the shared row/identity/describe helpers now exported from `pipeline.ts` (`buildVersionRow`, `buildIdentity`, `resolveProjection`, `resolveDescribeFn`). Option (b) hydrate-then-flush was rejected: brooding is batch-shaped and hydrating a whole repo into a sync mirror is the thing to avoid. Projection regen rides the existing `rebuildProjectionAsync` (Wave B). `evaluateAutoBroodAsync` is the async twin of the trigger check.
+- **Live seams now REAL:**
+  - `POST /api/hive-graph/build` broods against the durable async store (wrapped with the telemetry metrics sink) when Deep Lake creds + a Portkey describe transport resolve (`api/daemon-api-wiring.ts` `resolveLiveBrood`). No more unconditional 501.
+  - `src/daemon.ts` auto-brood runs `runBroodAsync` against `asyncBroodStore` (counting via `telemetry.wrapAsyncStore`) when configured; the sync `broodStore` path is untouched.
+  - Enricher production hydration: `src/cli.ts` builds a `DeepLakeEnricherStore` whose `loadVersions` seeds the pending working set from the async store's `listLatestVersions` (per-nectar latest, no full-history hydrate) and write-through UPDATEs over the daemon's transport, hydrated in the background at boot.
+  - Telemetry counters: new `wrapAsyncStoreWithMetrics` + `telemetry.wrapAsyncStore` increment `nectarsMinted` / `hiveGraphVersions` / `descriptionsGenerated` / `embeddingsComputed` at the real async write; the enricher's metrics sink defaults to the daemon's own telemetry so a live enrich cycle also counts.
+- **Still honestly gated (not dormant):** the build endpoint and daemon auto-brood/enrich stay a 501 / no-op when Deep Lake creds are absent (group unmounted) OR Portkey is not configured (an LLM-less daemon genuinely cannot brood) - a truthful creds gate, reported structurally, never a silent success. Two documented residuals, unchanged by this bridge: the enricher's projection trigger #2 is not auto-fired on the live cycle (the async store has no sync projection seam; the projection is still rebuilt at brood-end / via the endpoint / CLI), and cosmetic-inherit's `priorDescribedVersion` degrades to a fresh describe on a cold boot because only latest-per-nectar is hydrated.
+- **Verification:** `npm run typecheck` clean; `npm test` = 452 tests, 449 pass / 0 fail / 3 pre-existing skips (up from 445; +7 `bridge-AC` tests covering async brood e2e with counters, the live build path + the creds-absent 501 gate, the durable auto-brood path, and durable enricher hydration). Zero new runtime dependencies; node:test harness; all SQL through the existing guards; no existing test weakened; naming stays nectar / hive_graph / HiveGraph.
+
+### Wave E results (2026-07-02 PM)
+
+| ID | Item | Status |
+|---|---|---|
+| 015-ALL | Hive Graph dashboard page (hive repo, branch feature/prd-015-hive-graph-page, commit c105171): one RouteEntry /hive-graph "Hive Graph" (not a third graph on /graph), PageProps + usePoll hydration, projectionToGraphWire client-side transform per decision #39 (nodes from files, edges from derived, capGraphForRender density bound), search panel via hiveGraphSearch wire + degraded footer, status/queue/cost widgets + build trigger (501/409/202 rendered honestly), nectar-down 502-unreachable degradation everywhere | VERIFIED (16 AC-named tests; orchestrator re-ran typecheck + suite 244/244 in the hive worktree; registry entry spot-checked; BFF routing to 127.0.0.1:3854 pre-existing in src/shared/daemon-routing.ts + src/daemon/proxy.ts) |
+| 009-LIFECYCLE | PRD-009 folder -> completed/ | DONE (all five ACs verified earlier this run) |
+
+**Wave E status:** 015 VERIFIED; 009 VERIFIED + completed. Remaining before close-out: the sync/async bridge worker (in flight) closing the Wave D dormancy.
+
+### Run close (Wave C/D/E, 2026-07-02 PM)
+
+**Program 100% complete.** All 17 PRDs implemented + VERIFIED; ledger has zero OPEN / IN PROGRESS / BLOCKED items. Close-out: security-worker-bee PASS clean (0 Critical/High/Medium; 3 Low documented; report `library/qa/security/2026-07-02-wave-cde-security-closeout.md`), then quality-worker-bee PASS clean (166/166 ACs across 007/008/012/013/015/016; 0 findings; report `library/qa/quality/2026-07-02-wave-cde-quality-closeout.md`; independent gates nectar 449/0/3, honeycomb 429 + audit:sql clean, hive 244/244). Lifecycle: all 17 folders in `completed/`; `backlog/` + `in-work/` empty. Watchdog log: zero stalls, zero terminations across 12 sub-agents this run (4 implementers, 2 QA, 3 remediation/integration, 1 bridge, security, quality). Ship: nectar `feature/smoker-wave-c-d-e`, honeycomb `feature/prd-013-hive-graph-recall-arm`, hive `feature/prd-015-hive-graph-page` -> push, PR, merge; superproject pointer bump follows.

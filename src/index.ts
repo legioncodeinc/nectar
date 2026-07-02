@@ -36,6 +36,44 @@ export { createHttpServer } from "./server.js";
 export type { HttpServer } from "./server.js";
 export { DaemonAlreadyRunningError } from "./errors.js";
 
+// PRD-008: the /api/hive-graph route-group seam + handler-attachment module.
+export {
+  NectarRouter,
+  ROUTE_GROUPS,
+  HIVE_GRAPH_GROUP,
+  MAX_REQUEST_BODY_BYTES,
+  allowAllPermission,
+  notImplementedScaffold,
+  buildRouteContext,
+  BodyTooLargeError,
+} from "./api/router.js";
+export type {
+  RouteGroup,
+  RouteGroupSpec,
+  RouteContext,
+  RouteResponse,
+  RouteHandler,
+  PermissionGate,
+  PermissionRejection,
+} from "./api/router.js";
+export { mountHiveGraphApi, NO_ORG_BODY, parseSearchRequest, parseBuildRequest } from "./api/hive-graph-api.js";
+export type {
+  MountHiveGraphOptions,
+  RouteGroupProvider,
+  BuildArgs,
+  ProjectionRebuildResult,
+} from "./api/hive-graph-api.js";
+export {
+  readHiveGraphStatusOverStorage,
+  buildDescribeStatusCountSql,
+  buildQueueDepthSql,
+  emptyDescribeStatusCounts,
+  parseDescribeStatusCounts,
+} from "./api/status-query.js";
+export type { HiveGraphStatus, DescribeStatusCounts, ReadHiveGraphStatusOptions } from "./api/status-query.js";
+export { searchViaDaemon, DaemonUnreachableError, DaemonSearchError } from "./api/loopback-client.js";
+export type { LoopbackSearchOptions } from "./api/loopback-client.js";
+
 // PRD-005: Hive Graph data layer.
 export type {
   Tenancy,
@@ -395,3 +433,12 @@ export type {
   FetchResponseLike,
   SleepFn,
 } from "./embeddings/index.js";
+
+// PRD-007 (brooding), PRD-016 (enricher), PRD-012a (hive-graph search): the
+// Wave C module surfaces, re-exported as namespaces so the package can drive the
+// full pipeline programmatically. Namespaced to keep each module's public API
+// intact without flattening two overlapping names (e.g. both brooding and the
+// enricher export an `embeddingText`) into one ambiguous top-level binding.
+export * as brooding from "./brooding/index.js";
+export * as enricher from "./enricher/index.js";
+export * as search from "./hive-graph/search.js";
