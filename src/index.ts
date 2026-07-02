@@ -36,6 +36,44 @@ export { createHttpServer } from "./server.js";
 export type { HttpServer } from "./server.js";
 export { DaemonAlreadyRunningError } from "./errors.js";
 
+// PRD-008: the /api/hive-graph route-group seam + handler-attachment module.
+export {
+  NectarRouter,
+  ROUTE_GROUPS,
+  HIVE_GRAPH_GROUP,
+  MAX_REQUEST_BODY_BYTES,
+  allowAllPermission,
+  notImplementedScaffold,
+  buildRouteContext,
+  BodyTooLargeError,
+} from "./api/router.js";
+export type {
+  RouteGroup,
+  RouteGroupSpec,
+  RouteContext,
+  RouteResponse,
+  RouteHandler,
+  PermissionGate,
+  PermissionRejection,
+} from "./api/router.js";
+export { mountHiveGraphApi, NO_ORG_BODY, parseSearchRequest, parseBuildRequest } from "./api/hive-graph-api.js";
+export type {
+  MountHiveGraphOptions,
+  RouteGroupProvider,
+  BuildArgs,
+  ProjectionRebuildResult,
+} from "./api/hive-graph-api.js";
+export {
+  readHiveGraphStatusOverStorage,
+  buildDescribeStatusCountSql,
+  buildQueueDepthSql,
+  emptyDescribeStatusCounts,
+  parseDescribeStatusCounts,
+} from "./api/status-query.js";
+export type { HiveGraphStatus, DescribeStatusCounts, ReadHiveGraphStatusOptions } from "./api/status-query.js";
+export { searchViaDaemon, DaemonUnreachableError, DaemonSearchError } from "./api/loopback-client.js";
+export type { LoopbackSearchOptions } from "./api/loopback-client.js";
+
 // PRD-005: Hive Graph data layer.
 export type {
   Tenancy,

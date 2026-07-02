@@ -37,6 +37,14 @@ import {
 import type { EmbedProviderSelector } from "./embeddings/provider.js";
 import { acquireSingleInstanceLock, releaseSingleInstanceLock } from "./lock.js";
 import { createHttpServer, type HttpServer } from "./server.js";
+import {
+  NectarRouter,
+  ROUTE_GROUPS,
+  allowAllPermission,
+  type PermissionGate,
+  type RouteGroup,
+} from "./api/router.js";
+import { mountHiveGraphApi, type MountHiveGraphOptions } from "./api/hive-graph-api.js";
 import type { Timer } from "./poll-loop.js";
 import {
   createLogTap,
@@ -134,6 +142,25 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
 
   /** Boot projection load + fresh-clone inheritance seam (PRD-011 AC-6). Absent -> skipped. */
   readonly bootProjection?: BootProjectionLoad;
+
+  // ── Wave D daemon API surface (PRD-008 / PRD-012b) ──────────────────────────
+  /**
+   * The permission gate mounted on every `protect: true` route group (PRD-008a).
+   * The shipped daemon has no auth beyond the unprotected `/health`; 008a
+   * scaffolds this seam. Default: {@link allowAllPermission} (open on loopback).
+   * A test injects a deny gate to prove permission inheritance; a future RBAC
+   * policy attaches here.
+   */
+  readonly apiPermission?: PermissionGate;
+  /**
+   * When supplied, the daemon mounts the `/api/hive-graph/*` handlers (PRD-008b
+   * search + 008c build/status/projection) via {@link mountHiveGraphApi} at
+   * assembly time. Absent -> the group is still scaffolded + protected, but no
+   * handler is attached (an unfilled path answers the root 501 scaffold). Tests
+   * and production wiring may also call `mountHiveGraphApi(daemon, options)`
+   * directly on the returned daemon.
+   */
+  readonly hiveGraphApi?: MountHiveGraphOptions;
 }
 
 /**
@@ -259,6 +286,13 @@ export interface AssembledDaemon {
   /** Register process SIGINT/SIGTERM handlers that call shutdown once. */
   installSignalHandlers(): void;
   /**
+   * The `group(path)` accessor (PRD-008a): returns the {@link RouteGroup} handle
+   * for a mounted route group (e.g. `/api/hive-graph`), or `undefined` for an
+   * unknown group path. `mountHiveGraphApi` attaches handlers through it; the
+   * route table is live, so a handler attached after `start()` is still served.
+   */
+  group(path: string): RouteGroup | undefined;
+  /**
    * Acknowledge the enricher's persistent-failure alert (PRD-016c), the operator
    * action that un-halts enrichment. A no-op when the enricher loop is disabled.
    */
@@ -312,6 +346,14 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     pollIntervalMs: config.pollIntervalMs,
     onError: (err) => log({ level: "error", scope: "worker", err: String(err) }),
   });
+
+  // ── PRD-008a: the in-repo router seam over node:http ────────────────────────
+  // Constructed side-effect free (no socket): it holds the frozen ROUTE_GROUPS,
+  // the shared live route table, and the permission gate. `createHttpServer`
+  // consumes it at start(); `daemon.group("/api/hive-graph")` exposes the
+  // RouteGroup handle so `mountHiveGraphApi` can attach handlers before OR after
+  // the socket binds (the route table is consulted per request).
+  const router = new NectarRouter(ROUTE_GROUPS, options.apiPermission ?? allowAllPermission);
 
   // Shared Wave C context: an empty placeholder tenancy means an empty store
   // yields no work, so the default enricher loop is a harmless no-op until a
@@ -445,7 +487,7 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
       });
 
       // Step 7: bind the socket.
-      server = createHttpServer(health, config.host, config.port);
+      server = createHttpServer(health, config.host, config.port, router);
       const boundPort = await server.listen();
       log({ level: "info", scope: "daemon", msg: "listening", host: config.host, port: boundPort });
 
@@ -498,7 +540,7 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     process.once("SIGTERM", () => onSignal("SIGTERM"));
   }
 
-  return {
+  const daemon: AssembledDaemon = {
     config,
     health,
     worker,
@@ -509,5 +551,15 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     installSignalHandlers,
     acknowledgeAlert: () => enricherLoop?.acknowledgeAlert(),
     awaitBoot: () => bootSettled,
+    group: (path) => router.group(path),
   };
+
+  // PRD-008: attach the /api/hive-graph handlers when the caller wired the
+  // mechanics. The group is already scaffolded + protected regardless; this
+  // fills it. Callers may equivalently call mountHiveGraphApi(daemon, opts).
+  if (options.hiveGraphApi !== undefined) {
+    mountHiveGraphApi(daemon, options.hiveGraphApi);
+  }
+
+  return daemon;
 }

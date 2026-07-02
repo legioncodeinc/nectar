@@ -29,6 +29,10 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { assembleDaemon, type BootProjectionLoad } from "./daemon.js";
 import { resolveConfig } from "./config.js";
+import { mountHiveGraphApi } from "./api/hive-graph-api.js";
+import { buildHiveGraphApiOptions } from "./api/daemon-api-wiring.js";
+import { searchViaDaemon, DaemonUnreachableError, DaemonSearchError } from "./api/loopback-client.js";
+import type { HiveGraphSearchResult, HiveGraphHit } from "./hive-graph/search-types.js";
 import { createServiceModule, serviceStatus } from "./service/index.js";
 import { registerWithDoctor } from "./doctor-registry.js";
 import { emitInstalled, emitUninstalled, recordDaemonStart } from "./telemetry-usage/emit.js";
@@ -62,7 +66,8 @@ Usage:
                                 a real brood executes daemon-side (PRD-008 build endpoint, Wave D).
                                 Flags: --force, --limit N, --dry-run, --model <id>
   nectar search <query> [flags] Manual hive-graph search (PRD-012). Thin loopback client of the
-                                daemon search endpoint (PRD-008b, Wave D). Flags: --limit N, --json
+                                daemon search endpoint (POST /api/hive-graph/search). Requires a
+                                running 'nectar daemon'. Flags: --limit N, --json
   nectar prune [--confirm]      Prune long-missing nectars     (logic implemented; durable wiring pending daemon integration)
   nectar review-matches         Review low-confidence matches  (logic implemented; durable wiring pending daemon integration)
   nectar rebuild-projection     Regenerate .honeycomb/nectars.json from Deep Lake (PRD-011)
@@ -180,6 +185,7 @@ function resolveProjectionContext():
       readonly projectRoot: string;
       readonly store: DeepLakeHiveGraphStore;
       readonly scopeSource: ProjectScopeSource;
+      readonly credentials: ReturnType<typeof loadDeepLakeCredentials>;
     }
   | { readonly ok: false; readonly message: string } {
   let credentials;
@@ -201,7 +207,7 @@ function resolveProjectionContext():
     projectId: scope.projectId,
   };
   const store = new DeepLakeHiveGraphStore({ credentials });
-  return { ok: true, tenancy, projectRoot, store, scopeSource: scope.source };
+  return { ok: true, tenancy, projectRoot, store, scopeSource: scope.source, credentials };
 }
 
 /**
@@ -327,6 +333,128 @@ function runBroodCommand(broodArgs: readonly string[]): number {
 
 
 /**
+ * The parsed `nectar search` invocation (PRD-012b). Factored out as a pure
+ * function so the flag grammar is unit-testable without the CLI's process-level
+ * side effects, mirroring {@link classifyBroodInvocation}.
+ */
+export type SearchInvocation =
+  | { readonly kind: "errors"; readonly errors: readonly string[] }
+  | { readonly kind: "run"; readonly query: string; readonly limit: number | undefined; readonly json: boolean };
+
+/**
+ * Parse `nectar search <query> [--limit N] [--json]`. The positional
+ * (non-flag) tokens join into the query; `--limit N`/`--limit=N` sets the cap
+ * (a non-positive-integer value is an error); `--json` emits raw JSON. A
+ * missing query or an unknown flag is an error.
+ */
+export function parseSearchArgs(args: readonly string[]): SearchInvocation {
+  const errors: string[] = [];
+  const queryParts: string[] = [];
+  let limit: number | undefined;
+  let json = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? "";
+    if (arg === "--json") {
+      json = true;
+    } else if (arg === "--limit") {
+      const raw = args[i + 1];
+      if (raw === undefined) {
+        errors.push("--limit requires a value");
+      } else {
+        const n = Number.parseInt(raw, 10);
+        if (!Number.isFinite(n) || n < 1 || String(n) !== raw) errors.push(`--limit expects a positive integer, got '${raw}'`);
+        else limit = n;
+        i++;
+      }
+    } else if (arg.startsWith("--limit=")) {
+      const raw = arg.slice("--limit=".length);
+      const n = Number.parseInt(raw, 10);
+      if (!Number.isFinite(n) || n < 1 || String(n) !== raw) errors.push(`--limit expects a positive integer, got '${raw}'`);
+      else limit = n;
+    } else if (arg.startsWith("--")) {
+      errors.push(`unknown flag '${arg}'`);
+    } else {
+      queryParts.push(arg);
+    }
+  }
+
+  const query = queryParts.join(" ").trim();
+  if (query === "") errors.push("a query is required: nectar search <query> [--limit N] [--json]");
+  if (errors.length > 0) return { kind: "errors", errors };
+  return { kind: "run", query, limit, json };
+}
+
+/** Truncate a one-line preview of a description for the human table. */
+function truncateCell(value: string, max = 72): string {
+  const oneLine = value.replace(/\s+/g, " ").trim();
+  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}\u2026`;
+}
+
+/** Render the engine result as a human-readable ranked table (default, non-`--json`). */
+export function renderSearchTable(result: HiveGraphSearchResult): string {
+  const lines: string[] = [];
+  if (result.hits.length === 0) {
+    lines.push("No matching files.");
+  } else {
+    lines.push(`${result.hits.length} result${result.hits.length === 1 ? "" : "s"}:`);
+    result.hits.forEach((hit: HiveGraphHit, index: number) => {
+      lines.push(`  ${index + 1}. ${hit.path}`);
+      if (hit.title.trim() !== "") lines.push(`     ${truncateCell(hit.title)}`);
+      if (hit.body.trim() !== "") lines.push(`     ${truncateCell(hit.body)}`);
+    });
+  }
+  if (result.degraded) {
+    lines.push("");
+    lines.push("(degraded: semantic search did not run; results are lexical-only)");
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * `nectar search <query> [--limit N] [--json]` (PRD-012b): a THIN loopback
+ * client of the daemon's `POST /api/hive-graph/search` endpoint (PRD-008b). It
+ * never imports the search engine or any Deep Lake path (AC-012b.3.1) — it only
+ * reaches the running daemon over loopback. When the daemon is not running the
+ * connection failure is reported clearly and the verb exits non-zero with NO
+ * local fallback (AC-012b.3.2).
+ */
+async function runSearchCommand(args: readonly string[]): Promise<number> {
+  const invocation = parseSearchArgs(args);
+  if (invocation.kind === "errors") {
+    for (const err of invocation.errors) process.stderr.write(`nectar search: ${err}\n`);
+    return 2;
+  }
+
+  const config = resolveConfig();
+  try {
+    const result = await searchViaDaemon({
+      host: config.host,
+      port: config.port,
+      query: invocation.query,
+      limit: invocation.limit,
+    });
+    if (invocation.json) process.stdout.write(`${JSON.stringify(result)}\n`);
+    else process.stdout.write(renderSearchTable(result));
+    return 0;
+  } catch (err: unknown) {
+    if (err instanceof DaemonUnreachableError) {
+      process.stderr.write(
+        `nectar search: the nectar daemon is not reachable on ${config.host}:${config.port} (${err.message}).\n` +
+          "Start it with 'nectar daemon'. Search reaches the running daemon over loopback and does not fall back to a local index.\n",
+      );
+      return 2;
+    }
+    if (err instanceof DaemonSearchError) {
+      process.stderr.write(`nectar search: the daemon rejected the search: ${err.message}\n`);
+      return 1;
+    }
+    process.stderr.write(`nectar search: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
+/**
  * Verbs whose command logic is implemented and tested here (`runPrune` /
  * `runReviewMatches`, the review store, the tenancy guards), but which are not
  * yet wired to a durable, sync-capable hive-graph store. The live daemon does
@@ -390,6 +518,29 @@ async function runDaemon(): Promise<void> {
     bootProjection = undefined;
   }
   const daemon = assembleDaemon(bootProjection !== undefined ? { bootProjection } : {});
+
+  // PRD-008: attach the /api/hive-graph handlers once, after createDaemon,
+  // mirroring mountGraphApi. Wired only when a Deep Lake context resolves; on a
+  // bare machine the group stays scaffolded + protected but unfilled (a path
+  // under it answers the root 501 scaffold), and the daemon still boots.
+  try {
+    const apiCtx = resolveProjectionContext();
+    if (apiCtx.ok) {
+      mountHiveGraphApi(
+        daemon,
+        buildHiveGraphApiOptions({
+          credentials: apiCtx.credentials,
+          tenancy: apiCtx.tenancy,
+          projectRoot: apiCtx.projectRoot,
+          store: apiCtx.store,
+          costSpentUsd: () => daemon.health.snapshot().cost.broodTotalUsd,
+        }),
+      );
+    }
+  } catch {
+    // fail-soft: a wiring failure never blocks the daemon from serving /health.
+  }
+
   daemon.installSignalHandlers();
   const port = await daemon.start();
   process.stdout.write(
@@ -436,18 +587,7 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   if (command === "search") {
-    // PRD-012b (AC-012b.3.1): `nectar search` is a THIN loopback client that
-    // reaches the daemon's POST /api/hive-graph/search endpoint and never imports
-    // the engine or any Deep Lake path directly. That endpoint is owned by
-    // PRD-008b, which lands in a later wave, so the verb is intentionally left
-    // unwired rather than violating the thin-client posture by embedding the
-    // engine in the CLI process.
-    process.stderr.write(
-      "nectar search: not yet wired. Per PRD-012b it is a thin loopback client of the daemon's " +
-        "POST /api/hive-graph/search endpoint (PRD-008b), which lands in a later wave. It deliberately " +
-        "does not import the search engine directly (AC-012b.3.1).\n",
-    );
-    return 2;
+    return runSearchCommand(argv.slice(1));
   }
 
   // `project` currently exposes only its `--rebuild-projection` flag (PRD-011c);
