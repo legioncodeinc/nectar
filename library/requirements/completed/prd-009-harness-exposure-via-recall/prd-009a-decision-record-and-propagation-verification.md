@@ -26,7 +26,7 @@ Decided. Recorded as decision #1 at the foot of [`MASTER-PRD-INDEX.md`](../../MA
 
 ### Rationale (grounded in the code)
 
-Recall is a single shared engine, not a per-harness surface. The entry point is `recallMemories` (`honeycomb/src/daemon/runtime/memories/recall.ts:2064`), which assembles its hits from a ranked `arms` array:
+Recall is a single shared engine, not a per-harness surface. The entry point is `recallMemories` (`honeycomb/src/daemon/runtime/memories/recall.ts:2172`), which assembles its hits from a ranked `arms` array:
 
 ```ts
 const arms: RankedArm[] = [
@@ -37,7 +37,7 @@ const arms: RankedArm[] = [
 ];
 ```
 
-(`honeycomb/src/daemon/runtime/memories/recall.ts:2113-2118`) — the single insertion point PRD-013 extends with a `rowsToRankedArm(hiveGraphRows)` entry.
+(`honeycomb/src/daemon/runtime/memories/recall.ts:2225-2233`) — the single insertion point PRD-013 extends with a `rowsToRankedArm(hiveGraphRows)` entry.
 
 Every armed harness reaches this same function through one production call site. `recallMemories` is invoked in exactly one place in production: the `POST /api/memories/recall` handler (`honeycomb/src/daemon/runtime/memories/api.ts:537`), mounted under the session-protected `/api/memories` route group (`honeycomb/src/daemon/runtime/server.ts:72` `{ path: "/api/memories", protect: true, session: true }`; `MEMORIES_GROUP`, `honeycomb/src/daemon/runtime/memories/api.ts:85`). Every agent-facing recall consumer funnels through it: the MCP tools `memory_search` and `hivemind_search` route to `POST /api/memories/recall` (`honeycomb/mcp/src/handlers.ts:176,270`; `honeycomb/mcp/src/tools.ts:97`), and the CLI `recall` verb POSTs the same path (`honeycomb/src/commands/storage-handlers.ts:38,175`). The harness hook bundles are thin loopback clients too, but they POST captured events to the SEPARATE `/api/hooks` route group (`honeycomb/src/daemon/runtime/server.ts:74` `{ path: "/api/hooks", protect: true, session: true }`), whose `/capture`, `/context`, and `/session-end` handlers (`honeycomb/src/daemon/runtime/capture/capture-handler.ts:210`, `honeycomb/src/daemon/runtime/capture/attach.ts:172-173`) never invoke `recallMemories`; session-start memory injection is the separate `GET /api/memories/prime` digest (`honeycomb/src/daemon/runtime/memories/prime.ts:151`), which also does not call `recallMemories`. The hook bundles carry "no DeepLake; the only outbound path is the daemon client over loopback" (`honeycomb/harnesses/claude-code/src/index.ts:12,20`).
 
@@ -57,13 +57,13 @@ The three priority harnesses named in the PRD-009 entry ([`MASTER-PRD-INDEX.md`]
 
 | Harness | (a) Connector (arms honeycomb against the harness) | (b) Hook-config / handler seam | (c) Shared recall call site |
 |---|---|---|---|
-| **Claude Code** | `ClaudeCodeConnector.install()` at `:137-165` — registers honeycomb as a Claude Code marketplace plugin (`marketplace add` → `update` → `install` → `enable`); fail-softs to a `settings.json` fallback + manual-register notice when the `claude` runner is absent. | `honeycomb/harnesses/claude-code/hooks/hooks.json` — declares the SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/SubagentStop/SessionEnd hooks, each invoking `node "${CLAUDE_PLUGIN_ROOT}/bundle/index.js"` (the loopback client). | `recallMemories` (`recall.ts:2064`), reached by the MCP tools + CLI recall consumers → `POST /api/memories/recall` (`server.ts:72` → `api.ts:537`) |
-| **Codex** | `CodexConnector` at `:48-99` — `harness = "codex"`; SEAM 1 loads user-level hooks from `~/.codex/hooks.json` (`configPath()`, `:66-68`), SEAM 2 mounts the compiled handler set from `harnesses/codex/bundle/` (`hookHandlers()`, `:71-82`), SEAM 4 maps native event names (`eventNameMap()`, `:91-93`). | Codex hook-config at `~/.codex/hooks.json` (`codex.ts:66-68`); handlers compiled into `harnesses/codex/bundle/` (`codex.ts:71-82`) — the loopback clients. | same — `recallMemories` (`recall.ts:2064`) via the MCP tools + CLI → `POST /api/memories/recall` (`server.ts:72` → `api.ts:537`) |
-| **Cursor** | `CursorConnector` at `:83-136` — `harness = "cursor"`; SEAM 1 hook-config at `~/.cursor/hooks.json` (`configPath()`, `:101-103`), SEAM 2 handler set from `harnesses/cursor/bundle/` (`hookHandlers()`, `:106-120`), SEAM 3 skill-links into `~/.cursor/skills/` (`skillLinkTargets()`, `:123-126`). | Cursor hook-config at `~/.cursor/hooks.json` (`cursor.ts:101-103`); handlers compiled into `harnesses/cursor/bundle/` (`cursor.ts:106-120`) — the loopback clients. | same — `recallMemories` (`recall.ts:2064`) via the MCP tools + CLI → `POST /api/memories/recall` (`server.ts:72` → `api.ts:537`) |
+| **Claude Code** | `ClaudeCodeConnector.install()` at `:137-165` — registers honeycomb as a Claude Code marketplace plugin (`marketplace add` → `update` → `install` → `enable`); fail-softs to a `settings.json` fallback + manual-register notice when the `claude` runner is absent. | `honeycomb/harnesses/claude-code/hooks/hooks.json` — declares the SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/SubagentStop/SessionEnd hooks, each invoking `node "${CLAUDE_PLUGIN_ROOT}/bundle/index.js"` (the loopback client). | `recallMemories` (`recall.ts:2172`), reached by the MCP tools + CLI recall consumers → `POST /api/memories/recall` (`server.ts:72` → `api.ts:537`) |
+| **Codex** | `CodexConnector` at `:48-99` — `harness = "codex"`; SEAM 1 loads user-level hooks from `~/.codex/hooks.json` (`configPath()`, `:66-68`), SEAM 2 mounts the compiled handler set from `harnesses/codex/bundle/` (`hookHandlers()`, `:71-82`), SEAM 4 maps native event names (`eventNameMap()`, `:91-93`). | Codex hook-config at `~/.codex/hooks.json` (`codex.ts:66-68`); handlers compiled into `harnesses/codex/bundle/` (`codex.ts:71-82`) — the loopback clients. | same — `recallMemories` (`recall.ts:2172`) via the MCP tools + CLI → `POST /api/memories/recall` (`server.ts:72` → `api.ts:537`) |
+| **Cursor** | `CursorConnector` at `:83-136` — `harness = "cursor"`; SEAM 1 hook-config at `~/.cursor/hooks.json` (`configPath()`, `:101-103`), SEAM 2 handler set from `harnesses/cursor/bundle/` (`hookHandlers()`, `:106-120`), SEAM 3 skill-links into `~/.cursor/skills/` (`skillLinkTargets()`, `:123-126`). | Cursor hook-config at `~/.cursor/hooks.json` (`cursor.ts:101-103`); handlers compiled into `harnesses/cursor/bundle/` (`cursor.ts:106-120`) — the loopback clients. | same — `recallMemories` (`recall.ts:2172`) via the MCP tools + CLI → `POST /api/memories/recall` (`server.ts:72` → `api.ts:537`) |
 
 ### What the mapping proves
 
-Because column (c) is identical across all three rows, adding a `hive_graph_versions` arm to `recallMemories`'s `arms` array (`recall.ts:2113-2118`) propagates the new hits to Claude Code, Codex, and Cursor in the same edit, with no connector change, no hook-config change, and no bundle change in any harness. The three connectors (`claude-code.ts:137-165`, `codex.ts:48-99`, `cursor.ts:83-136`) and their hook configs (`hooks.json`, `~/.codex/hooks.json`, `~/.cursor/hooks.json`) are already armed; this PRD confirms that state and adds nothing to them.
+Because column (c) is identical across all three rows, adding a `hive_graph_versions` arm to `recallMemories`'s `arms` array (`recall.ts:2225-2233`) propagates the new hits to Claude Code, Codex, and Cursor in the same edit, with no connector change, no hook-config change, and no bundle change in any harness. The three connectors (`claude-code.ts:137-165`, `codex.ts:48-99`, `cursor.ts:83-136`) and their hook configs (`hooks.json`, `~/.codex/hooks.json`, `~/.cursor/hooks.json`) are already armed; this PRD confirms that state and adds nothing to them.
 
 The honeycomb repo ships other armed harnesses (hermes, openclaw, pi under `honeycomb/harnesses/`). They follow the same connector/loopback pattern and therefore inherit the propagation identically; they are out of the PRD-009 priority set named in the master index but the propagation claim holds for them by the same mechanism.
 
@@ -92,13 +92,13 @@ The invariant's **contract** is owned by [`prd-001c`](../../completed/prd-001-th
 ### US-009a.1 — A new recall arm surfaces in every armed harness, no per-harness work
 **As** an agent running in Claude Code, Codex, or Cursor, **when** PRD-013 adds the `hive_graph_versions` arm to `recallMemories`, **then** my fused recall results include Hive Graph hits, **because** my recall queries funnel through the single shared `recallMemories` call site (`POST /api/memories/recall`) that every agent-facing consumer uses.
 
-- Acceptance: the PRD maps each of the three priority harnesses to the same production `recallMemories` call site (`recall.ts:2064`), the `POST /api/memories/recall` handler (`server.ts:72` → `api.ts:537`) that the MCP tools and CLI recall consumers funnel through, with a connector + hook-config citation for each.
-- Acceptance: the PRD cites the exact `arms`-array insertion point (`recall.ts:2113-2118`) and states that no connector, hook-config, or bundle change is required in any harness.
+- Acceptance: the PRD maps each of the three priority harnesses to the same production `recallMemories` call site (`recall.ts:2172`), the `POST /api/memories/recall` handler (`server.ts:72` → `api.ts:537`) that the MCP tools and CLI recall consumers funnel through, with a connector + hook-config citation for each.
+- Acceptance: the PRD cites the exact `arms`-array insertion point (`recall.ts:2225-2233`) and states that no connector, hook-config, or bundle change is required in any harness.
 
 ### US-009a.2 — The "no nectar hooks" decision is recorded and rationale-grounded
 **As** a maintainer, **when** I read this PRD, **I** see a decision record stating Nectar ships no hooks and explaining why, **so that** no future pass re-attempts the per-harness implementation.
 
-- Acceptance: the decision record cites that recall is a shared engine (`recall.ts:2064`) reached by every agent-facing consumer through one production call site (`POST /api/memories/recall`, `server.ts:72` → `api.ts:537`), and names the rejected alternatives (per-harness hooks, a nectar recall engine, in-process import).
+- Acceptance: the decision record cites that recall is a shared engine (`recall.ts:2172`) reached by every agent-facing consumer through one production call site (`POST /api/memories/recall`, `server.ts:72` → `api.ts:537`), and names the rejected alternatives (per-harness hooks, a nectar recall engine, in-process import).
 
 ### US-009a.3 — The tenancy mismatch is named as the silent-failure mode
 **As an** operator, **when** I deploy nectar, **I** am warned that a scope mismatch silently breaks recall, **so that** I enforce the tenancy invariant rather than assuming it.
@@ -111,8 +111,8 @@ The invariant's **contract** is owned by [`prd-001c`](../../completed/prd-001-th
 
 This sub-PRD ships no code. The implementation notes below are pointers to the code the decision rests on, for the verifier.
 
-- Recall entry point: `honeycomb/src/daemon/runtime/memories/recall.ts:2064` (`recallMemories`).
-- Arms-array insertion point (the single integration point PRD-013 extends): `recall.ts:2113-2118`.
+- Recall entry point: `honeycomb/src/daemon/runtime/memories/recall.ts:2172` (`recallMemories`).
+- Arms-array insertion point (the single integration point PRD-013 extends): `recall.ts:2225-2233`.
 - Per-arm lexical builders PRD-013 mirrors (`buildMemoriesArmSql`/`buildMemoryArmSql`/`buildSessionsArmSql`): `recall.ts:319-383`.
 - The `projectClause` conjunct every arm ANDs in (the `project_id` scope filter): `recall.ts:2089`, threaded into `runArm` at `:2096-2101`.
 - The single production `recallMemories` call site (session-protected `POST /api/memories/recall`, reached by the MCP tools + CLI recall consumers): `honeycomb/src/daemon/runtime/memories/api.ts:537`, under the `/api/memories` route group `honeycomb/src/daemon/runtime/server.ts:72` (`MEMORIES_GROUP`, `honeycomb/src/daemon/runtime/memories/api.ts:85`).
