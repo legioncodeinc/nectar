@@ -144,11 +144,11 @@ Two quality-worker-bee audits (armed with hivenectar-stinger) covered all 16 PRD
 
 ---
 
-## What's next (updated 2026-07-02)
+## What's next (updated 2026-07-02 PM: program complete)
 
-1. **Confirm the §B defaults.** PARTIALLY DONE 2026-07-02 (decisions #29-#33): model id (`gemini-2.5-flash`), the Cohere dim reconciliation (embed-v4.0 at 768), projection path + debounce, PRD-017's four flags (two amended: heartbeat 5s, log retention 24h age bound), and the fleet-wide service naming scheme (short names + reverse-DNS, all four repos). STILL OPEN: the remaining per-PRD defaults for unimplemented PRDs (007 discovery command + batch cap, 016 cadences/threshold/alert count, 012 search LIMIT + CLI name, 013 arm weight + LIMIT, 015 route/label/icon, 008 route group path), to be signed off before each enters implementation.
+1. ~~**Confirm the §B defaults.**~~ DONE (decisions #29-#39). The Wave C/D/E defaults were adopted as documented (#34), the CLI verb signed (#36), the hosted embeddings amendment landed (#37), env decoupling implemented (#38), and the 015 file-graph hydration resolved (#39).
 2. ~~**Apply the §C corpus edits**~~ DONE. Items 1 and 2 are applied to the corpus (§C status notes); item 3 was a no-op false positive.
-3. ~~**Move PRDs to in-work/**~~ IN MOTION. PRD-001 through 006 are in `completed/`; 010/011/014 are in `in-work/`; the rest remain in `backlog/`. Lifecycle-equals-location now holds.
-4. **QA PRD-017** to the 001-004 standard before its implementation begins (it is the only authored PRD with an empty `qa/` folder besides 009 and 015, which are QA-pending like the rest of the backlog).
+3. ~~**Move PRDs to in-work/**~~ DONE. All 17 PRD folders sit in `completed/`; `backlog/` and `in-work/` are empty. Lifecycle-equals-location holds.
+4. ~~**QA PRD-017**~~ DONE (retrospective PASS-with-warnings on disk); the Wave 0 QA gate is fully closed (twelve of twelve PASS, QA-009 remediated to PASS, QA-015's W-1 resolved as #39).
 
-Nothing in the PRDs is deferred; every decision is either locked, flagged as a default for your confirmation, or surfaced as a corpus edit (now applied). Ready for your review.
+Program state: all PRDs 001-017 implemented and verified (ledger: "Wave C/D/E run"); security + quality close-outs PASS clean. Deliberate gaps (TLSH threshold, review-matches grammar, Portkey client cache toggle) remain unfilled by design. Tracked sub-medium residuals: the enricher's live-cycle projection-trigger #2, cosmetic-inherit's cold-boot degrade, and 013's real-hit end-to-end validation pending a brooded corpus.
