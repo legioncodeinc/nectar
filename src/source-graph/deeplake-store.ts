@@ -154,6 +154,25 @@ function reduceLatestVersion(rows: readonly DeepLakeRow[]): SourceGraphVersionRo
   return latest;
 }
 
+/**
+ * Reduce a set of raw `source_graph_versions` rows for ONE nectar to the
+ * highest-seq row whose `describe_status` is `described`, returning `undefined`
+ * when the nectar has no described version. Shares the client-side MAX(seq)
+ * discipline of {@link reduceLatestVersion} (it does not trust an SQL
+ * `ORDER BY seq DESC LIMIT 1`, for the point-read/ordering-quirk reason that
+ * function documents); the `describe_status` filter is applied client-side too,
+ * so the same fetched row set feeds both reductions with no extra query.
+ */
+function reduceLatestDescribedVersion(rows: readonly DeepLakeRow[]): SourceGraphVersionRow | undefined {
+  let latest: SourceGraphVersionRow | undefined;
+  for (const raw of rows) {
+    const version = toVersionRow(raw);
+    if (version.describeStatus !== "described") continue;
+    if (latest === undefined || version.seq > latest.seq) latest = version;
+  }
+  return latest;
+}
+
 /** Build the `INSERT INTO "source_graph" (...) VALUES (...)` statement for one identity row. */
 function buildInsertIdentitySql(row: SourceGraphRow): string {
   const cols = [
@@ -413,6 +432,42 @@ export class DeepLakeSourceGraphStore implements AsyncSourceGraphStore {
       const identity = toIdentityRow(raw);
       const group = rowsByNectar.get(identity.nectar);
       const version = group !== undefined ? reduceLatestVersion(group) : undefined;
+      if (version !== undefined) out.push({ identity, version });
+    }
+    return out;
+  }
+
+  /**
+   * Every nectar's latest DESCRIBED version, scoped by the full tenancy
+   * predicate (PRD-011c's projection scan). Mirrors {@link listLatestVersions}'s
+   * two-SELECT-then-reduce-in-application-code shape, but reduces each nectar's
+   * version group with {@link reduceLatestDescribedVersion} and omits nectars
+   * that have no described version. The projection builder overlays this onto
+   * {@link listLatestVersions} so a minted-but-undescribed nectar still keeps a
+   * minimal entry.
+   */
+  async listLatestDescribedVersions(tenancy: Tenancy): Promise<LatestVersion[]> {
+    const predicate = tenancyPredicate(tenancy);
+    const identitiesSql = `SELECT * FROM "${SOURCE_GRAPH_TABLE_NAME}" WHERE ${predicate}`;
+    const versionsSql = `SELECT * FROM "${SOURCE_GRAPH_VERSIONS_TABLE_NAME}" WHERE ${predicate}`;
+    const [identityRows, versionRows] = await Promise.all([
+      this.readTolerant(identitiesSql),
+      this.readTolerant(versionsSql),
+    ]);
+
+    const rowsByNectar = new Map<string, DeepLakeRow[]>();
+    for (const raw of versionRows) {
+      const nectar = toStr(raw.nectar);
+      const group = rowsByNectar.get(nectar);
+      if (group === undefined) rowsByNectar.set(nectar, [raw]);
+      else group.push(raw);
+    }
+
+    const out: LatestVersion[] = [];
+    for (const raw of identityRows) {
+      const identity = toIdentityRow(raw);
+      const group = rowsByNectar.get(identity.nectar);
+      const version = group !== undefined ? reduceLatestDescribedVersion(group) : undefined;
       if (version !== undefined) out.push({ identity, version });
     }
     return out;

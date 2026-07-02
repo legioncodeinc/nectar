@@ -47,6 +47,20 @@ export interface SourceGraphStore {
    */
   listLatestVersions(tenancy: Tenancy): LatestVersion[];
 
+  /**
+   * Every nectar's latest DESCRIBED version, scoped to the tenancy: for each
+   * nectar that has at least one `describe_status = 'described'` version, the
+   * highest-seq described row. Nectars with no described version are omitted.
+   *
+   * This is the projection scan (PRD-011c / `data/portable-registry.md` §
+   * Generation and regeneration: "latest described version per nectar, scoped to
+   * the project"). The projection builder overlays this onto
+   * {@link listLatestVersions} so an undescribed nectar still keeps a minimal
+   * entry (identity + path + content_hash) while a described one carries the
+   * latest description verbatim.
+   */
+  listLatestDescribedVersions(tenancy: Tenancy): LatestVersion[];
+
   /** The latest version whose current path equals `path` (ladder steps 1-2), scoped. */
   latestVersionByPath(tenancy: Tenancy, path: string): LatestVersion | undefined;
 
@@ -107,6 +121,17 @@ export interface AsyncSourceGraphStore {
 
   /** Every nectar's latest version, scoped to the tenancy (soft-filtered by `project_id`). */
   listLatestVersions(tenancy: Tenancy): Promise<LatestVersion[]>;
+
+  /**
+   * Every nectar's latest DESCRIBED version, scoped to the tenancy: for each
+   * nectar with at least one `describe_status = 'described'` version, the
+   * highest-seq described row (nectars with no described version omitted). The
+   * async twin of {@link SourceGraphStore.listLatestDescribedVersions}; the
+   * projection scan (PRD-011c) the durable `rebuild-projection` CLI runs against
+   * Deep Lake, overlaid onto {@link listLatestVersions} so undescribed nectars
+   * keep a minimal entry.
+   */
+  listLatestDescribedVersions(tenancy: Tenancy): Promise<LatestVersion[]>;
 
   /** The latest version whose current path equals `path`, scoped. */
   latestVersionByPath(tenancy: Tenancy, path: string): Promise<LatestVersion | undefined>;

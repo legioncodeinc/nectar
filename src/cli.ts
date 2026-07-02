@@ -8,19 +8,30 @@
  *
  * The operational verbs exit non-zero with a clear notice rather than a silent
  * stub, in two shapes:
- *   - `brood` / `rebuild-projection`: mechanics owned by a later PRD (007 / 011)
- *     and not yet implemented (the NOT_YET map).
+ *   - `brood`: mechanics owned by a later PRD (007) and not yet implemented
+ *     (the NOT_YET map).
  *   - `prune` / `review-matches`: mechanics implemented and tested here
  *     (`runPrune` / `runReviewMatches`), but not yet wired to a durable,
  *     sync-capable source-graph store (the NOT_WIRED map). They refuse to run
  *     against a throwaway empty store so a destructive verb never silently
  *     no-ops; the wiring lands with the daemon's registration-pipeline integration.
+ *
+ * `rebuild-projection` (and `project --rebuild-projection`) is wired REAL
+ * (PRD-011c): it scans the durable Deep Lake store for the latest described
+ * version per nectar scoped to the project and writes `.honeycomb/nectars.json`
+ * atomically. It resolves org/workspace from the shared `~/.deeplake`
+ * credentials the Deep Lake store already consumes and the project id + project
+ * root from `HIVENECTAR_PROJECT_ID` / `HIVENECTAR_PROJECT_ROOT` (see USAGE).
  */
 import { assembleDaemon } from "./daemon.js";
 import { resolveConfig } from "./config.js";
 import { createServiceModule, serviceStatus } from "./service/index.js";
 import { registerWithHivedoctor } from "./hivedoctor-registry.js";
 import { emitInstalled, emitUninstalled, recordDaemonStart } from "./telemetry-usage/emit.js";
+import type { Tenancy } from "./source-graph/model.js";
+import { DeepLakeSourceGraphStore } from "./source-graph/deeplake-store.js";
+import { loadDeepLakeCredentials } from "./source-graph/deeplake-credentials.js";
+import { rebuildProjectionAsync } from "./projection/write.js";
 
 const USAGE = `hivenectar - semantic memory layer over a source tree
 
@@ -32,8 +43,14 @@ Usage:
   hivenectar brood [flags]          Full-codebase brood            (owned by PRD-007)
   hivenectar prune [--confirm]      Prune long-missing nectars     (logic implemented; durable wiring pending daemon integration)
   hivenectar review-matches         Review low-confidence matches  (logic implemented; durable wiring pending daemon integration)
-  hivenectar rebuild-projection     Regenerate .honeycomb/nectars.json (owned by PRD-011)
+  hivenectar rebuild-projection     Regenerate .honeycomb/nectars.json from Deep Lake (PRD-011)
+  hivenectar project --rebuild-projection   Project-scoped regeneration of .honeycomb/nectars.json (PRD-011)
   hivenectar --help                 Show this help
+
+rebuild-projection reads org_id/workspace_id from ~/.deeplake/credentials.json (the
+shared file the Deep Lake store already uses) and takes the project id from
+HIVENECTAR_PROJECT_ID (required) and the project root from HIVENECTAR_PROJECT_ROOT
+(defaults to the current working directory).
 `;
 
 /** The exec path the OS service unit will run (mirrors hivedoctor's own CLI resolution). */
@@ -112,11 +129,75 @@ async function runServiceStatus(): Promise<number> {
   return status === "unknown" ? 1 : 0;
 }
 
+/** Read an env var, treating unset OR blank/whitespace-only as absent (mirrors config.ts). */
+function cliEnvStr(name: string): string | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return undefined;
+  return raw;
+}
+
+/**
+ * Resolve the tenancy triple + project root for the projection CLI verbs. org
+ * and workspace come from the SAME `~/.deeplake/credentials.json` the Deep Lake
+ * store consumes (`deeplake-credentials.ts`); the project id has no default
+ * (there is no CLI-level project resolution yet, per the daemon PRDs) so it is
+ * read from `HIVENECTAR_PROJECT_ID`; the project root defaults to the current
+ * working directory. Returns a typed error string instead of throwing so the
+ * caller can print a clear notice and exit non-zero.
+ */
+function resolveProjectionContext():
+  | { readonly ok: true; readonly tenancy: Tenancy; readonly projectRoot: string; readonly store: DeepLakeSourceGraphStore }
+  | { readonly ok: false; readonly message: string } {
+  const projectId = cliEnvStr("HIVENECTAR_PROJECT_ID");
+  if (projectId === undefined) {
+    return { ok: false, message: "set HIVENECTAR_PROJECT_ID to the project id whose projection should be rebuilt" };
+  }
+
+  let credentials;
+  try {
+    credentials = loadDeepLakeCredentials();
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+
+  const tenancy: Tenancy = {
+    orgId: credentials.orgId,
+    workspaceId: credentials.workspaceId,
+    projectId,
+  };
+  const projectRoot = cliEnvStr("HIVENECTAR_PROJECT_ROOT") ?? process.cwd();
+  const store = new DeepLakeSourceGraphStore({ credentials });
+  return { ok: true, tenancy, projectRoot, store };
+}
+
+/**
+ * `hivenectar rebuild-projection` / `hivenectar project --rebuild-projection`
+ * (PRD-011c, trigger #3): a full regeneration of `.honeycomb/nectars.json` from
+ * a single Deep Lake scan (latest described version per nectar, scoped to the
+ * project), written atomically. Both verbs share this one routine.
+ */
+async function runRebuildProjection(): Promise<number> {
+  const ctx = resolveProjectionContext();
+  if (!ctx.ok) {
+    process.stderr.write(
+      `hivenectar rebuild-projection: ${ctx.message}.\n` +
+        "org_id/workspace_id come from ~/.deeplake/credentials.json; set HIVENECTAR_PROJECT_ID (and optionally HIVENECTAR_PROJECT_ROOT).\n",
+    );
+    return 1;
+  }
+
+  const { doc, path } = await rebuildProjectionAsync(ctx.store, ctx.tenancy, { projectRoot: ctx.projectRoot });
+  const fileCount = Object.keys(doc.files).length;
+  process.stdout.write(
+    `hivenectar rebuild-projection: regenerated ${path} (${fileCount} nectar${fileCount === 1 ? "" : "s"}, ` +
+      `project ${ctx.tenancy.orgId}/${ctx.tenancy.workspaceId}/${ctx.tenancy.projectId}).\n`,
+  );
+  return 0;
+}
+
 /** Verbs whose mechanics are owned by not-yet-implemented PRDs. */
 const NOT_YET: Record<string, string> = {
   brood: "PRD-007 (brooding pipeline)",
-  "rebuild-projection": "PRD-011 (portable projection)",
-  project: "PRD-011 (project-scoped projection)",
 };
 
 /**
@@ -175,6 +256,24 @@ async function main(argv: readonly string[]): Promise<number> {
 
   if (command === "service-status") {
     return runServiceStatus();
+  }
+
+  if (command === "rebuild-projection") {
+    return runRebuildProjection();
+  }
+
+  // `project` currently exposes only its `--rebuild-projection` flag (PRD-011c);
+  // the broader project verb surface lands with a later PRD.
+  if (command === "project") {
+    const flags = argv.slice(1);
+    if (flags.includes("--rebuild-projection")) {
+      return runRebuildProjection();
+    }
+    process.stderr.write(
+      "hivenectar project: only 'project --rebuild-projection' is implemented (PRD-011c).\n" +
+        "The broader project verb surface lands with a later PRD.\n",
+    );
+    return 2;
   }
 
   const notWired = NOT_WIRED[command];

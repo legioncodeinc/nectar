@@ -70,6 +70,28 @@ export class InMemorySourceGraphStore implements SourceGraphStore {
     return out;
   }
 
+  listLatestDescribedVersions(tenancy: Tenancy): LatestVersion[] {
+    const out: LatestVersion[] = [];
+    for (const [nectar, identity] of this.identities) {
+      if (!inTenancy(identity, tenancy)) continue;
+      const described = this.latestDescribedVersion(nectar);
+      if (described !== undefined) out.push({ identity: { ...identity }, version: described });
+    }
+    return out;
+  }
+
+  /** The highest-seq version whose `describeStatus` is `described`, or undefined. */
+  private latestDescribedVersion(nectar: string): SourceGraphVersionRow | undefined {
+    const list = this.versions.get(nectar);
+    if (list === undefined || list.length === 0) return undefined;
+    let latest: SourceGraphVersionRow | undefined;
+    for (const v of list) {
+      if (v.describeStatus !== "described") continue;
+      if (latest === undefined || v.seq > latest.seq) latest = v;
+    }
+    return latest === undefined ? undefined : { ...latest };
+  }
+
   latestVersionByPath(tenancy: Tenancy, path: string): LatestVersion | undefined {
     for (const lv of this.listLatestVersions(tenancy)) {
       if (lv.version.path === path) return lv;

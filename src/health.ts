@@ -79,6 +79,21 @@ export class HealthState {
     this.startedAtMs = atMs;
   }
 
+  /**
+   * Record the resolved provider state (PRD-010 / PRD-014, decision #20's
+   * purpose-built health shape). Resolved ONCE at assemble/start from the
+   * env-backed config, never per `/health` request. `new HealthState()` keeps
+   * the honest defaults (`portkey.enabled = false`, `embeddings.provider = off`)
+   * until a composition root calls this.
+   */
+  setProviderState(state: {
+    portkeyEnabled: boolean;
+    embeddingsProvider: HealthBody["embeddings"]["provider"];
+  }): void {
+    this.portkey.enabled = state.portkeyEnabled;
+    this.embeddings.provider = state.embeddingsProvider;
+  }
+
   setStatus(status: PipelineStatus): void {
     this.status = status;
   }

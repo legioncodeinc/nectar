@@ -220,3 +220,152 @@ export type {
   RegisterWithHivedoctorOptions,
   RegisterWithHivedoctorResult,
 } from "./hivedoctor-registry.js";
+
+// PRD-010: Portkey gateway (chat-completions transport, config, describe_model audit).
+export {
+  PORTKEY_BASE_URL,
+  PORTKEY_CHAT_COMPLETIONS_URL,
+  PORTKEY_EMBEDDINGS_URL,
+  PORTKEY_API_KEY_HEADER,
+  PORTKEY_CONFIG_HEADER,
+  buildPortkeyHeaders,
+} from "./portkey/headers.js";
+export { resolvePortkeyConfig, DEFAULT_ACTIVE_MODEL, PORTKEY_CONFIG_SURFACE_KEYS } from "./portkey/config.js";
+export type {
+  PortkeyRuntimeConfig,
+  PortkeyEnabled,
+  PortkeyDisabled,
+  PortkeyConfigOverrides,
+} from "./portkey/config.js";
+export {
+  describeViaPortkey,
+  PortkeyTransportError,
+  PORTKEY_DEFAULT_MAX_TOKENS,
+  PORTKEY_RETRYABLE_STATUSES,
+  PORTKEY_MAX_ATTEMPTS,
+  PORTKEY_RETRY_BACKOFF_MS,
+  PORTKEY_REQUEST_TIMEOUT_MS,
+} from "./portkey/transport.js";
+export type {
+  ChatMessage,
+  PortkeyUsage,
+  DescribeViaPortkeyResult,
+  DescribeViaPortkeyRequest,
+  DescribeViaPortkeyDeps,
+  PortkeyFetch,
+} from "./portkey/transport.js";
+export {
+  buildDescribeModelStamp,
+  resetForRedescribe,
+  applyDescribeModelStamp,
+  isSkippedDescribeStatus,
+  SKIPPED_DESCRIBE_STATUSES,
+} from "./portkey/describe-model.js";
+export type {
+  DescriptionPayload,
+  DescribeModelStamp,
+  RedescribeRow,
+  RedescribeReset,
+} from "./portkey/describe-model.js";
+
+// PRD-011: portable projection (.honeycomb/nectars.json) format, generation, write, load, inherit.
+export {
+  PROJECTION_SCHEMA_VERSION,
+  DEFAULT_PROJECTION_REL_PATH,
+  DEFAULT_GENERATOR,
+  isValidContentHash,
+  parseProjectionJson,
+  canonicalSerialize,
+  canonicalSerializeExceptGeneratedAt,
+} from "./projection/format.js";
+export type {
+  PortableProjection,
+  ProjectionProject,
+  ProjectionFileEntry,
+  ProjectionDerivedEntry,
+} from "./projection/format.js";
+export {
+  buildProjection,
+  buildProjectionFromStore,
+  buildProjectionFromAsyncStore,
+} from "./projection/generate.js";
+export type { BuildProjectionOptions, BuildProjectionFromStoreOptions } from "./projection/generate.js";
+export { collectProjectionSources, collectProjectionSourcesAsync } from "./projection/store-adapter.js";
+export type { ProjectionNectarSource, CollectProjectionSourcesOptions } from "./projection/store-adapter.js";
+export {
+  ProjectionWriter,
+  writeProjectionAtomic,
+  projectionFinalPath,
+  rebuildProjection,
+  rebuildProjectionAsync,
+  DEFAULT_WRITE_DEBOUNCE_MS,
+} from "./projection/write.js";
+export type {
+  WriteProjectionOptions,
+  ProjectionWriterOptions,
+  RebuildProjectionOptions,
+  RebuildProjectionAsyncOptions,
+} from "./projection/write.js";
+export {
+  loadProjection,
+  loadProjectionFromFile,
+  validateProjection,
+  buildContentHashIndex,
+  MAX_PROJECTION_FILE_BYTES,
+} from "./projection/load.js";
+export type {
+  LoadIgnoreReason,
+  LoadProjectionResult,
+  LoadProjectionFromFileOptions,
+} from "./projection/load.js";
+export { inheritFromProjection } from "./projection/inherit.js";
+export type {
+  DiskHashMap,
+  InheritRow,
+  InheritSummary,
+  InheritFromProjectionOptions,
+} from "./projection/inherit.js";
+
+// PRD-014: embeddings provider switching (off | local nomic | Cohere-via-Portkey) + the 768-dim guard.
+export {
+  resolveEmbeddingsConfig,
+  normalizeSelector,
+  resolveEmbedProvider,
+  createOffProvider,
+  DEFAULT_EMBED_PROVIDER,
+  withDimGuard,
+  guardVector,
+  stderrDimRejectionSink,
+  createLocalNomicHttpTransport,
+  createLocalNomicProvider,
+  createCoherePortkeyProvider,
+  parseEmbeddingsResponse,
+  DEFAULT_LOCAL_EMBED_HOST,
+  DEFAULT_LOCAL_EMBED_PORT,
+  DEFAULT_LOCAL_EMBED_TIMEOUT_MS,
+  DEFAULT_COHERE_EMBED_MODEL,
+  DEFAULT_COHERE_OUTPUT_DIMENSION,
+  DEFAULT_COHERE_MAX_ATTEMPTS,
+  DEFAULT_COHERE_RETRY_BACKOFF_MS,
+  DEFAULT_COHERE_REQUEST_TIMEOUT_MS,
+  COHERE_RETRYABLE_STATUSES,
+  defaultFetch,
+  defaultSleep,
+} from "./embeddings/index.js";
+export type {
+  EmbedProvider,
+  EmbedProviderSelector,
+  ResolveEmbedProviderDeps,
+  ResolvedEmbeddingsConfig,
+  EmbeddingsConfigOverrides,
+  DimRejection,
+  DimRejectionSink,
+  LocalNomicConfig,
+  LocalNomicTransport,
+  LocalNomicHttpDeps,
+  CohereEmbeddingsConfig,
+  CoherePortkeyDeps,
+  FetchLike,
+  FetchResponseLike,
+  SleepFn,
+} from "./embeddings/index.js";
