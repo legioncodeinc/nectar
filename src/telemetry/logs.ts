@@ -1,21 +1,21 @@
 /**
- * Bounded, rotated log emission to local SQLite (PRD-017c), per hivedoctor's
+ * Bounded, rotated log emission to local SQLite (PRD-017c), per doctor's
  * `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md`.
  *
  * `service_logs` is append-only but bounded: every write opportunistically
  * rotates out rows older than {@link DEFAULT_LOG_MAX_AGE_MS} (AC-017c.2), so
- * the store never grows without limit and stays cheap for hivedoctor's ~1s
+ * the store never grows without limit and stays cheap for doctor's ~1s
  * poll cycle. The retention policy is an AGE bound (decision #33, 2026-07-02,
  * `PRD-DECISIONS-AND-DEFAULTS.md`), superseding the original 5,000-row cap:
  * a quiet daemon keeps at most a day of history instead of an unbounded-age
- * tail of stale lines. Consumers are unaffected (hivedoctor reads whatever
+ * tail of stale lines. Consumers are unaffected (doctor reads whatever
  * rows exist).
  *
- * `createLogTap` mirrors hivenectar's EXISTING structured daemon log sink
+ * `createLogTap` mirrors nectar's EXISTING structured daemon log sink
  * (`daemon.ts`'s `(line: Record<string, unknown>) => void`) into this table,
  * rather than introducing a second logging framework: every line the daemon
  * already logs to stderr is ALSO redacted and written here, unchanged in its
- * original stderr behavior. hivenectar's structured log lines only ever carry
+ * original stderr behavior. nectar's structured log lines only ever carry
  * scope/message/error-string/path fields (see `daemon.ts`, `registration/
  * service.ts`) - never raw file content or an LLM description body - so the
  * redaction pass below is defense-in-depth, not the sole guarantee.
@@ -30,7 +30,7 @@ export const DEFAULT_LOG_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 
 /**
  * A message longer than this is dropped rather than written (PRD-017c: "if a
- * line cannot be safely redacted it is dropped"). A hivenectar structured log
+ * line cannot be safely redacted it is dropped"). A nectar structured log
  * line (scope + a short message + maybe a path/error string) is always well
  * under this; anything longer is far more likely to be an accidentally-passed
  * file body or LLM description than a real operational log line, so length
@@ -132,7 +132,7 @@ export interface LogSink {
 }
 
 /**
- * Wrap hivenectar's existing structured log sink so every line is ALSO
+ * Wrap nectar's existing structured log sink so every line is ALSO
  * mirrored into the telemetry log table, unchanged in its original behavior
  * (the wrapped sink is always called first, with the exact original line).
  * A telemetry-mirror failure is swallowed here too, on top of `LogWriter`'s

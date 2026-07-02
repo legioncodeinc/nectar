@@ -5,8 +5,8 @@
  * fuzzy matches. Writes are additive only: existing local nectars are never
  * overwritten.
  */
-import { nectarCreatedAt } from "../source-graph/ulid.js";
-import type { SourceGraphRow, SourceGraphVersionRow, Tenancy } from "../source-graph/model.js";
+import { nectarCreatedAt } from "../hive-graph/ulid.js";
+import type { HiveGraphRow, HiveGraphVersionRow, Tenancy } from "../hive-graph/model.js";
 import type { PortableProjection, ProjectionFileEntry } from "./format.js";
 import { buildContentHashIndex } from "./load.js";
 
@@ -14,8 +14,8 @@ import { buildContentHashIndex } from "./load.js";
 export type DiskHashMap = ReadonlyMap<string, string>;
 
 export interface InheritRow {
-  readonly identity: SourceGraphRow;
-  readonly version: SourceGraphVersionRow;
+  readonly identity: HiveGraphRow;
+  readonly version: HiveGraphVersionRow;
 }
 
 export interface InheritSummary {
@@ -36,7 +36,7 @@ function conceptsToJson(concepts: readonly string[]): string {
   return JSON.stringify([...concepts]);
 }
 
-function toIdentity(nectar: string, entry: ProjectionFileEntry, derived: PortableProjection["derived"], tenancy: Tenancy): SourceGraphRow {
+function toIdentity(nectar: string, entry: ProjectionFileEntry, derived: PortableProjection["derived"], tenancy: Tenancy): HiveGraphRow {
   const d = derived[nectar];
   return {
     nectar,
@@ -68,7 +68,7 @@ function toVersion(
   entry: ProjectionFileEntry,
   tenancy: Tenancy,
   observedAt: string,
-): SourceGraphVersionRow {
+): HiveGraphVersionRow {
   const described = entry.title !== "" || entry.description !== "";
   return {
     nectar,

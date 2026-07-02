@@ -20,31 +20,31 @@ import { assembleDaemon } from "../dist/index.js";
 
 test("blank/whitespace env vars fall back to defaults (not '' -> cwd/invalid bind)", () => {
   try {
-    process.env.HIVENECTAR_RUNTIME_DIR = "";
-    process.env.HIVENECTAR_HOST = "   ";
-    process.env.HIVENECTAR_PORT = "";
+    process.env.NECTAR_RUNTIME_DIR = "";
+    process.env.NECTAR_HOST = "   ";
+    process.env.NECTAR_PORT = "";
     const cfg = resolveConfig();
     assert.equal(cfg.host, DEFAULT_HOST, "blank host -> default loopback");
     assert.equal(cfg.port, DEFAULT_PORT, "blank port -> default");
     assert.notEqual(cfg.runtimeDir, "", "blank runtime dir -> real home dir, not cwd-relative");
-    assert.ok(cfg.lockFilePath.includes("hivenectar.lock"));
+    assert.ok(cfg.lockFilePath.includes("nectar.lock"));
   } finally {
-    delete process.env.HIVENECTAR_RUNTIME_DIR;
-    delete process.env.HIVENECTAR_HOST;
-    delete process.env.HIVENECTAR_PORT;
+    delete process.env.NECTAR_RUNTIME_DIR;
+    delete process.env.NECTAR_HOST;
+    delete process.env.NECTAR_PORT;
   }
 });
 
 test("non-blank env values still apply", () => {
   try {
-    process.env.HIVENECTAR_HOST = "0.0.0.0";
-    process.env.HIVENECTAR_PORT = "4321";
+    process.env.NECTAR_HOST = "0.0.0.0";
+    process.env.NECTAR_PORT = "4321";
     const cfg = resolveConfig();
     assert.equal(cfg.host, "0.0.0.0");
     assert.equal(cfg.port, 4321);
   } finally {
-    delete process.env.HIVENECTAR_HOST;
-    delete process.env.HIVENECTAR_PORT;
+    delete process.env.NECTAR_HOST;
+    delete process.env.NECTAR_PORT;
   }
 });
 
@@ -129,7 +129,7 @@ function getStatus(port: number, path: string): Promise<number> {
 }
 
 test("concurrent start() calls share one startup and return the same bound port", async () => {
-  const runtimeDir = mkdtempSync(join(tmpdir(), "hivenectar-fixes-"));
+  const runtimeDir = mkdtempSync(join(tmpdir(), "nectar-fixes-"));
   const daemon = assembleDaemon({ port: 0, runtimeDir, log: () => {} });
   try {
     const [p1, p2] = await Promise.all([daemon.start(), daemon.start()]);

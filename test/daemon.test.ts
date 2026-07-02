@@ -50,7 +50,7 @@ function getJson(port: number, path: string): Promise<{ status: number; body: an
 }
 
 function tmpRuntimeDir(): string {
-  return mkdtempSync(join(tmpdir(), "hivenectar-daemon-"));
+  return mkdtempSync(join(tmpdir(), "nectar-daemon-"));
 }
 
 test("daemon binds an ephemeral port and serves GET /health with 200 + ok", async () => {
@@ -152,7 +152,7 @@ test("start() opens telemetry and checks in with the same health PipelineStatus 
     const reader = new DatabaseSync(telemetry.dbPath, { readOnly: true });
     try {
       const status = reader.prepare("SELECT * FROM service_status WHERE id = 1").get();
-      assert.equal(status?.["name"], "hivenectar");
+      assert.equal(status?.["name"], "nectar");
       assert.equal(status?.["health"], "ok", "matches the same PipelineStatus /health reports (AC-017a.2.2)");
       assert.ok(status?.["binding_time"], "a binding_time was recorded on check-in (AC-017a.2.1)");
 

@@ -11,7 +11,7 @@ const req = createRequire(import.meta.url);
 const { DatabaseSync } = req("node:sqlite");
 
 function tmpDir() {
-  return mkdtempSync(join(tmpdir(), "hivenectar-telemetry-integration-"));
+  return mkdtempSync(join(tmpdir(), "nectar-telemetry-integration-"));
 }
 
 function manualTimer() {
@@ -38,7 +38,7 @@ function manualTimer() {
 test("createTelemetry opens a real store; enabled is true and dbPath matches the request", () => {
   const dir = tmpDir();
   try {
-    const dbPath = join(dir, "hivenectar.sqlite");
+    const dbPath = join(dir, "nectar.sqlite");
     const telemetry = createTelemetry({ dbPath, now: () => "t" });
     assert.equal(telemetry.enabled, true);
     assert.equal(telemetry.dbPath, dbPath);
@@ -66,10 +66,10 @@ test("createNullTelemetry never touches disk and every method is a safe no-op (A
   }
 });
 
-test("integration: a hivedoctor-style read-only reader opens the SQLite in WAL mode and observes live check-in + metrics while hivenectar keeps writing (AC-9)", () => {
+test("integration: a doctor-style read-only reader opens the SQLite in WAL mode and observes live check-in + metrics while nectar keeps writing (AC-9)", () => {
   const dir = tmpDir();
   try {
-    const dbPath = join(dir, "hivenectar.sqlite");
+    const dbPath = join(dir, "nectar.sqlite");
     let now = "2026-07-01T00:00:00.000Z";
     const telemetry = createTelemetry({ dbPath, now: () => now });
 
@@ -81,7 +81,7 @@ test("integration: a hivedoctor-style read-only reader opens the SQLite in WAL m
     telemetry.metrics.incrementNectarsMinted();
     telemetry.log("info", "daemon boot complete");
 
-    // hivedoctor opens the SAME file read-only while hivenectar continues writing.
+    // doctor opens the SAME file read-only while nectar continues writing.
     const reader = new DatabaseSync(dbPath, { readOnly: true });
     try {
       const status = reader.prepare("SELECT * FROM service_status WHERE id = 1").get();
@@ -92,7 +92,7 @@ test("integration: a hivedoctor-style read-only reader opens the SQLite in WAL m
       assert.equal(Number(metricsRow?.["files_registered"]), 1);
       assert.equal(Number(metricsRow?.["nectars_minted"]), 1);
 
-      // hivenectar keeps writing after the reader has already opened its handle.
+      // nectar keeps writing after the reader has already opened its handle.
       now = "2026-07-01T00:00:10.000Z";
       health = "degraded";
       mt.fireAll(); // heartbeat

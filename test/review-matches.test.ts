@@ -1,15 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
+import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
 import { InMemoryPendingReviewStore, type PendingReviewCandidate } from "../dist/registration/review-store.js";
 import { runReviewMatches, type ReviewDecision } from "../dist/registration/review-cli.js";
 import { reassociate } from "../dist/registration/ladder.js";
-import { sha256Hex } from "../dist/source-graph/hash.js";
+import { sha256Hex } from "../dist/hive-graph/hash.js";
 
 const TEN = { orgId: "o1", workspaceId: "w1", projectId: "p1" };
 const NOW = "2026-07-01T00:00:00.000Z";
 
-function seedMissingNectar(store: InMemorySourceGraphStore): string {
+function seedMissingNectar(store: InMemoryHiveGraphStore): string {
   const r = reassociate(
     { relPath: "src/a.ts", sizeBytes: 5, mtimeObserved: NOW, readContent: () => "alpha" },
     { store, tenancy: TEN, now: () => NOW, existsOnDisk: () => true },
@@ -33,7 +33,7 @@ function candidate(nectar: string): PendingReviewCandidate {
 }
 
 test("review-matches: empty queue prints nothing-to-review", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const out: string[] = [];
   const result = await runReviewMatches({
     store,
@@ -48,7 +48,7 @@ test("review-matches: empty queue prints nothing-to-review", async () => {
 });
 
 test("review-matches: accept carries the candidate nectar to the new path (AC-18)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const nectar = seedMissingNectar(store);
   const pending = new InMemoryPendingReviewStore();
   pending.add(candidate(nectar));
@@ -73,7 +73,7 @@ test("review-matches: accept carries the candidate nectar to the new path (AC-18
 });
 
 test("review-matches: reject leaves the new path minted fresh and the missing entry (AC-18)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const nectar = seedMissingNectar(store);
   const pending = new InMemoryPendingReviewStore();
   pending.add(candidate(nectar));
@@ -95,7 +95,7 @@ test("review-matches: reject leaves the new path minted fresh and the missing en
 });
 
 test("review-matches: accept of a vanished candidate nectar drops the stale review", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const pending = new InMemoryPendingReviewStore();
   pending.add(candidate("NECTARTHATDOESNOTEXIST00001"));
 

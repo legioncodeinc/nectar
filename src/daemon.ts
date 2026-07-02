@@ -1,9 +1,9 @@
 /**
- * The hivenectar daemon composition root.
+ * The nectar daemon composition root.
  *
  * Mirrors honeycomb's `assembleDaemon` + `runAssembledDaemon`
  * (honeycomb/src/daemon/runtime/assemble.ts, honeycomb/src/daemon/index.ts:150-187)
- * per PRD-002a, scoped to hivenectar's job surface. The load-bearing ordering is
+ * per PRD-002a, scoped to nectar's job surface. The load-bearing ordering is
  * lock BEFORE bind (PRD-002a step 5 before step 7): a double-start fails fast at
  * the lock before the port is bound, and a bind failure rolls the lifecycle back
  * so no stale lock survives.
@@ -13,7 +13,7 @@
  * the socket. `shutdown()` drains the worker, closes the socket, and releases
  * the lock, idempotently.
  *
- * PRD-017a wires hivenectar's telemetry check-in/heartbeat here: `start()`
+ * PRD-017a wires nectar's telemetry check-in/heartbeat here: `start()`
  * checks in (a fresh binding_time) right after `health.markStarted()` and arms
  * a heartbeat interval; `shutdown()` disarms it and closes the SQLite handle.
  * A fresh `Telemetry` is opened on every `start()` (not once at
@@ -73,15 +73,15 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
   readonly embeddings?: EmbeddingsConfigOverrides;
 }
 
-/** Map the embeddings selector (`off | local | cohere`) to the health body's provider label. */
+/** Map the embeddings selector (`off | local | hosted`) to the health body's provider label. */
 function embeddingsHealthProvider(selector: EmbedProviderSelector): HealthBody["embeddings"]["provider"] {
   switch (selector) {
     case "off":
       return "off";
     case "local":
       return "local-nomic";
-    case "cohere":
-      return "cohere";
+    case "hosted":
+      return "hosted";
     default: {
       // Exhaustiveness: a new selector variant fails the build here until mapped.
       const unreachable: never = selector;
@@ -98,7 +98,7 @@ export interface AssembledDaemon {
   start(): Promise<number>;
   /** Drain worker -> close socket -> release lock. Idempotent. */
   shutdown(): Promise<void>;
-  /** The coarse health bit hivedoctor classifies on. */
+  /** The coarse health bit doctor classifies on. */
   pipelineStatus(): PipelineStatus;
   /** The current telemetry facade (PRD-017): a no-op before the first `start()`, real once bound. */
   telemetry(): Telemetry;

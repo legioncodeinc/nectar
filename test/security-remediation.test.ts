@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Timer } from "../dist/poll-loop.js";
-import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
+import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
 import { reassociate, carryNectar, type LadderDeps, type ObservedFile } from "../dist/registration/ladder.js";
 import { runReviewMatches } from "../dist/registration/review-cli.js";
 import { InMemoryPendingReviewStore, type PendingReviewCandidate } from "../dist/registration/review-store.js";
@@ -13,7 +13,7 @@ import { WatchIntake } from "../dist/registration/fs-watch.js";
 import { RegistrationService, type RegistrationFs } from "../dist/registration/service.js";
 import { isSafeRelPath, containedPath, realpathContained } from "../dist/registration/paths-safe.js";
 import { createDiskRegistrationFs } from "../dist/registration/disk-fs.js";
-import { sha256Hex } from "../dist/source-graph/hash.js";
+import { sha256Hex } from "../dist/hive-graph/hash.js";
 
 const TEN_A = { orgId: "o1", workspaceId: "w1", projectId: "pA" };
 const TEN_B = { orgId: "o1", workspaceId: "w1", projectId: "pB" };
@@ -22,7 +22,7 @@ const NOW = "2026-07-01T00:00:00.000Z";
 function obs(relPath: string, content: string, mtime = NOW): ObservedFile {
   return { relPath, sizeBytes: content.length, mtimeObserved: mtime, readContent: () => content };
 }
-function deps(store: InMemorySourceGraphStore, tenancy: typeof TEN_A, onDisk: Set<string>): LadderDeps {
+function deps(store: InMemoryHiveGraphStore, tenancy: typeof TEN_A, onDisk: Set<string>): LadderDeps {
   return { store, tenancy, now: () => NOW, existsOnDisk: (p) => onDisk.has(p) };
 }
 
@@ -31,7 +31,7 @@ function deps(store: InMemorySourceGraphStore, tenancy: typeof TEN_A, onDisk: Se
 // ---------------------------------------------------------------------------
 
 test("deleteNectar refuses a cross-tenancy delete and applies an in-tenancy one", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const r = reassociate(obs("src/a.ts", "x"), deps(store, TEN_A, new Set(["src/a.ts"])));
 
   store.deleteNectar(TEN_B, r.nectar); // wrong project
@@ -42,7 +42,7 @@ test("deleteNectar refuses a cross-tenancy delete and applies an in-tenancy one"
 });
 
 test("carryNectar refuses a cross-tenancy source (no version appended)", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const src = reassociate(obs("src/a.ts", "moved"), deps(store, TEN_A, new Set(["src/a.ts"])));
 
   const carried = carryNectar(
@@ -58,7 +58,7 @@ test("carryNectar refuses a cross-tenancy source (no version appended)", () => {
 });
 
 test("review accept refuses a candidate outside the deps tenancy (AC-20)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const src = reassociate(obs("src/a.ts", "alpha"), deps(store, TEN_A, new Set(["src/a.ts"])));
   const pending = new InMemoryPendingReviewStore();
   const candidate: PendingReviewCandidate = {
@@ -90,7 +90,7 @@ test("review accept refuses a candidate outside the deps tenancy (AC-20)", async
 });
 
 test("prune scopes its candidates and deletes to a single tenancy", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const a = reassociate(obs("a.ts", "aa"), deps(store, TEN_A, new Set(["a.ts"])));
   const b = reassociate(obs("b.ts", "bb"), deps(store, TEN_B, new Set(["b.ts"])));
   const old = new Date(Date.parse(NOW) - 40 * 24 * 60 * 60 * 1000).toISOString();
@@ -190,7 +190,7 @@ test("intake drops traversal/absolute observations before scheduling (CWE-22)", 
 });
 
 test("service drops an unsafe resync path before any persist (CWE-22)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const files = new Map<string, string>([
     ["../evil.ts", "payload"],
     ["src/ok.ts", "fine"],

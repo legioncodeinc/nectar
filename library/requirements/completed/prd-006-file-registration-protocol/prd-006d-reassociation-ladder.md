@@ -8,15 +8,15 @@
 
 This sub-PRD owns the **re-association ladder** — the hardest algorithm in the system. Given a classified path (006b: new / changed / missing) and its on-disk content, the ladder decides which existing nectar (if any) the file is, or mints a new one. It is evaluated top-down per file, **first match wins**, and it carries all 5 steps verbatim from [`knowledge/private/ai/identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) § "The re-association ladder".
 
-The ladder is the source of move reconstruction: `fs.watch` delivers no correlated move semantics (006a), so the ladder's step 3 (exact content-hash match to a missing file) and step 4 (TLSH fuzzy match) reconstruct moves from the uncorrelated event stream plus the missing-files set (006b). The ladder is also the source of the **no-guess** contract: step 4 fuzzy matches below the high-confidence band are surfaced to `honeycomb hivenectar review-matches` for human confirmation, never auto-claimed — "a mis-association is worse than a new nectar because it corrupts the history chain" (`identity-and-reassociation.md`). This sub-PRD specifies the ladder, the confidence-scored review surface, and the conservative prune that is the only path by which a nectar is ever deleted.
+The ladder is the source of move reconstruction: `fs.watch` delivers no correlated move semantics (006a), so the ladder's step 3 (exact content-hash match to a missing file) and step 4 (TLSH fuzzy match) reconstruct moves from the uncorrelated event stream plus the missing-files set (006b). The ladder is also the source of the **no-guess** contract: step 4 fuzzy matches below the high-confidence band are surfaced to `honeycomb nectar review-matches` for human confirmation, never auto-claimed — "a mis-association is worse than a new nectar because it corrupts the history chain" (`identity-and-reassociation.md`). This sub-PRD specifies the ladder, the confidence-scored review surface, and the conservative prune that is the only path by which a nectar is ever deleted.
 
 ## Goals
 
 - Carry the 5-step ladder verbatim from `identity-and-reassociation.md`: (1) path+mtime+size exact, (2) path match + content changed, (3) exact content-hash match to a missing file, (4) TLSH fuzzy match to a missing file, (5) mint new — first match wins.
 - Specify the step-3 and step-4 move reconstruction over the missing-files set (built in 006b), which makes `fs.watch`'s lack of move semantics cost nothing.
 - Specify the step-4 TLSH fuzzy step: scored (not binary), confidence-banded, with the threshold **configurable and empirically tuned** — no numeric threshold pinned (deliberate spec gap).
-- Specify the `honeycomb hivenectar review-matches` confidence-scored review surface; the accept/reject flag syntax is a flagged implementation decision (deliberate spec gap).
-- Specify the conservative `honeycomb hivenectar prune --confirm` operation (30-day grace default) — the only nectar-deletion path; the ladder never deletes or reuses nectars.
+- Specify the `honeycomb nectar review-matches` confidence-scored review surface; the accept/reject flag syntax is a flagged implementation decision (deliberate spec gap).
+- Specify the conservative `honeycomb nectar prune --confirm` operation (30-day grace default) — the only nectar-deletion path; the ladder never deletes or reuses nectars.
 
 ## Non-Goals
 
@@ -48,7 +48,7 @@ Steps 1 and 2 consume the **changed-path** class; steps 3, 4, and 5 (plus the co
 
 ### Step 1 — `(path, mtime, size)` exact match
 
-The fast path. If a file at a known path has the same mtime and size as the last observed version, the daemon treats it as unchanged without reading or hashing the content (corpus § "Step 1", `library/knowledge/private/ai/identity-and-reassociation.md:88-92`). This is "the same optimization rsync uses," covers the vast majority of files on a typical boot, and is resolved as the ladder's first rung: a match returns a no-op before any `readContent` (`src/registration/ladder.ts:115-121`), so an `UNCHANGED` file never proceeds to hashing. The mtime/size pair is read from `source_graph_versions.mtime_observed` and `source_graph_versions.size_bytes` for the latest version of each nectar (PRD-005b). The check is a single SELECT against the latest-version index, scoped by tenancy and path.
+The fast path. If a file at a known path has the same mtime and size as the last observed version, the daemon treats it as unchanged without reading or hashing the content (corpus § "Step 1", `library/knowledge/private/ai/identity-and-reassociation.md:88-92`). This is "the same optimization rsync uses," covers the vast majority of files on a typical boot, and is resolved as the ladder's first rung: a match returns a no-op before any `readContent` (`src/registration/ladder.ts:115-121`), so an `UNCHANGED` file never proceeds to hashing. The mtime/size pair is read from `hive_graph_versions.mtime_observed` and `hive_graph_versions.size_bytes` for the latest version of each nectar (PRD-005b). The check is a single SELECT against the latest-version index, scoped by tenancy and path.
 
 > mtime is mutable (`touch`, `rsync`, `git checkout` can change it without changing content). Step 1 is a fast-path cache key only — any path that is a candidate for steps 2–5 is content-hashed before a decision is made (`identity-and-reassociation.md` § "What re-association explicitly does not do").
 
@@ -57,8 +57,8 @@ The fast path. If a file at a known path has the same mtime and size as the last
 The path exists in Deep Lake under some nectar, but the content hash differs. This is a normal edit. The daemon:
 
 1. Reads the file, computes `sha256(content)`.
-2. Appends a new `source_graph_versions` row with `(nectar, content_hash, seq = prev_seq + 1)`, the new path/metadata, and `title`/`description`/`embedding = NULL` (`describe_status = 'pending'`).
-3. Updates `source_graph.last_update_date`.
+2. Appends a new `hive_graph_versions` row with `(nectar, content_hash, seq = prev_seq + 1)`, the new path/metadata, and `title`/`description`/`embedding = NULL` (`describe_status = 'pending'`).
+3. Updates `hive_graph.last_update_date`.
 4. Enqueues a lazy enrich job for the new version (PRD-016).
 
 The nectar is unchanged. The previous version row stays in place — the history chain is append-only.
@@ -67,7 +67,7 @@ The nectar is unchanged. The previous version row stays in place — the history
 
 The move detector. The daemon consults the **missing-files set** (006b: known nectars whose latest path no longer exists on disk). When a new path's content hash exactly matches a missing nectar's **latest** version hash, the daemon concludes the file was moved (or renamed) without modification. The action:
 
-1. Append a new `source_graph_versions` row for the existing nectar with the new path and the same `content_hash` (the composite key `(nectar, content_hash)` is unique, but `seq` increments and `path` differs, so the row is new).
+1. Append a new `hive_graph_versions` row for the existing nectar with the new path and the same `content_hash` (the composite key `(nectar, content_hash)` is unique, but `seq` increments and `path` differs, so the row is new).
 2. The previous version row's path is now stale but retained as history.
 3. Enqueue no enrich job — the content is unchanged, so the existing description still applies.
 4. Remove the nectar from the missing-files set (resolved).
@@ -98,7 +98,7 @@ function bestFuzzyMatch(
 
 #### The match is scored, not binary
 
-The `source_graph_versions` row appended for a fuzzy match carries a `confidence` field (1 − normalized distance). The match is banded:
+The `hive_graph_versions` row appended for a fuzzy match carries a `confidence` field (1 − normalized distance). The match is banded:
 
 - **High-confidence band** (above the configurable high threshold): the daemon carries the nectar, appends the version row with the new path + new content hash, sets `confidence`, and enqueues an enrich job (the content changed). The missing entry is resolved.
 - **Below the high band**: the daemon does **not** silently claim the nectar. It surfaces the candidate match to the review surface (`review-matches`) for human confirmation. The new path is held as a pending candidate; the missing entry stays in the missing-files set until reviewed or pruned.
@@ -133,11 +133,11 @@ Per `brooding-pipeline.md` § "What does not scale": the fuzzy match is O(N × M
 
 #### Step 4 fires in both modes
 
-This step primarily fires after cold restart with offline changes, but it is not limited to that mode. `identity-and-reassociation.md` § "Step 4" states: "Hivenectar mirrors Honeycomb's `node:fs.watch` pattern, which reports uncorrelated `(eventType, filename)` observations rather than a rich move object. During live operation the debounced event stream updates the missing-files and new/changed-files sets; step 3 reconstructs ordinary moves by exact hash, and step 4 handles move-and-edit cases when exact hash evidence is not enough."
+This step primarily fires after cold restart with offline changes, but it is not limited to that mode. `identity-and-reassociation.md` § "Step 4" states: "Nectar mirrors Honeycomb's `node:fs.watch` pattern, which reports uncorrelated `(eventType, filename)` observations rather than a rich move object. During live operation the debounced event stream updates the missing-files and new/changed-files sets; step 3 reconstructs ordinary moves by exact hash, and step 4 handles move-and-edit cases when exact hash evidence is not enough."
 
 ### Step 5 — nothing matches
 
-The file is genuinely new. Mint a fresh nectar (ULID, per the minting contract), write the `source_graph` row, append the initial `source_graph_versions` row (`describe_status = 'pending'`), and enqueue enrichment (PRD-016). The copy detector (006c) is a specialization of step 5 that runs first: if the new path's hash matches an existing file's **current** content, the daemon mints a fresh nectar with `derived_from_nectar` + `fork_content_hash` instead of a bare mint. If the copy detector misses, the bare step-5 mint runs.
+The file is genuinely new. Mint a fresh nectar (ULID, per the minting contract), write the `hive_graph` row, append the initial `hive_graph_versions` row (`describe_status = 'pending'`), and enqueue enrichment (PRD-016). The copy detector (006c) is a specialization of step 5 that runs first: if the new path's hash matches an existing file's **current** content, the daemon mints a fresh nectar with `derived_from_nectar` + `fork_content_hash` instead of a bare mint. If the copy detector misses, the bare step-5 mint runs.
 
 ## Re-association does not delete nectars
 
@@ -148,14 +148,14 @@ A nectar, once minted, is never deleted by the ladder. If a file on disk has no 
 Step 4's below-high-band matches and any other low-confidence candidate are surfaced for human review — the daemon does not guess. The surface is the `review-matches` command:
 
 ```bash
-honeycomb hivenectar review-matches
+honeycomb nectar review-matches
 ```
 
 The command lists pending candidate matches (new path ↔ candidate missing nectar, with the computed `confidence` / TLSH distance and a diff preview), and lets the operator accept or reject each. An accepted match carries the nectar to the new path (as step 4 would have at high confidence); a rejected match leaves the new path to be minted fresh (step 5) and leaves the missing entry in the missing-files set.
 
 > **`review-matches` sub-flag syntax — DELIBERATE SPEC GAP.**
 
-Per the `hivenectar-stinger` guide 00 § Principle 3, the corpus names only the bare command `honeycomb hivenectar review-matches`; the accept/reject flag syntax is unspecified. This PRD specifies the command and its surface (list candidates, accept/reject each, with confidence + diff preview) but does **not** invent the flag syntax — no `--accept`/`--reject`/`--all` flags are committed. The accept/reject flag surface is a flagged implementation decision:
+Per the `hivenectar-stinger` guide 00 § Principle 3, the corpus names only the bare command `honeycomb nectar review-matches`; the accept/reject flag syntax is unspecified. This PRD specifies the command and its surface (list candidates, accept/reject each, with confidence + diff preview) but does **not** invent the flag syntax — no `--accept`/`--reject`/`--all` flags are committed. The accept/reject flag surface is a flagged implementation decision:
 
 - **DEFAULT — confirm before implementation**: the accept/reject interaction is an interactive prompt (list → choose → confirm) by default, with optional flag-based batch forms deferred to the implementation. The bare command's behavior (list pending candidates) is specified; the flag grammar is not.
 
@@ -166,7 +166,7 @@ The review surface exists because "re-association does not guess … Low-confide
 Deletion of nectar records is a separate, explicit, human-triggered operation, distinct from the ladder:
 
 ```bash
-honeycomb hivenectar prune --confirm
+honeycomb nectar prune --confirm
 ```
 
 `prune --confirm` removes nectars whose latest version's path has been missing for longer than a configurable grace period. The grace period exists because a file that is "missing" might be on a branch checked out elsewhere, or might return after a merge. Pruning is conservative and human-triggered (`identity-and-reassociation.md` § "Re-association does not delete nectars").
@@ -203,14 +203,14 @@ Carried from `identity-and-reassociation.md` § "What re-association explicitly 
 
 - [ ] The ladder carries all 5 steps verbatim from `identity-and-reassociation.md` § "The re-association ladder": (1) path+mtime+size exact, (2) path match + content changed, (3) exact content-hash match to a missing file, (4) TLSH fuzzy match to a missing file, (5) mint new — first match wins.
 - [ ] Step 1's fast path is resolved as the ladder's first rung (no content read), so an `UNCHANGED` path short-circuits before any hashing; the classifier (006b) hands the ladder only `NEW` / `CHANGED` paths plus the `MISSING` set (`src/registration/ladder.ts:115-121`; corpus § "Step 1", `library/knowledge/private/ai/identity-and-reassociation.md:88-92`).
-- [ ] Step 2 appends a `source_graph_versions` row with `seq = prev_seq + 1`, `title`/`description`/`embedding = NULL`, `describe_status = 'pending'`, and enqueues an enrich job (PRD-016).
+- [ ] Step 2 appends a `hive_graph_versions` row with `seq = prev_seq + 1`, `title`/`description`/`embedding = NULL`, `describe_status = 'pending'`, and enqueues an enrich job (PRD-016).
 - [ ] Step 3 consults the missing-files set (006b), carries the nectar on exact `sha256` match to a missing nectar's latest hash, appends a new version row with the new path, enqueues no enrich job, and removes the missing entry from the set.
 - [ ] Step 4 computes a TLSH fingerprint, compares against missing files (size-bucketed, ±20%), and produces a scored `confidence` match.
 - [ ] Step 4's high-confidence band carries the nectar + enqueues enrich; the below-high band surfaces to `review-matches`; no-match falls through to step 5.
 - [ ] **The TLSH confidence threshold is configurable and empirically tuned during brooding; NO numeric threshold is pinned** (deliberate spec gap preserved — no `0.75`/`0.4` committed).
 - [ ] The TLSH implementation (native addon OR WASM) is flagged **DEFAULT — confirm before implementation**; the ladder algorithm is identical either way.
-- [ ] `honeycomb hivenectar review-matches` lists pending candidates with confidence + diff preview and accepts/rejects each; the accept/reject flag syntax is a flagged implementation decision, NOT invented (deliberate spec gap).
-- [ ] `honeycomb hivenectar prune --confirm` is the sole nectar-deletion path; the ladder never deletes or reuses nectars; the grace period defaults to 30 days (flagged DEFAULT), configurable; bare `prune` is a preview, `--confirm` is destructive.
+- [ ] `honeycomb nectar review-matches` lists pending candidates with confidence + diff preview and accepts/rejects each; the accept/reject flag syntax is a flagged implementation decision, NOT invented (deliberate spec gap).
+- [ ] `honeycomb nectar prune --confirm` is the sole nectar-deletion path; the ladder never deletes or reuses nectars; the grace period defaults to 30 days (flagged DEFAULT), configurable; bare `prune` is a preview, `--confirm` is destructive.
 - [ ] All lookups are scoped by `org_id` + `workspace_id` + `project_id` (PRD-005c); re-association never crosses project boundaries.
 
 ## Related
@@ -219,7 +219,7 @@ Carried from `identity-and-reassociation.md` § "What re-association explicitly 
 - [PRD-006a](./prd-006a-fswatch-intake-and-debounce.md) — the intake that triggers a ladder cycle.
 - [PRD-006b](./prd-006b-event-to-ladder-step-classification.md) — the classifier + missing-files set the ladder consumes.
 - [PRD-006c](./prd-006c-copy-event-detection.md) — the step-5 specialization (copy → fresh nectar + `derived_from_nectar`).
-- [PRD-005b](../prd-005-source-graph-catalog-tables/prd-005b-source-graph-versions-table.md) — `source_graph_versions` columns the ladder appends (`seq`, `content_hash`, `mtime_observed`, `size_bytes`, `describe_status`, `confidence`).
+- [PRD-005b](../prd-005-hive-graph-catalog-tables/prd-005b-hive-graph-versions-table.md) — `hive_graph_versions` columns the ladder appends (`seq`, `content_hash`, `mtime_observed`, `size_bytes`, `describe_status`, `confidence`).
 - [`knowledge/private/ai/identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) — the authoritative ladder (§ "The re-association ladder"), the no-guess/no-delete contract (§ "What re-association explicitly does not do"), the live-vs-cold distribution (§ "Live watch vs cold catch-up"), and the prune contract (§ "Re-association does not delete nectars").
 - [`knowledge/private/ai/brooding-pipeline.md`](../../../knowledge/private/ai/brooding-pipeline.md) § "What does not scale" — the TLSH O(N×M) cost + the v1 size-bucket (±20%) optimization.
 - [`knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../../../knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md) — the identity decision forcing the ladder + the no-guess/no-delete invariants.

@@ -1,8 +1,8 @@
-# Introduction and Theory of Hivenectar
+# Introduction and Theory of Nectar
 
 > Category: Overview | Version: 1.0 | Date: June 2026 | Status: Draft
 
-The conceptual on-ramp a new engineer reads before anything else: why the structural CodeGraph alone is not enough, what semantic identity means, how the three design pillars fit together, and the central thesis that Hivenectar is complementary to — not a replacement for — the CodeGraph.
+The conceptual on-ramp a new engineer reads before anything else: why the structural CodeGraph alone is not enough, what semantic identity means, how the three design pillars fit together, and the central thesis that Nectar is complementary to — not a replacement for — the CodeGraph.
 
 **Related:**
 - [`../overview.md`](../overview.md)
@@ -19,7 +19,7 @@ The conceptual on-ramp a new engineer reads before anything else: why the struct
 
 Every modern AI coding tool indexes the source tree somehow. The dominant pattern in 2026 is structural: parse each file with tree-sitter, extract an AST, and build a graph of symbols and edges (`function`, `class`, `calls`, `extends`, `imports`). Honeycomb already ships such a graph — the **CodeGraph** — and it is excellent at answering questions of *wiring*: "who calls this function," "what is the blast radius of renaming this symbol," "walk me through this subsystem." It does all of this deterministically, without consulting an LLM, reproducible byte-for-byte from the same source. That determinism is a deliberate and valuable property.
 
-What the CodeGraph cannot answer is *"where is the login logic."* It can find a symbol literally named `login` or `authenticate`, but it has no concept of what those symbols *mean*. It has no way to surface `src/middleware/session-refresh.ts` — which implements a critical piece of login behavior — unless the agent already knows to look for it by name. **Structural identity is about how code is wired. Semantic identity is about what code is for.** This is the gap Hivenectar exists to fill, without compromising the structural layer that already works.
+What the CodeGraph cannot answer is *"where is the login logic."* It can find a symbol literally named `login` or `authenticate`, but it has no concept of what those symbols *mean*. It has no way to surface `src/middleware/session-refresh.ts` — which implements a critical piece of login behavior — unless the agent already knows to look for it by name. **Structural identity is about how code is wired. Semantic identity is about what code is for.** This is the gap Nectar exists to fill, without compromising the structural layer that already works.
 
 The two layers are not competing approximations of the same thing. They answer disjoint questions. A file can be in the CodeGraph with no nectar (it has structure but no description yet). A file can have a nectar without being in the CodeGraph (a config file, a markdown doc, a `.env.example` — anything with meaning but no AST). Recall unions over both, because the agent needs both signals to act: the structural hit tells it *how to navigate*; the semantic hit tells it *what to look at in the first place*.
 
@@ -29,17 +29,17 @@ The two layers are not competing approximations of the same thing. They answer d
 
 The name is functional, not decorative, and each word maps to a role in the system.
 
-- **The hive** is the team of agents and engineers working in the same repository. They share a codebase, they share context, and they should share the accumulated understanding of what that codebase is for. Hivenectar treats semantic understanding as a *team asset*, not a per-developer index.
-- **The antennae** are what sense the environment — what files exist, what they mean, how they relate. The concrete component is the **Hivenectar daemon** (the `hiveantennae` process), an independent workload daemon registered with **hivedoctor** and surfaced through **thehive** that watches the project directory, mints identity for new files, re-associates identity after moves and edits, and lazily describes file contents. Antennae sense continuously; they do not require the agent to ask before noticing.
+- **The hive** is the team of agents and engineers working in the same repository. They share a codebase, they share context, and they should share the accumulated understanding of what that codebase is for. Nectar treats semantic understanding as a *team asset*, not a per-developer index.
+- **The antennae** are what sense the environment — what files exist, what they mean, how they relate. The concrete component is the **Nectar daemon** (the `hiveantennae` process), an independent workload daemon registered with **doctor** and surfaced through **hive** that watches the project directory, mints identity for new files, re-associates identity after moves and edits, and lazily describes file contents. Antennae sense continuously; they do not require the agent to ask before noticing.
 - **A nectar** is the minted identity record for a single file: small, stable, and the raw material from which richer understanding is produced. A nectar is a 26-character ULID. It is not a hash of the content, not a function of the path, and not embedded in the source. It is a pure minted identifier, created once by the daemon and persisted in Deep Lake.
 
-The metaphor also captures the relationship to the hive's broader sustenance. The CodeGraph is the comb — the rigid, deterministic structure. Hivenectar is the forage — the gathered, probabilistic understanding of what each cell of the comb is for. Both belong to the same hive.
+The metaphor also captures the relationship to the hive's broader sustenance. The CodeGraph is the comb — the rigid, deterministic structure. Nectar is the forage — the gathered, probabilistic understanding of what each cell of the comb is for. Both belong to the same hive.
 
 ---
 
 ## The three design pillars
 
-Hivenectar rests on three pillars. Each is individually present in some prior system (see [`../reference/prior-art-crosswalk.md`](../reference/prior-art-crosswalk.md)); the composition is what the system contributes.
+Nectar rests on three pillars. Each is individually present in some prior system (see [`../reference/prior-art-crosswalk.md`](../reference/prior-art-crosswalk.md)); the composition is what the system contributes.
 
 ### Pillar 1 — Stable identity via a daemon-minted nectar, never embedded in source
 
@@ -61,7 +61,7 @@ The model is **Gemini 2.5 Flash** routed through the existing Portkey gateway. T
 - **A genuine 1-million-token context window.** This is the load-bearing property. Long context lets the brooder pack 30–50 small files into a single LLM round-trip, collapsing the per-file cost by an order of magnitude. A model with a 200K window (Haiku, Sonnet, GPT-4o) caps the batch at 6–10 files per call and quintuples the call count. The full cost math is in [`../ai/brooding-pipeline.md`](../ai/brooding-pipeline.md): a complete brooding pass on a 2000-file repository lands under ~$3, and the batch/solo ratio holds as repos scale.
 - **Frontier-tier quality at the lowest price in that tier.** A cheaper but weaker model (GPT-4o-mini) is price-competitive but measurably worse at single-file code understanding and forces tiny batches. Gemini 2.5 Flash is the Pareto-optimal point.
 
-The model is not hardcoded — it is the default in the provider router, swappable via the same configuration that routes every other LLM call in Honeycomb. The `describe_model` column on every version row records which model produced each description, so a swap can trigger selective re-description if quality demands. The capability tier Hivenectar actually needs (long context, single-file understanding, structured JSON output, multilingual tolerance) is satisfied by several models; the choice is an economics decision, documented in [`../ai/enricher-and-llm-model.md`](../ai/enricher-and-llm-model.md).
+The model is not hardcoded — it is the default in the provider router, swappable via the same configuration that routes every other LLM call in Honeycomb. The `describe_model` column on every version row records which model produced each description, so a swap can trigger selective re-description if quality demands. The capability tier Nectar actually needs (long context, single-file understanding, structured JSON output, multilingual tolerance) is satisfied by several models; the choice is an economics decision, documented in [`../ai/enricher-and-llm-model.md`](../ai/enricher-and-llm-model.md).
 
 ### Pillar 3 — Durable state in Deep Lake, with a portable projection
 
@@ -74,8 +74,8 @@ flowchart TD
     pillar1["Pillar 1 - daemon-minted ULID nectar"] --> stable["stable identity across edit/move/copy"]
     pillar2["Pillar 2 - lazy LLM description"] --> meaning["title + description + concepts per file"]
     pillar3["Pillar 3 - Deep Lake + portable projection"] --> durable["durable, shareable, zero-cost clone"]
-    stable --> nectarRow["source_graph row"]
-    meaning --> versionRow["source_graph_versions row"]
+    stable --> nectarRow["hive_graph row"]
+    meaning --> versionRow["hive_graph_versions row"]
     durable --> store["Deep Lake - source of truth"]
     store --> projection[".honeycomb/nectars.json - committed lockfile"]
 ```
@@ -84,13 +84,13 @@ flowchart TD
 
 ## The central thesis: complementary, not replacement
 
-The single most important thing to internalize before reading the rest of the corpus is this: **Hivenectar is complementary to the CodeGraph, not a replacement for it.** Both ship. The CodeGraph answers structural questions deterministically; Hivenectar answers semantic questions probabilistically. Neither subsumes the other.
+The single most important thing to internalize before reading the rest of the corpus is this: **Nectar is complementary to the CodeGraph, not a replacement for it.** Both ship. The CodeGraph answers structural questions deterministically; Nectar answers semantic questions probabilistically. Neither subsumes the other.
 
 This thesis has concrete consequences for how the system is built:
 
-- **Two independent workload paths.** hiveantennae runs as the Hivenectar workload daemon, while the CodeGraph worker remains part of Honeycomb's workload. They write to different tables (`source_graph_versions` vs `codebase`), with no coordination between them. A file is in both by default.
-- **Two disjoint recall surfaces.** The CodeGraph's `find/`, `query/`, and `show/` answer symbol-shaped questions. Hivenectar's guarded source-graph arm in the hybrid recall pipeline answers meaning-shaped questions. A recall hit does not deduplicate against a CodeGraph hit — the agent benefits from seeing both, because each carries information the other lacks.
-- **Two different identity models, deliberately.** The CodeGraph keys on symbols and edges derived from ASTs; identity there is structural and reproducible. Hivenectar keys on files and mints identity; identity here is stable across mutation. Trying to unify them would corrupt both.
+- **Two independent workload paths.** hiveantennae runs as the Nectar workload daemon, while the CodeGraph worker remains part of Honeycomb's workload. They write to different tables (`hive_graph_versions` vs `codebase`), with no coordination between them. A file is in both by default.
+- **Two disjoint recall surfaces.** The CodeGraph's `find/`, `query/`, and `show/` answer symbol-shaped questions. Nectar's guarded hive-graph arm in the hybrid recall pipeline answers meaning-shaped questions. A recall hit does not deduplicate against a CodeGraph hit — the agent benefits from seeing both, because each carries information the other lacks.
+- **Two different identity models, deliberately.** The CodeGraph keys on symbols and edges derived from ASTs; identity there is structural and reproducible. Nectar keys on files and mints identity; identity here is stable across mutation. Trying to unify them would corrupt both.
 
 ```mermaid
 flowchart LR
@@ -98,7 +98,7 @@ flowchart LR
         direction TB
         a1[tree-sitter AST] --> a2[symbols + edges]
     end
-    subgraph semantic[Hivenectar - semantic]
+    subgraph semantic[Nectar - semantic]
         direction TB
         b1[daemon observation] --> b2[nectar + LLM description]
     end
@@ -111,7 +111,7 @@ flowchart LR
 
 ---
 
-## What Hivenectar deliberately is not
+## What Nectar deliberately is not
 
 Stating the negative boundaries clarifies the thesis as much as stating the positive pillars.
 

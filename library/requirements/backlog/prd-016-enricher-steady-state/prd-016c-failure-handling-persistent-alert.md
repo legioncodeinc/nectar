@@ -60,7 +60,7 @@ Note the embedding-provider-unavailable row is NOT a failure: the description is
 
 ## Per-cycle observability
 
-Every enricher cycle logs: files described, files inherited, files failed, tokens consumed, estimated cost. The dashboard surfaces a rolling 24-hour cost counter and a queue-depth gauge (`ai/enricher-and-llm-model.md` § Failure modes and observability). This is the same observability pattern the pollinating loop and skillify miner use. The observability is surfaced to the dashboard via PRD-008's `/api/source-graph/status` endpoint — no new endpoint.
+Every enricher cycle logs: files described, files inherited, files failed, tokens consumed, estimated cost. The dashboard surfaces a rolling 24-hour cost counter and a queue-depth gauge (`ai/enricher-and-llm-model.md` § Failure modes and observability). This is the same observability pattern the pollinating loop and skillify miner use. The observability is surfaced to the dashboard via PRD-008's `/api/hive-graph/status` endpoint — no new endpoint.
 
 ### The persistent-failure alert
 
@@ -135,6 +135,6 @@ When 5 consecutive cycles (default) fail, the dashboard alert fires and enrichme
 - [`./prd-016a-queue-poll-debounce-meaningful-change.md`](./prd-016a-queue-poll-debounce-meaningful-change.md) — the cycle that produces these failures.
 - [`./prd-016b-model-call-and-describe-model-audit.md`](./prd-016b-model-call-and-describe-model-audit.md) — the happy path whose failures this PRD catches.
 - [`../../in-work/prd-010-portkey-gateway/`](../../in-work/prd-010-portkey-gateway/) — Portkey's transient-429/5xx backoff (PRD-010), which precedes the enricher's `failed` marking.
-- [`../prd-008-hivenectar-api-endpoints/`](../prd-008-hivenectar-api-endpoints/) — the `/api/source-graph/status` endpoint surfacing the cost counter + queue-depth gauge (referenced by MASTER-PRD-INDEX.md PRD-008).
+- [`../prd-008-nectar-api-endpoints/`](../prd-008-nectar-api-endpoints/) — the `/api/hive-graph/status` endpoint surfacing the cost counter + queue-depth gauge (referenced by MASTER-PRD-INDEX.md PRD-008).
 - [`../../../knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md) — AUTHORITATIVE: the verbatim failure-modes table, the persistent-failure "5 consecutive cycles" default, and the per-cycle observability contract.
 - `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts:236-260` — the route → run → complete/fail harness shape the enricher's failure routing mirrors (handler throws → `queue.fail`).

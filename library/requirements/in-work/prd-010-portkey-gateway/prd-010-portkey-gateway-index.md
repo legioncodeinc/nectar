@@ -9,7 +9,7 @@
 
 ## Overview
 
-All Hivenectar LLM calls route through the existing Portkey gateway rather than calling any model provider directly. The brooding batch calls and the enricher's single-file calls reuse Honeycomb's already-shipped Portkey transport (`buildPortkeyHeaders` + `PORTKEY_BASE_URL`, hitting `/v1/chat/completions`) so Hivenectar sends no new transport code to the gateway. The default model is **Gemini 2.5 Flash** (the Pareto-optimal point on the model comparison table, see `prd-010b`); the operator swaps models with `brood --force --model <new>`, and the `describe_model` column audits which model produced each description. Semantic caching and guardrails are **Portkey-server-side** features configured in the Portkey dashboard via the `portkey.config` / virtual-key id — this codebase carries **no client toggle** for either (DECISION #6). **This index covers the module scope.** Sub-feature PRDs cover the transport reuse, model selection, and the server-side cache/guardrails story separately.
+All Nectar LLM calls route through the existing Portkey gateway rather than calling any model provider directly. The brooding batch calls and the enricher's single-file calls reuse Honeycomb's already-shipped Portkey transport (`buildPortkeyHeaders` + `PORTKEY_BASE_URL`, hitting `/v1/chat/completions`) so Nectar sends no new transport code to the gateway. The default model is **Gemini 2.5 Flash** (the Pareto-optimal point on the model comparison table, see `prd-010b`); the operator swaps models with `brood --force --model <new>`, and the `describe_model` column audits which model produced each description. Semantic caching and guardrails are **Portkey-server-side** features configured in the Portkey dashboard via the `portkey.config` / virtual-key id — this codebase carries **no client toggle** for either (DECISION #6). **This index covers the module scope.** Sub-feature PRDs cover the transport reuse, model selection, and the server-side cache/guardrails story separately.
 
 ---
 
@@ -47,14 +47,14 @@ All Hivenectar LLM calls route through the existing Portkey gateway rather than 
 | AC-1 | Given Portkey is enabled + keyed, when the brooding/enricher call runs, then it POSTs `https://api.portkey.ai/v1/chat/completions` with the `x-portkey-api-key` + `x-portkey-config` headers from `buildPortkeyHeaders`. |
 | AC-2 | Given no explicit model is set, when a description is generated, then the requested model resolves to Gemini 2.5 Flash (`activeModel` default). |
 | AC-3 | Given the operator runs `brood --force --model <new>`, then every non-skipped row is reset to `pending` and re-described under the new model, with `describe_model` stamped to the new id. |
-| AC-4 | Given any description is produced, then the `source_graph_versions.describe_model` column records the model that produced it. |
+| AC-4 | Given any description is produced, then the `hive_graph_versions.describe_model` column records the model that produced it. |
 | AC-5 | Given semantic caching / guardrails are in effect, then no client vault key enables or disables either; both are Portkey-server-side via the `portkey.config` id (DECISION #6). |
 
 ---
 
 ## Data model changes
 
-None at the table level. The existing `describe_model` column on `source_graph_versions` is the audit surface this PRD populates (carried over from PRD-005's schema; see `ai/enricher-and-llm-model.md`).
+None at the table level. The existing `describe_model` column on `hive_graph_versions` is the audit surface this PRD populates (carried over from PRD-005's schema; see `ai/enricher-and-llm-model.md`).
 
 ---
 

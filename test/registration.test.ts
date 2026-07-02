@@ -5,8 +5,8 @@ import { WatchIntake } from "../dist/registration/fs-watch.js";
 import { classifyPath } from "../dist/registration/classify.js";
 import { classifyNewFile } from "../dist/registration/copy-detect.js";
 import { reassociate, type LadderDeps, type ObservedFile } from "../dist/registration/ladder.js";
-import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
-import { sha256Hex } from "../dist/source-graph/hash.js";
+import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
+import { sha256Hex } from "../dist/hive-graph/hash.js";
 
 const TEN = { orgId: "o1", workspaceId: "w1", projectId: "p1" };
 const NOW = "2026-07-01T00:00:00.000Z";
@@ -68,7 +68,7 @@ function obs(relPath: string, content: string, mtime = NOW): ObservedFile {
   return { relPath, sizeBytes: content.length, mtimeObserved: mtime, readContent: () => content };
 }
 
-function deps(store: InMemorySourceGraphStore, onDisk: Set<string>, extra: Partial<LadderDeps> = {}): LadderDeps {
+function deps(store: InMemoryHiveGraphStore, onDisk: Set<string>, extra: Partial<LadderDeps> = {}): LadderDeps {
   return {
     store,
     tenancy: TEN,
@@ -81,7 +81,7 @@ function deps(store: InMemorySourceGraphStore, onDisk: Set<string>, extra: Parti
 // --- ladder: the five steps ---
 
 test("step 5: a genuinely new file mints a fresh nectar", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const r = reassociate(obs("src/a.ts", "hello"), deps(store, new Set(["src/a.ts"])));
   assert.equal(r.step, 5);
   assert.equal(r.action, "mint");
@@ -90,7 +90,7 @@ test("step 5: a genuinely new file mints a fresh nectar", () => {
 });
 
 test("step 1: same path + mtime + size is a no-op and never reads content", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const first = reassociate(obs("src/a.ts", "hello"), deps(store, new Set(["src/a.ts"])));
   // Re-observe with the same mtime/size; readContent must not be called.
   const file: ObservedFile = {
@@ -106,7 +106,7 @@ test("step 1: same path + mtime + size is a no-op and never reads content", () =
 });
 
 test("step 2: same path, changed content appends a version under the same nectar", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const first = reassociate(obs("src/a.ts", "v1"), deps(store, new Set(["src/a.ts"])));
   const enriched: string[] = [];
   const r = reassociate(
@@ -122,7 +122,7 @@ test("step 2: same path, changed content appends a version under the same nectar
 });
 
 test("step 3: exact-hash match to a missing file carries the nectar (move)", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const first = reassociate(obs("src/a.ts", "moved-content"), deps(store, new Set(["src/a.ts"])));
   // a.ts is gone; the same content appears at b.ts.
   const r = reassociate(obs("src/b.ts", "moved-content"), deps(store, new Set(["src/b.ts"])));
@@ -133,7 +133,7 @@ test("step 3: exact-hash match to a missing file carries the nectar (move)", () 
 });
 
 test("step 5 copy: same content while the source still exists mints with provenance", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const src = reassociate(obs("src/a.ts", "boiler"), deps(store, new Set(["src/a.ts"])));
   // a.ts still on disk; b.ts is a copy of it.
   const r = reassociate(obs("src/b.ts", "boiler"), deps(store, new Set(["src/a.ts", "src/b.ts"])));
@@ -146,7 +146,7 @@ test("step 5 copy: same content while the source still exists mints with provena
 });
 
 test("step 4: a low-confidence fuzzy candidate is surfaced for review, then mints", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const orig = reassociate(obs("src/a.ts", "the original content here"), deps(store, new Set(["src/a.ts"])));
   const reviews: Array<{ nectar: string; confidence: number }> = [];
   // a.ts is gone; a moved+edited file appears (no exact hash match). Fuzzy says "review".
@@ -164,7 +164,7 @@ test("step 4: a low-confidence fuzzy candidate is surfaced for review, then mint
 });
 
 test("step 4: a high-confidence fuzzy match carries the nectar and stamps confidence", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const orig = reassociate(obs("src/a.ts", "content alpha beta"), deps(store, new Set(["src/a.ts"])));
   const r = reassociate(
     obs("src/b.ts", "content alpha beta gamma"),
@@ -179,7 +179,7 @@ test("step 4: a high-confidence fuzzy match carries the nectar and stamps confid
 });
 
 test("deliberate gap: with NO fuzzy step injected, an edited+moved file mints (step 4 skipped)", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   reassociate(obs("src/a.ts", "aaaa original"), deps(store, new Set(["src/a.ts"])));
   const r = reassociate(obs("src/b.ts", "aaaa original but edited"), deps(store, new Set(["src/b.ts"])));
   assert.equal(r.step, 5, "no fuzzy matcher -> no step 4 -> mint");
@@ -189,7 +189,7 @@ test("deliberate gap: with NO fuzzy step injected, an edited+moved file mints (s
 // --- copy-detect (unit) ---
 
 test("classifyNewFile returns mint when no hash matches, copy when a latest hash matches", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   assert.equal(classifyNewFile(store, TEN, sha256Hex("x")).action, "mint");
   reassociate(obs("src/a.ts", "shared"), deps(store, new Set(["src/a.ts"])));
   const d = classifyNewFile(store, TEN, sha256Hex("shared"));

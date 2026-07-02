@@ -9,7 +9,7 @@
 
 ## Overview
 
-`.honeycomb/nectars.json` is the committed projection of the Deep Lake `source_graph` state. This sub-PRD owns its JSON format (carried verbatim from `data/portable-registry.md`), the three generation triggers that produce it, and the atomic write that makes a crashed regeneration leave the prior file rather than a partial one. The format is the contract every consumer (validation-on-load, fresh-clone inheritance, `rebuild-projection`) reads; the triggers are the schedule; the atomic write is the durability guarantee.
+`.honeycomb/nectars.json` is the committed projection of the Deep Lake `hive_graph` state. This sub-PRD owns its JSON format (carried verbatim from `data/portable-registry.md`), the three generation triggers that produce it, and the atomic write that makes a crashed regeneration leave the prior file rather than a partial one. The format is the contract every consumer (validation-on-load, fresh-clone inheritance, `rebuild-projection`) reads; the triggers are the schedule; the atomic write is the durability guarantee.
 
 ---
 
@@ -37,7 +37,7 @@ The format from `data/portable-registry.md` § The file format, verbatim:
 {
   "version": 1,
   "generated_at": "2026-06-30T12:00:00Z",
-  "generator": "honeycomb-hivenectar@0.1.13",
+  "generator": "honeycomb-nectar@0.1.13",
   "project": {
     "org_id": "legion",
     "workspace_id": "engineering",
@@ -103,7 +103,7 @@ From `data/portable-registry.md` § Generation and regeneration, the projection 
 
 1. **End of brooding.** A full brood produces a complete projection. (Owned with PRD-007.)
 2. **End of an enricher cycle that wrote new descriptions.** An incremental update — the projection is rewritten with the newly-described versions substituted in. (Owned with PRD-016.)
-3. **Explicitly, via `honeycomb hivenectar rebuild-projection`.** A full regeneration from Deep Lake, used when the projection is corrupt, lost, or suspected stale. (PRD-011c.)
+3. **Explicitly, via `honeycomb nectar rebuild-projection`.** A full regeneration from Deep Lake, used when the projection is corrupt, lost, or suspected stale. (PRD-011c.)
 
 The projection is **never** the target of a normal-operation write; it is always derived from Deep Lake first (rule #1 of the projection-not-sidecar invariant, PRD-011c).
 
@@ -166,7 +166,7 @@ Per `data/portable-registry.md` § The commit discipline, the daemon debounces p
 
 ## Implementation notes
 
-- **Mirror `writeSnapshotAtomic`, do not import it.** The function lives in the Honeycomb daemon (`src/daemon/runtime/codebase/snapshot.ts:279-298`); hivenectar reuses the *pattern* (temp + rename, unique suffix, same directory) to avoid coupling across the process boundary ADR-0002 established. The projection's `writeProjectionAtomic` is hivenectar-local.
+- **Mirror `writeSnapshotAtomic`, do not import it.** The function lives in the Honeycomb daemon (`src/daemon/runtime/codebase/snapshot.ts:279-298`); nectar reuses the *pattern* (temp + rename, unique suffix, same directory) to avoid coupling across the process boundary ADR-0002 established. The projection's `writeProjectionAtomic` is nectar-local.
 - **Canonical JSON for stable bytes.** The serialization canonicalizes key ordering so the byte-identical-modulo-`generated_at` invariant (PRD-011c rule #3) holds; the CodeGraph uses `canonicalJSON(snapshot)` (`snapshot.ts:294`) for the same reason.
 - **Triggers compose, they don't race.** Triggers #1 and #2 are daemon-internal and serialized through the enricher/brood paths; trigger #3 (`rebuild-projection`) is operator-initiated. All three funnel through the single `writeProjectionAtomic`; the unique temp suffix makes them safe even if they overlap.
 - **`describe_model` round-trips verbatim.** The enricher's `inherited-from:<prev_content_hash>` marker (PRD-016a, PRD-010b) is carried through the projection unchanged so a clone's inheritance preserves the provenance audit.

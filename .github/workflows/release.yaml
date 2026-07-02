@@ -1,13 +1,13 @@
 name: Release
 
 # The npm-publish workflow for @legioncodeinc/nectar. Mirrors honeycomb's
-# and hivedoctor's OIDC Trusted Publishing release.yaml pattern EXACTLY
-# (PRD-001c c-AC-2), adjusted only for hivenectar's actual build/test
+# and doctor's OIDC Trusted Publishing release.yaml pattern EXACTLY
+# (PRD-001c c-AC-2), adjusted only for nectar's actual build/test
 # scripts: `build` here is a plain `tsc` (no esbuild bundling step in this
 # package) and there is no aggregate `npm run ci` or `pack:check` script, so
 # the gate below runs `typecheck` and `test` as discrete steps instead of
 # inventing a script this package does not have. This is the FIRST release
-# pipeline hivenectar has ever had; it publishes to npm under
+# pipeline nectar has ever had; it publishes to npm under
 # `@legioncodeinc` so the hive-release manifest (the-apiary PRD-001a) can pin
 # a real, resolvable version of this product.
 #
@@ -34,7 +34,7 @@ name: Release
 # configured on npm BEFORE the first CI publish, and that configuration
 # requires the package to already exist on the registry — so the FIRST
 # publish of @legioncodeinc/nectar is necessarily a one-time MANUAL
-# publish (2FA), exactly like honeycomb's and hivedoctor's RELEASING.md
+# publish (2FA), exactly like honeycomb's and doctor's RELEASING.md
 # bootstrap. Every subsequent CI publish (from a pushed `vX.Y.Z` tag) is
 # tokenless. Until that manual bootstrap + npm trusted-publisher registration
 # happens, a real tag push here will fail the OIDC handshake — this is
@@ -42,7 +42,7 @@ name: Release
 #
 # FAILS CLOSED: the publishability preflight aborts if the version is the
 # `0.0.0` not-cut-yet sentinel or if the package name is not the scoped
-# `@legioncodeinc/nectar`, mirroring hivedoctor's guard. A real `npm
+# `@legioncodeinc/nectar`, mirroring doctor's guard. A real `npm
 # publish` only happens on a tag push AND when this is not a dry run; a
 # workflow_dispatch always rehearses (`npm publish --dry-run`) and defaults
 # `dry_run` to true so the manual button is safe by default.
@@ -109,8 +109,8 @@ jobs:
       - name: Install (npm ci)
         run: npm ci
 
-      # ── The gate. hivenectar has no aggregate `npm run ci` script (unlike
-      # honeycomb/hivedoctor) — run its two real checks explicitly instead of
+      # ── The gate. nectar has no aggregate `npm run ci` script (unlike
+      # honeycomb/doctor) — run its two real checks explicitly instead of
       # inventing a script this package does not have. `npm run test` here
       # also runs `tsc` as its own prerequisite (see package.json), so the
       # explicit Build step below is a deliberate re-run for a clean,
@@ -135,8 +135,11 @@ jobs:
       # unkeyed, which hard-disables telemetry at runtime. ──────────────────
       - name: Bake PostHog key into dist
         env:
-          HONEYCOMB_POSTHOG_KEY: ${{ secrets.HONEYCOMB_POSTHOG_KEY }}
-          HONEYCOMB_POSTHOG_HOST: ${{ vars.HONEYCOMB_POSTHOG_HOST }}
+          # nectar's own secret/var names are primary (ADR-0002 decoupling);
+          # the HONEYCOMB_* org secret is the detected fallback while the
+          # family shares one PostHog ingest project.
+          NECTAR_POSTHOG_KEY: ${{ secrets.NECTAR_POSTHOG_KEY || secrets.HONEYCOMB_POSTHOG_KEY }}
+          NECTAR_POSTHOG_HOST: ${{ vars.NECTAR_POSTHOG_HOST || vars.HONEYCOMB_POSTHOG_HOST }}
         run: node scripts/bake-posthog-key.mjs
 
       # ── Tag-vs-package.json version guard. ───────────────────────────────
@@ -153,7 +156,7 @@ jobs:
           fi
           echo "OK — tag and package.json agree on $PKG_VERSION"
 
-      # ── Publishability preflight — FAILS CLOSED (mirrors hivedoctor). ────
+      # ── Publishability preflight — FAILS CLOSED (mirrors doctor). ────
       - name: Preflight — publishability (version + scoped-name guard)
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"

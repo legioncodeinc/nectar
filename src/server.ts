@@ -1,11 +1,11 @@
 /**
- * The hivenectar HTTP surface.
+ * The nectar HTTP surface.
  *
  * PRD-002a mounts an unprotected `/health` route (PRD-003a) on a loopback
  * socket. Implemented on `node:http` (zero runtime dependencies, mirroring
- * hivedoctor's built-ins-only ethos) rather than importing honeycomb's Hono
+ * doctor's built-ins-only ethos) rather than importing honeycomb's Hono
  * runtime, honoring the process-boundary rule in ADR-0002 / decision #4. The
- * daemon API route groups (`/api/source-graph/*`) are PRD-008 and mount after
+ * daemon API route groups (`/api/hive-graph/*`) are PRD-008 and mount after
  * `/health`.
  */
 import { createServer, type Server } from "node:http";

@@ -2,8 +2,8 @@
  * Public entry point for @legioncodeinc/nectar.
  *
  * Re-exports the daemon composition root and its building blocks so the package
- * can be embedded (tests, thehive aggregation, future SDK) without going through
- * the CLI. The CLI (`hivenectar daemon`) is the operator-facing surface;
+ * can be embedded (tests, hive aggregation, future SDK) without going through
+ * the CLI. The CLI (`nectar daemon`) is the operator-facing surface;
  * `assembleDaemon` is the programmatic one.
  */
 export { assembleDaemon } from "./daemon.js";
@@ -36,41 +36,41 @@ export { createHttpServer } from "./server.js";
 export type { HttpServer } from "./server.js";
 export { DaemonAlreadyRunningError } from "./errors.js";
 
-// PRD-005: Source Graph data layer.
+// PRD-005: Hive Graph data layer.
 export type {
   Tenancy,
   NectarKind,
   DescribeStatus,
-  SourceGraphRow,
-  SourceGraphVersionRow,
-} from "./source-graph/model.js";
-export { DESCRIBE_STATUSES, EMBED_DIMS, isValidEmbedding, inTenancy } from "./source-graph/model.js";
-export type { SourceGraphStore, AsyncSourceGraphStore, LatestVersion } from "./source-graph/store.js";
-export { InMemorySourceGraphStore } from "./source-graph/memory-store.js";
-export { mintNectar, nectarCreatedAt, nectarTimestampMs, isValidNectar } from "./source-graph/ulid.js";
-export { sha256Hex } from "./source-graph/hash.js";
-export { toRepoRelative, filenameOf, extOf } from "./source-graph/paths.js";
-export type { ColumnDef, CatalogTable, SqlType } from "./source-graph/schema.js";
+  HiveGraphRow,
+  HiveGraphVersionRow,
+} from "./hive-graph/model.js";
+export { DESCRIBE_STATUSES, EMBED_DIMS, isValidEmbedding, inTenancy } from "./hive-graph/model.js";
+export type { HiveGraphStore, AsyncHiveGraphStore, LatestVersion } from "./hive-graph/store.js";
+export { InMemoryHiveGraphStore } from "./hive-graph/memory-store.js";
+export { mintNectar, nectarCreatedAt, nectarTimestampMs, isValidNectar } from "./hive-graph/ulid.js";
+export { sha256Hex } from "./hive-graph/hash.js";
+export { toRepoRelative, filenameOf, extOf } from "./hive-graph/paths.js";
+export type { ColumnDef, CatalogTable, SqlType } from "./hive-graph/schema.js";
 export {
-  SOURCE_GRAPH_TABLE,
-  SOURCE_GRAPH_VERSIONS_TABLE,
-  SOURCE_GRAPH_CATALOG_GROUP,
-  SOURCE_GRAPH_COLUMNS,
-  SOURCE_GRAPH_VERSIONS_COLUMNS,
+  HIVE_GRAPH_TABLE,
+  HIVE_GRAPH_VERSIONS_TABLE,
+  HIVE_GRAPH_CATALOG_GROUP,
+  HIVE_GRAPH_COLUMNS,
+  HIVE_GRAPH_VERSIONS_COLUMNS,
   assertValidCatalogTable,
   buildCreateTableSql,
-} from "./source-graph/schema.js";
+} from "./hive-graph/schema.js";
 
-// PRD-005: Deep Lake adapter for the Source Graph data layer.
-export type { TransportErrorKind, DeepLakeRow, DeepLakeTransportConfig } from "./source-graph/deeplake-transport.js";
+// PRD-005: Deep Lake adapter for the Hive Graph data layer.
+export type { TransportErrorKind, DeepLakeRow, DeepLakeTransportConfig } from "./hive-graph/deeplake-transport.js";
 export {
   TransportError,
   HttpDeepLakeTransport,
   DEFAULT_TRANSPORT_TIMEOUT_MS,
   DEEPLAKE_CLIENT_HEADER,
   DEEPLAKE_ORG_HEADER,
-} from "./source-graph/deeplake-transport.js";
-export type { DeepLakeCredentials, LoadCredentialsOptions } from "./source-graph/deeplake-credentials.js";
+} from "./hive-graph/deeplake-transport.js";
+export type { DeepLakeCredentials, LoadCredentialsOptions } from "./hive-graph/deeplake-credentials.js";
 export {
   loadDeepLakeCredentials,
   DeepLakeCredentialsError,
@@ -78,12 +78,12 @@ export {
   credentialsDir,
   credentialsPath,
   DEFAULT_DEEPLAKE_API_URL,
-} from "./source-graph/deeplake-credentials.js";
-export { withHeal, isMissingTableError } from "./source-graph/deeplake-heal.js";
-export type { QueryRunner } from "./source-graph/deeplake-heal.js";
-export { sqlStr, sqlLike, sqlIdent, sLiteral, eLiteral, sqlFloat4Array, sqlNum } from "./source-graph/sql-guards.js";
-export { DeepLakeSourceGraphStore } from "./source-graph/deeplake-store.js";
-export type { DeepLakeSourceGraphStoreOptions } from "./source-graph/deeplake-store.js";
+} from "./hive-graph/deeplake-credentials.js";
+export { withHeal, isMissingTableError } from "./hive-graph/deeplake-heal.js";
+export type { QueryRunner } from "./hive-graph/deeplake-heal.js";
+export { sqlStr, sqlLike, sqlIdent, sLiteral, eLiteral, sqlFloat4Array, sqlNum } from "./hive-graph/sql-guards.js";
+export { DeepLakeHiveGraphStore } from "./hive-graph/deeplake-store.js";
+export type { DeepLakeHiveGraphStoreOptions } from "./hive-graph/deeplake-store.js";
 
 // PRD-006: file registration protocol.
 export { WatchIntake, DEFAULT_DEBOUNCE_MS } from "./registration/fs-watch.js";
@@ -143,7 +143,7 @@ export {
   SERVICE_LABEL,
   SYSTEMD_UNIT_NAME,
   WINDOWS_TASK_NAME,
-  HIVENECTAR_RUN_COMMAND,
+  NECTAR_RUN_COMMAND,
   RESTART_SEC,
   WINDOWS_RESTART_INTERVAL,
   renderUnit,
@@ -168,6 +168,32 @@ export type {
   ServiceStatus,
   ServiceFs,
 } from "./service/index.js";
+
+// Per-project scope resolution (ADR-0002 decoupling: nectar's own ladder,
+// honeycomb detected but never required).
+export {
+  resolveProjectScope,
+  loadProjectsCache,
+  emptyProjectsCache,
+  canonicalizeRemote,
+  readGitRemoteSignal,
+  originUrlFromConfig,
+  projectsCacheDir,
+  projectsCachePath,
+  ENV_PROJECT_ID,
+  DETECTED_HONEYCOMB_PROJECT_ID,
+  UNSORTED_PROJECT_ID,
+  PROJECTS_CACHE_FILE_NAME,
+  PROJECTS_CACHE_SCHEMA_VERSION,
+} from "./hive-graph/project-scope.js";
+export type {
+  ResolvedProjectScope,
+  ProjectScopeSource,
+  ResolveProjectScopeOptions,
+  ProjectsCache,
+  FolderBinding,
+  CachedProject,
+} from "./hive-graph/project-scope.js";
 
 // PRD-017: service check-in and local SQLite telemetry.
 export {
@@ -203,23 +229,23 @@ export type {
   SqliteDatabaseLike,
 } from "./telemetry/index.js";
 
-// PRD-003c: hivenectar's entry in hivedoctor's daemon registry.
+// PRD-003c: nectar's entry in doctor's daemon registry.
 export {
-  HIVENECTAR_DAEMON_NAME,
+  NECTAR_DAEMON_NAME,
   DEFAULT_PROBE_INTERVAL_MS,
   DEFAULT_STARTUP_GRACE_MS,
   DEFAULT_RESTART_GIVE_UP_THRESHOLD,
   DEFAULT_RESTART_COOLDOWN_MS,
-  HivedoctorRegistryError,
-  defaultHivedoctorRegistryPath,
-  buildHivenectarRegistryEntry,
-  registerWithHivedoctor,
-} from "./hivedoctor-registry.js";
+  DoctorRegistryError,
+  defaultDoctorRegistryPath,
+  buildNectarRegistryEntry,
+  registerWithDoctor,
+} from "./doctor-registry.js";
 export type {
-  HivedoctorRegistryEntry,
-  RegisterWithHivedoctorOptions,
-  RegisterWithHivedoctorResult,
-} from "./hivedoctor-registry.js";
+  DoctorRegistryEntry,
+  RegisterWithDoctorOptions,
+  RegisterWithDoctorResult,
+} from "./doctor-registry.js";
 
 // PRD-010: Portkey gateway (chat-completions transport, config, describe_model audit).
 export {
@@ -338,17 +364,17 @@ export {
   stderrDimRejectionSink,
   createLocalNomicHttpTransport,
   createLocalNomicProvider,
-  createCoherePortkeyProvider,
+  createHostedPortkeyProvider,
   parseEmbeddingsResponse,
   DEFAULT_LOCAL_EMBED_HOST,
   DEFAULT_LOCAL_EMBED_PORT,
   DEFAULT_LOCAL_EMBED_TIMEOUT_MS,
-  DEFAULT_COHERE_EMBED_MODEL,
-  DEFAULT_COHERE_OUTPUT_DIMENSION,
-  DEFAULT_COHERE_MAX_ATTEMPTS,
-  DEFAULT_COHERE_RETRY_BACKOFF_MS,
-  DEFAULT_COHERE_REQUEST_TIMEOUT_MS,
-  COHERE_RETRYABLE_STATUSES,
+  DEFAULT_HOSTED_EMBED_MODEL,
+  DEFAULT_HOSTED_OUTPUT_DIMENSION,
+  DEFAULT_HOSTED_MAX_ATTEMPTS,
+  DEFAULT_HOSTED_RETRY_BACKOFF_MS,
+  DEFAULT_HOSTED_REQUEST_TIMEOUT_MS,
+  HOSTED_RETRYABLE_STATUSES,
   defaultFetch,
   defaultSleep,
 } from "./embeddings/index.js";
@@ -363,8 +389,8 @@ export type {
   LocalNomicConfig,
   LocalNomicTransport,
   LocalNomicHttpDeps,
-  CohereEmbeddingsConfig,
-  CoherePortkeyDeps,
+  HostedEmbeddingsConfig,
+  HostedPortkeyDeps,
   FetchLike,
   FetchResponseLike,
   SleepFn,

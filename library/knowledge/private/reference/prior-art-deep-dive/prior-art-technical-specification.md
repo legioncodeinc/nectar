@@ -2,7 +2,7 @@
 
 > Category: Reference | Version: 1.0 | Date: June 2026 | Status: Draft
 
-The verbatim comparison matrices that ground every prior-art claim about Hivenectar: the five-pillar matrix, the borrow-credit table, the divergence table, the five-point novelty composition as a checklist, and the cited source list.
+The verbatim comparison matrices that ground every prior-art claim about Nectar: the five-pillar matrix, the borrow-credit table, the divergence table, the five-point novelty composition as a checklist, and the cited source list.
 
 **Related:**
 - [`../prior-art-crosswalk.md`](../prior-art-crosswalk.md)
@@ -18,17 +18,17 @@ The verbatim comparison matrices that ground every prior-art claim about Hivenec
 
 This document is the verbatim reference. The narrative framing lives in [`prior-art-introduction-and-theory.md`](prior-art-introduction-and-theory.md); the pillar-by-pillar design-choice trace lives in [`prior-art-ecosystem-story-arc.md`](prior-art-ecosystem-story-arc.md); the closing accounting and gap analysis live in [`prior-art-conclusion-and-deliverables.md`](prior-art-conclusion-and-deliverables.md). When a reviewer or evaluator challenges a prior-art claim, this is the doc to cite, because every cell in every table below is sourced verbatim from [`../prior-art-crosswalk.md`](../prior-art-crosswalk.md) (itself researched via Exa in June 2026).
 
-The five pillars used throughout are: **stable identity**, **LLM description**, **semantic store**, **watcher-driven** maintenance, and **daemon-minted** identity allocation. These are the five columns against which Hivenectar and its twelve surveyed predecessors are compared.
+The five pillars used throughout are: **stable identity**, **LLM description**, **semantic store**, **watcher-driven** maintenance, and **daemon-minted** identity allocation. These are the five columns against which Nectar and its twelve surveyed predecessors are compared.
 
 ---
 
 ## The pillar matrix
 
-The matrix maps Hivenectar and twelve prior systems across the five pillars. The reading rule: Hivenectar's pillars are each individually present in some prior system, but no single prior system combines all five. The closest single predecessor is Smith (covers the LLM description and the committed-cache intent partially, lacks minted identity, Deep Lake storage, and recall integration) and CodeRAG (covers LLM description and a watcher, lacks stable identity, uses LanceDB storage, no per-file description granularity).
+The matrix maps Nectar and twelve prior systems across the five pillars. The reading rule: Nectar's pillars are each individually present in some prior system, but no single prior system combines all five. The closest single predecessor is Smith (covers the LLM description and the committed-cache intent partially, lacks minted identity, Deep Lake storage, and recall integration) and CodeRAG (covers LLM description and a watcher, lacks stable identity, uses LanceDB storage, no per-file description granularity).
 
 | System | Stable identity | LLM description | Semantic store | Watcher-driven | Daemon-minted |
 |---|---|---|---|---|---|
-| **Hivenectar** | ULID nectar | per-file title+desc+concepts | Deep Lake | `node:fs.watch` + debounce | yes (Deep Lake row) |
+| **Nectar** | ULID nectar | per-file title+desc+concepts | Deep Lake | `node:fs.watch` + debounce | yes (Deep Lake row) |
 | Aura | identity anchor + content hash | no (structural only) | shadow branch | git-hooked | no (content-derived) |
 | Orbit | id + identity_key + object_hash | no (structural only) | SQLite sidecar + objects | rebuild-triggered | partially (location-derived) |
 | Cartog | content_hash + subtree_hash (Merkle) | no (structural only) | on-disk graph | watcher (`--debounce`) | no (content-derived) |
@@ -45,9 +45,9 @@ The matrix maps Hivenectar and twelve prior systems across the five pillars. The
 
 ## The borrow-credit table
 
-Hivenectar is a synthesis. The table below states verbatim what Hivenectar uses from each predecessor, so that credit is explicit and the "what we borrow" claims in any doc or PR are auditable against this single reference. Presenting any single pillar as original is dishonest; the originality is in the composition and in the integration with Honeycomb's existing memory substrate.
+Nectar is a synthesis. The table below states verbatim what Nectar uses from each predecessor, so that credit is explicit and the "what we borrow" claims in any doc or PR are auditable against this single reference. Presenting any single pillar as original is dishonest; the originality is in the composition and in the integration with Honeycomb's existing memory substrate.
 
-| Borrowed from | What Hivenectar uses |
+| Borrowed from | What Nectar uses |
 |---|---|
 | **Aura** | Identity anchor vs. content hash split; the two-table identity+version model; the "neither alone is enough" framing |
 | **Mimir** | Minted identity as a first-class operation; append-only identity history; explicit non-reuse of IDs |
@@ -62,9 +62,9 @@ Hivenectar is a synthesis. The table below states verbatim what Hivenectar uses 
 
 ## The divergence table
 
-The table below is the closing reference matrix from the crosswalk, restated verbatim. It compares prior-art consensus against Hivenectar's choice across nine dimensions: identity derivation, identity granularity, description granularity, description producer, store, source mutation, recall integration, team share, and watcher. This is the table to point an evaluator at when the question is "what does Hivenectar do differently from every surveyed system."
+The table below is the closing reference matrix from the crosswalk, restated verbatim. It compares prior-art consensus against Nectar's choice across nine dimensions: identity derivation, identity granularity, description granularity, description producer, store, source mutation, recall integration, team share, and watcher. This is the table to point an evaluator at when the question is "what does Nectar do differently from every surveyed system."
 
-| Dimension | Prior-art consensus | Hivenectar |
+| Dimension | Prior-art consensus | Nectar |
 |---|---|---|
 | Identity derivation | Content-derived (hash) or name-derived | Daemon-minted ULID, never derived |
 | Identity granularity | Symbol (Aura, Mimir) or file (Orbit, synrepo) | File in v1, symbol in v2 possibility |
@@ -72,7 +72,7 @@ The table below is the closing reference matrix from the crosswalk, restated ver
 | Description producer | Per-chunk embedding model (CodeRAG family) or LLM (Smith) | LLM (Gemini 2.5 Flash) for title+description, separate embedding model for the vector |
 | Store | SQLite (Grove, Orbit sidecar), LanceDB (CodeRAG family), FAISS (Cortex), on-disk objects (synrepo) | Deep Lake (Honeycomb substrate) |
 | Source mutation | Smith mutates `CLAUDE.md`; others do not | Never mutates source; projection is a separate committed file |
-| Recall integration | Standalone semantic search server | Guarded arm in existing hybrid recall (sessions + memory + memories + source_graph_versions) |
+| Recall integration | Standalone semantic search server | Guarded arm in existing hybrid recall (sessions + memory + memories + hive_graph_versions) |
 | Team share | Smith commits `.meta`; others re-index per clone | Committed `nectars.json` projection + Deep Lake cloud sync |
 | Watcher | Cartog, Cortex, Context+ have watchers; others are manual | `node:fs.watch` + debounce, mirroring Honeycomb's file-watcher pattern |
 
@@ -84,9 +84,9 @@ After surveying the field, the specific composition that no prior system deliver
 
 - [ ] **1. Daemon-minted identity** (not content-derived, not source-embedded, not path-keyed). Partially present in Mimir at symbol granularity and in Aura at function granularity. **Not present at file granularity with a pure minted ULID** in any surveyed system.
 - [ ] **2. LLM-minted per-file description** (not per-symbol AST chunk). Partially present in Smith and codeindex. **Neither has stable identity, and neither persists to a shared multi-tenant store.**
-- [ ] **3. Deep Lake as the durable store** (not SQLite, not LanceDB, not FAISS, not a sidecar). **Unique to Hivenectar** among surveyed tools; no prior art uses Deep Lake because Deep Lake is the shared substrate Hivenectar composes with Honeycomb over (per ADR-0002, Hivenectar is an independent daemon, not a Honeycomb subsystem, but it shares Honeycomb's Deep Lake datasets at the data layer).
+- [ ] **3. Deep Lake as the durable store** (not SQLite, not LanceDB, not FAISS, not a sidecar). **Unique to Nectar** among surveyed tools; no prior art uses Deep Lake because Deep Lake is the shared substrate Nectar composes with Honeycomb over (per ADR-0002, Nectar is an independent daemon, not a Honeycomb subsystem, but it shares Honeycomb's Deep Lake datasets at the data layer).
 - [ ] **4. Integration into an existing hybrid recall pipeline** that already serves session, memory, and skill recall. **No prior system** composes code-file recall with conversation-trace recall and distilled-fact recall in a single fused query.
-- [ ] **5. Portable projection as a committed lockfile** for fresh-clone identity inheritance. Smith commits descriptions, but in source-mutating `.meta` sidecars; **Hivenectar commits a regenerable projection that never touches source.**
+- [ ] **5. Portable projection as a committed lockfile** for fresh-clone identity inheritance. Smith commits descriptions, but in source-mutating `.meta` sidecars; **Nectar commits a regenerable projection that never touches source.**
 
 The closest single predecessor is Smith, which covers points 2 and 5 partially but lacks points 1, 3, and 4 entirely. No surveyed system covers more than two of the five points, and no surveyed system covers the Deep Lake store (point 3) or the hybrid-recall integration (point 4) at all.
 

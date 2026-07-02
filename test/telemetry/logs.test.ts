@@ -15,7 +15,7 @@ import { openTelemetryDb } from "../../dist/telemetry/db.js";
 import { rmDirWithRetry } from "./test-helpers.ts";
 
 function tmpDir() {
-  return mkdtempSync(join(tmpdir(), "hivenectar-logs-"));
+  return mkdtempSync(join(tmpdir(), "nectar-logs-"));
 }
 
 function allLogs(db) {

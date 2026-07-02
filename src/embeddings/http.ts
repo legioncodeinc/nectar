@@ -2,7 +2,7 @@
  * The injectable HTTP seam shared by both embedding transports (PRD-014).
  *
  * A minimal `fetch`-shaped surface so neither the local nomic client nor the
- * Cohere-via-Portkey transport touches the network in a unit test: production
+ * hosted-via-Portkey transport touches the network in a unit test: production
  * binds `globalThis.fetch`, a test injects a fake that returns a canned
  * response. The shape is deliberately identical to the sibling chat transport's
  * `PortkeyFetch` (`src/portkey/transport.ts`) so the Wave-2 integrator can fold

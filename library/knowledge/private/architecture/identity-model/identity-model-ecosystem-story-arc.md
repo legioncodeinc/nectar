@@ -2,7 +2,7 @@
 
 > Category: Architecture | Version: 1.0 | Date: June 2026 | Status: Draft
 
-How the identity-model decision cascades into the rest of Hivenectar: tracing the nectar from ULID minting through the Deep Lake row, the re-association ladder, the copy-paste provenance edge, the portable projection, fresh-clone inheritance, and recall — and showing how rejecting Option A and Option B forces the shape of the surrounding system.
+How the identity-model decision cascades into the rest of Nectar: tracing the nectar from ULID minting through the Deep Lake row, the re-association ladder, the copy-paste provenance edge, the portable projection, fresh-clone inheritance, and recall — and showing how rejecting Option A and Option B forces the shape of the surrounding system.
 
 **Related:**
 - [`../ADR-0001-minted-nectar-over-source-embedded-serial.md`](../ADR-0001-minted-nectar-over-source-embedded-serial.md)
@@ -10,7 +10,7 @@ How the identity-model decision cascades into the rest of Hivenectar: tracing th
 - [`identity-model-technical-specification.md`](identity-model-technical-specification.md)
 - [`identity-model-conclusion-and-deliverables.md`](identity-model-conclusion-and-deliverables.md)
 - [`../../ai/identity-and-reassociation.md`](../../ai/identity-and-reassociation.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 - [`../../data/portable-registry.md`](../../data/portable-registry.md)
 
 ---
@@ -21,7 +21,7 @@ The identity model is not one decision; it is the first domino. Once the decisio
 
 ```mermaid
 flowchart LR
-    mint["1. ULID minting"] --> dl["2. source_graph row"]
+    mint["1. ULID minting"] --> dl["2. hive_graph row"]
     dl --> ladder["3. re-association ladder"]
     ladder --> copy["4. derived_from_nectar edge"]
     ladder --> proj["5. portable projection"]
@@ -45,11 +45,11 @@ The format's lexicographic sortability is not decorative — it is what makes co
 
 ---
 
-## Stage 2: the Deep Lake `source_graph` row
+## Stage 2: the Deep Lake `hive_graph` row
 
-The minted nectar is written to Deep Lake as the primary key of `source_graph`. This is where FR-8 (Deep Lake as the only durable store) enters the cascade: the nectar table is a Deep Lake table, not a SQLite sidecar, not a JSONL log, not an in-file marker.
+The minted nectar is written to Deep Lake as the primary key of `hive_graph`. This is where FR-8 (Deep Lake as the only durable store) enters the cascade: the nectar table is a Deep Lake table, not a SQLite sidecar, not a JSONL log, not an in-file marker.
 
-The row carries identity and provenance only — `nectar`, `kind`, `created_at`, `derived_from_nectar`, `fork_content_hash`, and the tenancy triple (`org_id`, `workspace_id`, `project_id`). No content, no description. Content and description live in the append-only `source_graph_versions` table, keyed by the `(nectar, content_hash)` composite. The full DDL is in [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md).
+The row carries identity and provenance only — `nectar`, `kind`, `created_at`, `derived_from_nectar`, `fork_content_hash`, and the tenancy triple (`org_id`, `workspace_id`, `project_id`). No content, no description. Content and description live in the append-only `hive_graph_versions` table, keyed by the `(nectar, content_hash)` composite. The full DDL is in [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md).
 
 This two-table split is a direct consequence of rejecting Option B. If identity were the content hash, one table would suffice — but identity would churn per edit, which is the failure mode stable identity exists to solve. Separating a stable identity key (nectar) from a changing version key (content_hash) is the schema-level expression of "neither alone is enough," the Aura principle. The split is forced by the identity model, not chosen independently.
 
@@ -79,7 +79,7 @@ When a new path's content hash matches an existing file's current content, the d
 
 This is the stage where the minted model's superiority over both alternatives is starkest. Under Option A, the copied file carries the same serial, producing duplicate-identity ambiguity — the system itself created a conflict it cannot resolve. Under Option B, the copy and the source are indistinguishable at copy time (same hash), and the moment the copy is edited, all trace of the relationship is lost. Under Option C, the copy gets a distinct identity (so it can diverge) *and* an explicit, durable, queryable provenance edge (so the relationship survives forever).
 
-The `derived_from_nectar` and `fork_content_hash` columns on `source_graph` are write-once: set at the copy-event minting, never updated. Even after both files diverge completely, the link remains. This is what enables the Obsidian-style interlink view to render "B was forked from A at time T when A looked like H1" indefinitely — a property neither rejected alternative can offer.
+The `derived_from_nectar` and `fork_content_hash` columns on `hive_graph` are write-once: set at the copy-event minting, never updated. Even after both files diverge completely, the link remains. This is what enables the Obsidian-style interlink view to render "B was forked from A at time T when A looked like H1" indefinitely — a property neither rejected alternative can offer.
 
 ---
 
@@ -99,13 +99,13 @@ When the daemon boots on a checkout that has `.honeycomb/nectars.json` present, 
 
 A current projection typically achieves **zero LLM calls and zero fuzzy matches** on a fresh clone. Every file finds its nectar through the projection's content-hash index; the brooding cost was paid by whoever first brooded the project, and the clone pays nothing. This is the team-share story: a teammate's clone works offline immediately, inherits every description, and is ready to serve semantic recall without network or auth.
 
-Without the projection, a fresh clone must brood from scratch — minting new nectars with no connection to the originals. The projection is committed by default precisely to prevent this. The cascade's sixth stage is what makes Hivenectar a team asset rather than a per-developer index.
+Without the projection, a fresh clone must brood from scratch — minting new nectars with no connection to the originals. The projection is committed by default precisely to prevent this. The cascade's sixth stage is what makes Nectar a team asset rather than a per-developer index.
 
 ---
 
 ## Stage 7: recall queries the nectar
 
-The final stage. Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical plus 768-dim vector, fused by reciprocal rank). Honeycomb adds a guarded source-graph arm over `source_graph_versions` (latest-per-nectar, description non-null), weighted to contribute alongside session, memory, and skill hits. An agent query like *"everything associated with logins"* returns structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as "refreshes JWT claims on each authenticated request").
+The final stage. Nectar plugs into the existing hybrid recall pipeline (BM25 lexical plus 768-dim vector, fused by reciprocal rank). Honeycomb adds a guarded hive-graph arm over `hive_graph_versions` (latest-per-nectar, description non-null), weighted to contribute alongside session, memory, and skill hits. An agent query like *"everything associated with logins"* returns structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as "refreshes JWT claims on each authenticated request").
 
 Recall keys off the nectar. "Current state of file X" is the latest version row for X's nectar. "History of file X" is all version rows for X's nectar. "Files forked from X" is the set of nectars whose `derived_from_nectar` equals X's nectar. Every query that matters — current state, history, provenance, related-by-concept — resolves through the nectar as the stable join key. If the nectar churned (Option B) or collided (Option A), every one of these queries would return wrong or ambiguous results. The nectar's stability is what makes the recall layer trustworthy.
 
@@ -123,7 +123,7 @@ The rejection also protects the contributor workflow. Option A's first-pass mint
 
 ### Rejecting Option B forces the two-table split
 
-Option B (content hash as identity) is rejected because it churns per edit. This rejection is what forces the schema into two tables. If identity were the content hash, one table would suffice — but identity would be unstable, which defeats the purpose. Separating a stable identity key from a changing version key requires two tables: `source_graph` for identity and provenance, `source_graph_versions` for the append-only content+description chain.
+Option B (content hash as identity) is rejected because it churns per edit. This rejection is what forces the schema into two tables. If identity were the content hash, one table would suffice — but identity would be unstable, which defeats the purpose. Separating a stable identity key from a changing version key requires two tables: `hive_graph` for identity and provenance, `hive_graph_versions` for the append-only content+description chain.
 
 The split propagates into recall (Stage 7), which must resolve "latest version of this nectar" by joining the two tables. It propagates into the projection (Stage 5), which carries only the latest described version per nectar, not the full chain. And it propagates into the re-association ladder (Stage 3), which uses the version chain's content hashes as its step-3 move detector. The two-table split is not a schema preference; it is the data-model consequence of requiring identity to be stable while content is not.
 

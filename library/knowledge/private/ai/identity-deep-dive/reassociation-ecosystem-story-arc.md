@@ -2,7 +2,7 @@
 
 > Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
 
-How the re-association ladder composes with the rest of Hivenectar: the journey of a single file through minting at brood, a live edit, an offline move, an offline move-and-edit, a teammate copy-paste that sets `derived_from_nectar`, and fresh-clone inheritance through the projection. Includes a cold-catch-up sequence diagram and shows how the ladder feeds the enricher queue and how the projection sync consumes its outputs.
+How the re-association ladder composes with the rest of Nectar: the journey of a single file through minting at brood, a live edit, an offline move, an offline move-and-edit, a teammate copy-paste that sets `derived_from_nectar`, and fresh-clone inheritance through the projection. Includes a cold-catch-up sequence diagram and shows how the ladder feeds the enricher queue and how the projection sync consumes its outputs.
 
 **Related:**
 - [`../identity-and-reassociation.md`](../identity-and-reassociation.md)
@@ -12,7 +12,7 @@ How the re-association ladder composes with the rest of Hivenectar: the journey 
 - [`../brooding-pipeline.md`](../brooding-pipeline.md)
 - [`../enricher-and-llm-model.md`](../enricher-and-llm-model.md)
 - [`../../data/portable-registry.md`](../../data/portable-registry.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 
 ---
 
@@ -41,9 +41,9 @@ flowchart LR
 
 ## 1. Minting at brood
 
-The arc begins when hiveantennae runs its initial full scan (brooding, documented in [`../brooding-pipeline.md`](../brooding-pipeline.md)) against a project with no `source_graph` rows. Discovery finds `src/auth/login.ts`, its content hash is new, and no projection entry covers it. The daemon mints nectar N1.
+The arc begins when hiveantennae runs its initial full scan (brooding, documented in [`../brooding-pipeline.md`](../brooding-pipeline.md)) against a project with no `hive_graph` rows. Discovery finds `src/auth/login.ts`, its content hash is new, and no projection entry covers it. The daemon mints nectar N1.
 
-The brood writes two rows: a `source_graph` row (identity + provenance, `derived_from_nectar` empty because this is an original mint), and an initial `source_graph_versions` row (`seq = 0`, `describe_status = 'pending'`). The file is bucketed (small text → batch), a Gemini 2.5 Flash call describes it, the description and a 768-dim embedding are written back to the version row, and the projection is regenerated.
+The brood writes two rows: a `hive_graph` row (identity + provenance, `derived_from_nectar` empty because this is an original mint), and an initial `hive_graph_versions` row (`seq = 0`, `describe_status = 'pending'`). The file is bucketed (small text → batch), a Gemini 2.5 Flash call describes it, the description and a 768-dim embedding are written back to the version row, and the projection is regenerated.
 
 At the end of brooding, N1 has one version row, a description, an embedding, and an entry in `.honeycomb/nectars.json`. The daemon switches to live watch.
 
@@ -56,7 +56,7 @@ The developer opens `src/auth/login.ts` and adds a rate-limit check, then saves.
 - Step 1 misses — the content (and therefore the hash) changed, so mtime/size no longer both match.
 - Step 2 hits — the path `src/auth/login.ts` matches N1's latest version, but `sha256(new content) != row.content_hash`.
 
-The daemon appends a new `source_graph_versions` row for N1 with `seq = 1`, the new content hash, `describe_status = 'pending'`, and nulls for title/description/embedding. `source_graph.last_update_date` is updated. A lazy enrich job is enqueued.
+The daemon appends a new `hive_graph_versions` row for N1 with `seq = 1`, the new content hash, `describe_status = 'pending'`, and nulls for title/description/embedding. `hive_graph.last_update_date` is updated. A lazy enrich job is enqueued.
 
 ```mermaid
 sequenceDiagram
@@ -92,7 +92,7 @@ On the next daemon boot, cold catch-up runs. The daemon walks disk, hashes each 
 - Step 2 misses — the path does not match any known nectar's latest version.
 - Step 3 hits — `sha256(content at new path) == N1's latest content_hash`, and `src/auth/login.ts` (N1's previous path) is in the missing-files map.
 
-The daemon carries N1 to the new path: it appends a `source_graph_versions` row for N1 with `seq = 2`, the new path `src/auth/handlers/login.ts`, and the same content hash. No enrich job is enqueued — the content is unchanged, so the existing description still applies. The previous version row's stale path (`src/auth/login.ts`) is retained as history.
+The daemon carries N1 to the new path: it appends a `hive_graph_versions` row for N1 with `seq = 2`, the new path `src/auth/handlers/login.ts`, and the same content hash. No enrich job is enqueued — the content is unchanged, so the existing description still applies. The previous version row's stale path (`src/auth/login.ts`) is retained as history.
 
 Step 3 is the move detector. In live mode, the `node:fs.watch` intake reports changed paths and the daemon refreshes the missing-files map before matching the new path's hash against missing files. In cold catch-up, the daemon infers the move from the exact hash match against the missing-files map after walking final disk state. Same step, different freshness of evidence.
 
@@ -104,9 +104,9 @@ A harder offline event. The developer, still offline, moves `src/auth/handlers/l
 
 Step 4 fires. The daemon computes a TLSH fingerprint of the file at `src/auth/routes/login.ts` and compares it against the TLSH fingerprints of missing files. `bestFuzzyMatch()` returns N1 as the best candidate with a distance well within the high-confidence band (the CSRF addition is a small edit; TLSH tolerates it).
 
-The daemon carries N1: it appends a `source_graph_versions` row for N1 with `seq = 3`, the new path, the new content hash, the `confidence` field populated (`1 − normalizedTLSHDistance`), and `describe_status = 'pending'`. An enrich job is enqueued because the content changed. The enricher later re-describes the file with its new CSRF behavior.
+The daemon carries N1: it appends a `hive_graph_versions` row for N1 with `seq = 3`, the new path, the new content hash, the `confidence` field populated (`1 − normalizedTLSHDistance`), and `describe_status = 'pending'`. An enrich job is enqueued because the content changed. The enricher later re-describes the file with its new CSRF behavior.
 
-Had the match fallen in the review band, the daemon would have provisionally minted a fresh nectar and surfaced the candidate to `honeycomb hivenectar review-matches` instead of auto-claiming. The ladder never guesses below the high-confidence band.
+Had the match fallen in the review band, the daemon would have provisionally minted a fresh nectar and surfaced the candidate to `honeycomb nectar review-matches` instead of auto-claiming. The ladder never guesses below the high-confidence band.
 
 ---
 
@@ -147,7 +147,7 @@ Re-association reaches step 5 (nothing exact or fuzzy resolves it as the *same* 
 - `newHash` matches N1's latest `content_hash` in the known-nectars map.
 - The function returns `{ action: 'copy', sourceNectar: N1 }`.
 
-The daemon mints a **fresh nectar N2** for the copy and sets `source_graph`:
+The daemon mints a **fresh nectar N2** for the copy and sets `hive_graph`:
 
 ```
 nectar:              <N2, fresh ULID>
@@ -173,7 +173,7 @@ flowchart LR
 
 ## 6. Fresh clone inherits via projection
 
-A third teammate clones the repo for the first time. Their checkout has the source tree and the committed `.honeycomb/nectars.json` projection, but their local Deep Lake has no `source_graph` rows. When their daemon boots, it does not brood from scratch.
+A third teammate clones the repo for the first time. Their checkout has the source tree and the committed `.honeycomb/nectars.json` projection, but their local Deep Lake has no `hive_graph` rows. When their daemon boots, it does not brood from scratch.
 
 The boot path (documented in [`../../data/portable-registry.md`](../../data/portable-registry.md)):
 
@@ -231,7 +231,7 @@ The enricher drains the queue on its cycle (default 30 seconds), selecting `MAX(
 
 The enricher writes descriptions and embeddings to version rows. The projection sync reads those rows and regenerates `.honeycomb/nectars.json`. The coupling is also one-directional: the projection is derived from Deep Lake, never the reverse.
 
-The projection sync runs at three points, documented in [`../../data/portable-registry.md`](../../data/portable-registry.md): end of brooding, end of an enricher cycle that wrote new descriptions, and explicitly via `honeycomb hivenectar rebuild-projection`. The sync selects the latest described version per nectar, denormalizes it into the projection format, and writes atomically (temp file plus rename) so a crashed regeneration leaves the old projection intact.
+The projection sync runs at three points, documented in [`../../data/portable-registry.md`](../../data/portable-registry.md): end of brooding, end of an enricher cycle that wrote new descriptions, and explicitly via `honeycomb nectar rebuild-projection`. The sync selects the latest described version per nectar, denormalizes it into the projection format, and writes atomically (temp file plus rename) so a crashed regeneration leaves the old projection intact.
 
 The full composition: the ladder resolves identity and appends version rows; the enricher fills descriptions on the pending rows; the projection sync regenerates the lockfile from the described rows; the committed lockfile is what the next fresh clone inherits. Each stage consumes the output of the previous one, and none of them write to each other's territory.
 

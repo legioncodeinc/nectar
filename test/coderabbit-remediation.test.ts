@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
+import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
 import { reassociate, type LadderDeps, type ObservedFile } from "../dist/registration/ladder.js";
 import { runReviewMatches } from "../dist/registration/review-cli.js";
 import {
@@ -15,9 +15,9 @@ import { runPrune } from "../dist/registration/prune-cli.js";
 import { createDefaultIgnore } from "../dist/registration/ignore.js";
 import { createTlshFuzzyStep, computeFingerprint, type FuzzyCandidate } from "../dist/registration/tlsh.js";
 import { createDiskRegistrationFs } from "../dist/registration/disk-fs.js";
-import { DeepLakeSourceGraphStore } from "../dist/source-graph/deeplake-store.js";
-import { TransportError } from "../dist/source-graph/deeplake-transport.js";
-import { sha256Hex } from "../dist/source-graph/hash.js";
+import { DeepLakeHiveGraphStore } from "../dist/hive-graph/deeplake-store.js";
+import { TransportError } from "../dist/hive-graph/deeplake-transport.js";
+import { sha256Hex } from "../dist/hive-graph/hash.js";
 
 const TEN = { orgId: "o1", workspaceId: "w1", projectId: "p1" };
 const NOW = "2026-07-01T00:00:00.000Z";
@@ -25,10 +25,10 @@ const NOW = "2026-07-01T00:00:00.000Z";
 function obs(relPath: string, content: string, mtime = NOW): ObservedFile {
   return { relPath, sizeBytes: content.length, mtimeObserved: mtime, readContent: () => content };
 }
-function deps(store: InMemorySourceGraphStore, onDisk: Set<string>): LadderDeps {
+function deps(store: InMemoryHiveGraphStore, onDisk: Set<string>): LadderDeps {
   return { store, tenancy: TEN, now: () => NOW, existsOnDisk: (p) => onDisk.has(p) };
 }
-function candidateFrom(store: InMemorySourceGraphStore, relPath: string, content: string): FuzzyCandidate {
+function candidateFrom(store: InMemoryHiveGraphStore, relPath: string, content: string): FuzzyCandidate {
   reassociate(obs(relPath, content), deps(store, new Set([relPath])));
   const lv = store.listLatestVersions(TEN).find((v) => v.version.path === relPath)!;
   return { identity: lv.identity, version: lv.version, fingerprint: computeFingerprint(content) };
@@ -60,7 +60,7 @@ test("ignore honors a graph-ignore prefix that carries a trailing slash", () => 
 
 // Item 3 -----------------------------------------------------------------
 test("prune --confirm skips a candidate whose file reappeared before the delete", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const r = reassociate(obs("gone.ts", "abc"), deps(store, new Set(["gone.ts"])));
   store.touchIdentity(r.nectar, new Date(Date.parse(NOW) - 40 * 24 * 60 * 60 * 1000).toISOString());
 
@@ -87,7 +87,7 @@ test("prune --confirm skips a candidate whose file reappeared before the delete"
 
 // Item 4 -----------------------------------------------------------------
 test("review accept carries the nectar AND retires the placeholder mint", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const src = reassociate(obs("src/a.ts", "alpha"), deps(store, new Set(["src/a.ts"]))); // candidate (missing) nectar
   const placeholder = reassociate(obs("src/b.ts", "beta"), deps(store, new Set(["src/b.ts"]))); // fresh mint at newPath
   const pending = new InMemoryPendingReviewStore();
@@ -124,7 +124,7 @@ test("review accept carries the nectar AND retires the placeholder mint", async 
 });
 
 test("review accept does NOT retire the placeholder when the carry fails (source gone)", async () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const placeholder = reassociate(obs("src/b.ts", "beta"), deps(store, new Set(["src/b.ts"])));
   const pending = new InMemoryPendingReviewStore();
   pending.add({
@@ -188,7 +188,7 @@ test("FilePendingReviewStore writes a complete parseable file and ignores leftov
 
 // Item 7 -----------------------------------------------------------------
 test("fuzzy step abstains for content shorter than one trigram (no false tiny-file carry)", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const candidate = candidateFrom(store, "ab.ts", "ab"); // 2 bytes
   const step = createTlshFuzzyStep({ highConfidence: 0.5, reviewFloor: 0.3 });
   assert.equal(step.match("ba", [candidate]).kind, "none", "distinct 2-byte contents never match");
@@ -197,7 +197,7 @@ test("fuzzy step abstains for content shorter than one trigram (no false tiny-fi
 
 // Item 8 -----------------------------------------------------------------
 test("fuzzy step never auto-carries when the top confidence is tied", () => {
-  const store = new InMemorySourceGraphStore();
+  const store = new InMemoryHiveGraphStore();
   const content = "the shared body of two identical candidate files here";
   const c1 = candidateFrom(store, "one.ts", content);
   // A second candidate with the SAME fingerprint + size (a tie at the top score).
@@ -220,10 +220,10 @@ test("deeplake deleteNectar treats a missing table as a no-op and never CREATEs"
   const transport = {
     async query(sql: string): Promise<object[]> {
       calls.push(sql);
-      throw new TransportError("query", 'relation "source_graph_versions" does not exist');
+      throw new TransportError("query", 'relation "hive_graph_versions" does not exist');
     },
   };
-  const store = new DeepLakeSourceGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+  const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
 
   await store.deleteNectar(TEN, "SOMENECTAR0000000000000001");
 
@@ -236,9 +236,9 @@ test("deeplake deleteNectar treats a missing table as a no-op and never CREATEs"
 test("deeplake deleteNectar propagates a non-missing-table error", async () => {
   const transport = {
     async query(): Promise<object[]> {
-      throw new TransportError("query", "permission denied for relation source_graph");
+      throw new TransportError("query", "permission denied for relation hive_graph");
     },
   };
-  const store = new DeepLakeSourceGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+  const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
   await assert.rejects(() => store.deleteNectar(TEN, "SOMENECTAR0000000000000001"), /permission denied/);
 });

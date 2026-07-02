@@ -18,9 +18,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mintNectar } from "../dist/source-graph/ulid.js";
-import { InMemorySourceGraphStore } from "../dist/source-graph/memory-store.js";
-import { DeepLakeSourceGraphStore } from "../dist/source-graph/deeplake-store.js";
+import { mintNectar } from "../dist/hive-graph/ulid.js";
+import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
+import { DeepLakeHiveGraphStore } from "../dist/hive-graph/deeplake-store.js";
 import { rebuildProjectionAsync } from "../dist/projection/write.js";
 import { buildProjectionFromAsyncStore } from "../dist/projection/generate.js";
 import { canonicalSerializeExceptGeneratedAt } from "../dist/projection/format.js";
@@ -33,7 +33,7 @@ const TEN = { orgId: "legion", workspaceId: "engineering", projectId: "honeycomb
 const FAKE_CREDENTIALS = { apiUrl: "https://unused.invalid", token: "unused", orgId: "unused", workspaceId: "unused" };
 
 function tempRoot(): string {
-  return mkdtempSync(join(tmpdir(), "hivenectar-wave2-"));
+  return mkdtempSync(join(tmpdir(), "nectar-wave2-"));
 }
 
 /** A domain-shaped identity row for the in-memory store. */
@@ -79,7 +79,7 @@ function versionRow(nectar: string, seq: number, path: string, hash: string, des
   };
 }
 
-/** A RAW snake_case source_graph row (what Deep Lake returns). */
+/** A RAW snake_case hive_graph row (what Deep Lake returns). */
 function rawIdentity(nectar: string) {
   return {
     nectar,
@@ -94,7 +94,7 @@ function rawIdentity(nectar: string) {
   };
 }
 
-/** A RAW snake_case source_graph_versions row (what Deep Lake returns). */
+/** A RAW snake_case hive_graph_versions row (what Deep Lake returns). */
 function rawVersion(nectar: string, seq: number, path: string, hash: string, described: boolean) {
   return {
     nectar,
@@ -141,8 +141,8 @@ test("wave2 Portkey headers are a single shared module: embeddings re-export IS 
 
 // ── listLatestDescribedVersions: the projection scan (Wave-2 item 4) ───────────
 
-test("InMemorySourceGraphStore.listLatestDescribedVersions returns the highest-seq described row and omits undescribed nectars", () => {
-  const store = new InMemorySourceGraphStore();
+test("InMemoryHiveGraphStore.listLatestDescribedVersions returns the highest-seq described row and omits undescribed nectars", () => {
+  const store = new InMemoryHiveGraphStore();
   const a = mintNectar(1000);
   const b = mintNectar(2000);
   store.insertIdentity(identityRow(a));
@@ -160,15 +160,15 @@ test("InMemorySourceGraphStore.listLatestDescribedVersions returns the highest-s
   assert.equal(described[0]?.version.describeStatus, "described");
 });
 
-test("DeepLakeSourceGraphStore.listLatestDescribedVersions reduces client-side to latest described per nectar, scoped", async () => {
+test("DeepLakeHiveGraphStore.listLatestDescribedVersions reduces client-side to latest described per nectar, scoped", async () => {
   const a = mintNectar(1000);
   const b = mintNectar(2000);
   const c = mintNectar(3000);
   const transport = fakeTransport((sql) => {
-    if (sql.startsWith('SELECT * FROM "source_graph"') && !sql.includes("source_graph_versions")) {
+    if (sql.startsWith('SELECT * FROM "hive_graph"') && !sql.includes("hive_graph_versions")) {
       return [rawIdentity(a), rawIdentity(b), rawIdentity(c)];
     }
-    if (sql.startsWith('SELECT * FROM "source_graph_versions"')) {
+    if (sql.startsWith('SELECT * FROM "hive_graph_versions"')) {
       return [
         rawVersion(a, 0, "src/a.ts", "ha0", false),
         rawVersion(a, 1, "src/a.ts", "ha1", true),
@@ -180,7 +180,7 @@ test("DeepLakeSourceGraphStore.listLatestDescribedVersions reduces client-side t
     }
     return [];
   });
-  const store = new DeepLakeSourceGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+  const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
 
   const described = await store.listLatestDescribedVersions(TEN);
   const byNectar = new Map(described.map((lv) => [lv.identity.nectar, lv.version]));
@@ -199,10 +199,10 @@ test("011c-AC-3 rebuildProjectionAsync scans Deep Lake for latest described per 
     const b = mintNectar(2000);
     const c = mintNectar(3000);
     const transport = fakeTransport((sql) => {
-      if (sql.startsWith('SELECT * FROM "source_graph"') && !sql.includes("source_graph_versions")) {
+      if (sql.startsWith('SELECT * FROM "hive_graph"') && !sql.includes("hive_graph_versions")) {
         return [rawIdentity(a), rawIdentity(b), rawIdentity(c)];
       }
-      if (sql.startsWith('SELECT * FROM "source_graph_versions"')) {
+      if (sql.startsWith('SELECT * FROM "hive_graph_versions"')) {
         return [
           rawVersion(a, 0, "src/a.ts", "ha0", false),
           rawVersion(a, 1, "src/a.ts", "ha1", true),
@@ -213,7 +213,7 @@ test("011c-AC-3 rebuildProjectionAsync scans Deep Lake for latest described per 
       }
       return [];
     });
-    const store = new DeepLakeSourceGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+    const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
 
     const { doc, path } = await rebuildProjectionAsync(store, TEN, {
       projectRoot: root,
@@ -241,15 +241,15 @@ test("011c-AC-3 rebuildProjectionAsync scans Deep Lake for latest described per 
 test("011c-AC-3 two async regenerations of the same Deep Lake state are byte-identical modulo generated_at", async () => {
   const a = mintNectar(1000);
   const responder = (sql: string): object[] => {
-    if (sql.startsWith('SELECT * FROM "source_graph"') && !sql.includes("source_graph_versions")) {
+    if (sql.startsWith('SELECT * FROM "hive_graph"') && !sql.includes("hive_graph_versions")) {
       return [rawIdentity(a)];
     }
-    if (sql.startsWith('SELECT * FROM "source_graph_versions"')) {
+    if (sql.startsWith('SELECT * FROM "hive_graph_versions"')) {
       return [rawVersion(a, 0, "src/a.ts", "ha0", true)];
     }
     return [];
   };
-  const store = new DeepLakeSourceGraphStore({ credentials: FAKE_CREDENTIALS, transport: fakeTransport(responder) });
+  const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport: fakeTransport(responder) });
 
   const first = await buildProjectionFromAsyncStore(store, TEN, { generatedAt: "2026-07-02T12:00:00.000Z" });
   const second = await buildProjectionFromAsyncStore(store, TEN, { generatedAt: "2026-07-03T00:00:00.000Z" });
@@ -266,25 +266,25 @@ test("HealthState.setProviderState populates portkey.enabled + embeddings.provid
   assert.equal(fresh.snapshot().embeddings.provider, "off");
 
   const h = new HealthState();
-  h.setProviderState({ portkeyEnabled: true, embeddingsProvider: "cohere" });
+  h.setProviderState({ portkeyEnabled: true, embeddingsProvider: "hosted" });
   const body = h.snapshot();
   assert.equal(body.portkey.enabled, true);
-  assert.equal(body.embeddings.provider, "cohere");
+  assert.equal(body.embeddings.provider, "hosted");
 });
 
 test("assembleDaemon resolves provider state once and surfaces it in /health (no start, no sockets)", () => {
   const root = tempRoot();
   try {
-    // Enabled Portkey + cohere embeddings via injected overrides (no env, no disk).
+    // Enabled Portkey + hosted embeddings via injected overrides (no env, no disk).
     const enabled = assembleDaemon({
       runtimeDir: root,
       log: () => {},
       portkey: { enabled: true, apiKey: "k", configId: "c", env: {} },
-      embeddings: { selector: "cohere", env: {} },
+      embeddings: { selector: "hosted", env: {} },
     });
     const body = enabled.health.snapshot();
     assert.equal(body.portkey.enabled, true);
-    assert.equal(body.embeddings.provider, "cohere");
+    assert.equal(body.embeddings.provider, "hosted");
 
     // Defaults: Portkey disabled, embeddings default selector (local) -> local-nomic label.
     const defaults = assembleDaemon({

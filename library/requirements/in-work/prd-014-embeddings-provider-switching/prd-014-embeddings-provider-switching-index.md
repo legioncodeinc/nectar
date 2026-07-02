@@ -9,7 +9,7 @@
 
 ## Overview
 
-The provider-config abstraction that does not exist today (DECISION #5). Hivenectar's embeddings come from two strategies behind a single switch: (a) the existing local nomic daemon (`nomic-embed-text-v1.5`, q8, Unix-socket NDJSON IPC, the zero-marginal-cost default), and (b) a new Cohere-via-Portkey embeddings transport, modeled on the already-shipped Cohere-rerank-via-Portkey transport, as an operator opt-in. Both strategies honor the **768-dim contract** — recall's `embed.dim_rejected` guard discards any vector of the wrong dimension rather than storing it. The config surface extends the vault `embeddings.enabled` boolean into a provider selector. **This index covers the module scope.** Sub-feature PRDs cover the strategy + config, the Cohere transport, and the switch + BM25 fallback verification.
+The provider-config abstraction that does not exist today (DECISION #5). Nectar's embeddings come from two strategies behind a single switch: (a) the existing local nomic daemon (`nomic-embed-text-v1.5`, q8, Unix-socket NDJSON IPC, the zero-marginal-cost default), and (b) a new Cohere-via-Portkey embeddings transport, modeled on the already-shipped Cohere-rerank-via-Portkey transport, as an operator opt-in. Both strategies honor the **768-dim contract** — recall's `embed.dim_rejected` guard discards any vector of the wrong dimension rather than storing it. The config surface extends the vault `embeddings.enabled` boolean into a provider selector. **This index covers the module scope.** Sub-feature PRDs cover the strategy + config, the Cohere transport, and the switch + BM25 fallback verification.
 
 ---
 

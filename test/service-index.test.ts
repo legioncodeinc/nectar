@@ -43,7 +43,7 @@ function linuxEnv(overrides: Partial<ServiceEnvironment> = {}): ServiceEnvironme
     platform: "linux",
     home: "/home/op",
     privileged: false,
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     ...overrides,
   };
 }
@@ -52,7 +52,7 @@ test("install writes the unit file then runs the manager's install argv", async 
   const fs = fakeFs();
   const calls: { command: string; args: readonly string[] }[] = [];
   const runner = okRunner(calls);
-  const svc = createServiceModule({ execPath: "/usr/local/bin/hivenectar", fs, runner, environment: linuxEnv() });
+  const svc = createServiceModule({ execPath: "/usr/local/bin/nectar", fs, runner, environment: linuxEnv() });
 
   const result = await svc.install();
   assert.equal(result.ok, true);
@@ -70,7 +70,7 @@ test("install writes the unit file then runs the manager's install argv", async 
 test("install reports ok:false when a manager command fails, but the unit file is still written", async () => {
   const fs = fakeFs();
   const svc = createServiceModule({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     fs,
     runner: failingRunner(),
     environment: linuxEnv(),
@@ -84,7 +84,7 @@ test("install reports ok:false when a manager command fails, but the unit file i
 test("install surfaces the real service-manager stderr (e.g. Windows schtasks 'Access is denied') when no runner detail is present", async () => {
   const fs = fakeFs();
   const svc = createServiceModule({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     fs,
     // No `detail` field at all (as a real execFile non-zero-exit failure looks: ok:false, a
     // real exit code, and only stderr text) - describeFailure must fall back to stderr.
@@ -100,7 +100,7 @@ test("a failure detail longer than the cap is truncated with an ellipsis, never 
   const fs = fakeFs();
   const longLine = "x".repeat(500);
   const svc = createServiceModule({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     fs,
     runner: failingRunner({ detail: undefined, stderr: longLine }),
     environment: linuxEnv(),
@@ -113,7 +113,7 @@ test("a failure detail longer than the cap is truncated with an ellipsis, never 
 
 test("install on an unsupported platform returns ok:false, never throws", async () => {
   const svc = createServiceModule({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     fs: fakeFs(),
     runner: okRunner(),
     environment: linuxEnv({ platform: "aix" as NodeJS.Platform }),
@@ -127,7 +127,7 @@ test("uninstall runs the manager's uninstall argv then deletes the unit file", a
   const fs = fakeFs();
   const calls: { command: string; args: readonly string[] }[] = [];
   const svc = createServiceModule({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     fs,
     runner: okRunner(calls),
     environment: linuxEnv(),
@@ -141,7 +141,7 @@ test("uninstall runs the manager's uninstall argv then deletes the unit file", a
 test("uninstall tolerates a manager command failure (already-gone unit) and still removes the file", async () => {
   const fs = fakeFs();
   const svc = createServiceModule({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     fs,
     runner: failingRunner(),
     environment: linuxEnv(),
@@ -156,7 +156,7 @@ test("install on darwin writes the launchd plist to ~/Library/LaunchAgents and b
   const fs = fakeFs();
   const calls: { command: string; args: readonly string[] }[] = [];
   const svc = createServiceModule({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     fs,
     runner: okRunner(calls),
     environment: linuxEnv({ platform: "darwin", home: "/Users/op" }),
@@ -181,7 +181,7 @@ test("uninstall on darwin bootouts the launchd target and removes the plist", as
   const fs = fakeFs();
   const calls: { command: string; args: readonly string[] }[] = [];
   const svc = createServiceModule({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     fs,
     runner: okRunner(calls),
     environment: linuxEnv({ platform: "darwin", home: "/Users/op" }),
@@ -196,7 +196,7 @@ test("install on win32 stages the schtasks XML beside the workspace, then Create
   const fs = fakeFs();
   const calls: { command: string; args: readonly string[] }[] = [];
   const svc = createServiceModule({
-    execPath: "C:/Program Files/hivenectar/hivenectar.js",
+    execPath: "C:/Program Files/nectar/nectar.js",
     fs,
     runner: okRunner(calls),
     environment: linuxEnv({ platform: "win32", home: "C:/Users/op" }),
@@ -205,7 +205,7 @@ test("install on win32 stages the schtasks XML beside the workspace, then Create
   assert.equal(result.ok, true);
   assert.match(result.message, /registered as a schtasks service/);
 
-  const stagedXml = "C:/Users/op/.honeycomb/hivenectar/hivenectar-task.xml";
+  const stagedXml = "C:/Users/op/.honeycomb/nectar/nectar-task.xml";
   assert.ok(fs.written.has(stagedXml), "the schtasks XML is staged beside the workspace (unitPath is empty for schtasks)");
   assert.match(fs.written.get(stagedXml) ?? "", /<Task /);
   // Decision #32 migration: the legacy task name is deleted first.
@@ -219,7 +219,7 @@ test("uninstall on win32 deletes the task and removes the staged XML", async () 
   const fs = fakeFs();
   const calls: { command: string; args: readonly string[] }[] = [];
   const svc = createServiceModule({
-    execPath: "C:/Program Files/hivenectar/hivenectar.js",
+    execPath: "C:/Program Files/nectar/nectar.js",
     fs,
     runner: okRunner(calls),
     environment: linuxEnv({ platform: "win32", home: "C:/Users/op" }),
@@ -227,7 +227,7 @@ test("uninstall on win32 deletes the task and removes the staged XML", async () 
   const result = await svc.uninstall();
   assert.equal(result.ok, true);
   assert.deepEqual(calls[0]?.args, ["/Delete", "/TN", "nectar", "/F"]);
-  assert.deepEqual(fs.removed, ["C:/Users/op/.honeycomb/hivenectar/hivenectar-task.xml"]);
+  assert.deepEqual(fs.removed, ["C:/Users/op/.honeycomb/nectar/nectar-task.xml"]);
 });
 
 test("serviceStatus classifies systemd is-active output and never throws on an unsupported platform", async () => {
@@ -238,12 +238,12 @@ test("serviceStatus classifies systemd is-active output and never throws on an u
       return { ok: true, code: 0, stdout: "active\n", stderr: "" };
     },
   };
-  const running = await serviceStatus({ execPath: "/usr/local/bin/hivenectar", runner, environment: linuxEnv() });
+  const running = await serviceStatus({ execPath: "/usr/local/bin/nectar", runner, environment: linuxEnv() });
   assert.equal(running, "running");
   assert.equal(calls[0]?.command, "systemctl");
 
   const unknown = await serviceStatus({
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     runner,
     environment: linuxEnv({ platform: "aix" as NodeJS.Platform }),
   });

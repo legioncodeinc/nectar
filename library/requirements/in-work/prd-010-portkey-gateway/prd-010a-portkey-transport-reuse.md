@@ -9,7 +9,7 @@
 
 ## Overview
 
-The transport that carries Hivenectar's brooding batch calls and enricher solo calls to the gateway already ships in Honeycomb. This sub-PRD reuses it verbatim rather than authoring a second Portkey transport: the `buildPortkeyHeaders(apiKey, configId)` helper, the `PORTKEY_BASE_URL` host (`https://api.portkey.ai/v1`), and the `/v1/chat/completions` endpoint. Hivenectar contributes no new transport code to the gateway path; it consumes the same `ProviderTransport` the pollinating loop already uses.
+The transport that carries Nectar's brooding batch calls and enricher solo calls to the gateway already ships in Honeycomb. This sub-PRD reuses it verbatim rather than authoring a second Portkey transport: the `buildPortkeyHeaders(apiKey, configId)` helper, the `PORTKEY_BASE_URL` host (`https://api.portkey.ai/v1`), and the `/v1/chat/completions` endpoint. Nectar contributes no new transport code to the gateway path; it consumes the same `ProviderTransport` the pollinating loop already uses.
 
 ---
 
@@ -21,9 +21,9 @@ The transport that carries Hivenectar's brooding batch calls and enricher solo c
 
 ## Non-Goals
 
-- A Hivenectar-authored Portkey transport. The existing `createPortkeyTransport` is reused (DECISION: reuse, not fork).
+- A Nectar-authored Portkey transport. The existing `createPortkeyTransport` is reused (DECISION: reuse, not fork).
 - Streaming. The brooding/enricher path consumes whole completions; the transport's `stream` thin wrapper is inherited unchanged and out of scope here.
-- Retry/backoff logic. The enricher delegates retry to Portkey's built-in rate-limit handling (`ai/enricher-and-llm-model.md` § Debouncing and rate limiting); Hivenectar implements no client-side retry.
+- Retry/backoff logic. The enricher delegates retry to Portkey's built-in rate-limit handling (`ai/enricher-and-llm-model.md` § Debouncing and rate limiting); Nectar implements no client-side retry.
 
 ---
 

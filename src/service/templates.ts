@@ -1,8 +1,8 @@
 /**
- * The vendored per-OS service-unit TEMPLATES for hivenectar (PRD-003b).
+ * The vendored per-OS service-unit TEMPLATES for nectar (PRD-003b).
  *
- * Mirrors hivedoctor's own unit templates (hivedoctor/src/service/templates.ts)
- * with hivenectar's run command (`daemon`, not `run`) and hivenectar's label/unit
+ * Mirrors doctor's own unit templates (doctor/src/service/templates.ts)
+ * with nectar's run command (`daemon`, not `run`) and nectar's label/unit
  * names (src/service/platform.ts). Three pure string builders, one per service
  * manager, that render the unit text from a {@link ServicePlan}. No I/O, no
  * shell-out - just deterministic text a test can snapshot-assert.
@@ -19,13 +19,13 @@
 
 import { SERVICE_LABEL, WINDOWS_TASK_NAME, type ServicePlan } from "./platform.js";
 
-/** The subcommand hivenectar's unit execs to start the process (no shell). */
-export const HIVENECTAR_RUN_COMMAND = "daemon" as const;
+/** The subcommand nectar's unit execs to start the process (no shell). */
+export const NECTAR_RUN_COMMAND = "daemon" as const;
 
 /**
- * Seconds the OS waits before restarting a crashed hivenectar on POSIX. Used by the
+ * Seconds the OS waits before restarting a crashed nectar on POSIX. Used by the
  * launchd `ThrottleInterval` and the systemd `RestartSec` directives; both take
- * seconds. Mirrors hivedoctor's `RESTART_SEC` (hivedoctor/src/service/templates.ts).
+ * seconds. Mirrors doctor's `RESTART_SEC` (doctor/src/service/templates.ts).
  */
 export const RESTART_SEC = 5 as const;
 
@@ -33,7 +33,7 @@ export const RESTART_SEC = 5 as const;
  * The Windows Task Scheduler `RestartOnFailure`/`Interval` duration as an ISO-8601
  * time interval. Task Scheduler REJECTS sub-minute intervals; the minimum it accepts
  * is `PT1M`. This is Windows-only; POSIX keeps `RESTART_SEC` (seconds). Mirrors
- * hivedoctor's `WINDOWS_RESTART_INTERVAL`.
+ * doctor's `WINDOWS_RESTART_INTERVAL`.
  */
 export const WINDOWS_RESTART_INTERVAL = "PT1M" as const;
 
@@ -76,7 +76,7 @@ export function renderLaunchdPlist(plan: ServicePlan): string {
 	<array>
 		<string>${node}</string>
 		<string>${exec}</string>
-		<string>${HIVENECTAR_RUN_COMMAND}</string>
+		<string>${NECTAR_RUN_COMMAND}</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -87,9 +87,9 @@ export function renderLaunchdPlist(plan: ServicePlan): string {
 	<key>ProcessType</key>
 	<string>Background</string>
 	<key>StandardOutPath</key>
-	<string>${home}/.honeycomb/hivenectar/launchd.out.log</string>
+	<string>${home}/.honeycomb/nectar/launchd.out.log</string>
 	<key>StandardErrorPath</key>
-	<string>${home}/.honeycomb/hivenectar/launchd.err.log</string>
+	<string>${home}/.honeycomb/nectar/launchd.err.log</string>
 </dict>
 </plist>
 `;
@@ -98,14 +98,14 @@ export function renderLaunchdPlist(plan: ServicePlan): string {
 /**
  * Render a systemd unit (Linux). `Restart=always` + `RestartSec` = restart-on-crash;
  * `WantedBy=default.target` (with `systemctl --user enable`) = start-on-login/boot.
- * `Type=simple` because hivenectar stays in the foreground of its own process.
+ * `Type=simple` because nectar stays in the foreground of its own process.
  */
 export function renderSystemdUnit(plan: ServicePlan): string {
   // Quote the exec path so a space-bearing install prefix cannot mis-split into two
   // argv tokens; the run subcommand is a fixed literal with no spaces.
-  const exec = `${quoteSystemdToken(plan.execPath)} ${HIVENECTAR_RUN_COMMAND}`;
+  const exec = `${quoteSystemdToken(plan.execPath)} ${NECTAR_RUN_COMMAND}`;
   return `[Unit]
-Description=hivenectar - semantic memory layer daemon
+Description=nectar - semantic memory layer daemon
 Documentation=https://get.theapiary.sh
 After=network.target
 
@@ -125,7 +125,7 @@ WantedBy=default.target
  * Render a Windows Scheduled Task definition XML (per-user, the Windows DEFAULT).
  * The `LogonTrigger` starts it at user logon (start-on-boot equivalent without
  * admin); `RestartOnFailure` gives restart-on-crash; `MultipleInstancesPolicy=IgnoreNew`
- * keeps a single instance (pairs with hivenectar's single-instance lock, PRD-003a).
+ * keeps a single instance (pairs with nectar's single-instance lock, PRD-003a).
  * `<Command>`/`<Arguments>` are separate (no shell parsing).
  *
  * Consumed via `schtasks /Create /XML <file>`, so the per-user task needs no admin/UAC.
@@ -138,7 +138,7 @@ export function renderScheduledTaskXml(plan: ServicePlan): string {
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>hivenectar - semantic memory layer daemon</Description>
+    <Description>nectar - semantic memory layer daemon</Description>
     <URI>\\${escapeXml(WINDOWS_TASK_NAME)}</URI>
   </RegistrationInfo>
   <Triggers>
@@ -170,7 +170,7 @@ export function renderScheduledTaskXml(plan: ServicePlan): string {
   <Actions Context="Author">
     <Exec>
       <Command>${node}</Command>
-      <Arguments>"${exec}" ${HIVENECTAR_RUN_COMMAND}</Arguments>
+      <Arguments>"${exec}" ${NECTAR_RUN_COMMAND}</Arguments>
     </Exec>
   </Actions>
 </Task>

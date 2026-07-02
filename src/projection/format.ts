@@ -3,7 +3,7 @@
  *
  * The JSON shape matches `library/knowledge/private/data/portable-registry.md`
  * § The file format. `content_hash` values are bare lowercase sha256 hex (64
- * chars), aligned to `source-graph/hash.ts`, not a `sha256-` prefixed form.
+ * chars), aligned to `hive-graph/hash.ts`, not a `sha256-` prefixed form.
  */
 
 /** Current projection schema version. Old daemons refuse to load a higher value. */
@@ -13,7 +13,7 @@ export const PROJECTION_SCHEMA_VERSION = 1;
 export const DEFAULT_PROJECTION_REL_PATH = ".honeycomb/nectars.json";
 
 /** Default generator string when none is supplied. */
-export const DEFAULT_GENERATOR = "honeycomb-hivenectar@0.0.1";
+export const DEFAULT_GENERATOR = "honeycomb-nectar@0.0.1";
 
 export interface ProjectionProject {
   readonly org_id: string;

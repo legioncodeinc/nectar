@@ -9,7 +9,7 @@
 
 ## Overview
 
-The enricher is the steady-state description-maintenance loop: it polls a work queue of `source_graph_versions` rows where `describe_status = 'pending'`, processes them in batches, and either re-describes a file or inherits its prior description. This sub-PRD owns the three intake/coalescing mechanisms that make the loop change-lazy rather than eager: the 30s queue poll that selects the latest pending version per nectar, the 500ms watcher intake debounce that collapses rapid-fire saves, and the meaningful-change heuristic (Jaccard ≥ `REDESCRIBE_THRESHOLD`) that decides whether a content delta is cosmetic (inherit, no LLM call) or meaningful (queue for description). Together they ensure a developer hitting Cmd-S ten times in ten seconds triggers one enricher signal describing the latest content, not ten calls.
+The enricher is the steady-state description-maintenance loop: it polls a work queue of `hive_graph_versions` rows where `describe_status = 'pending'`, processes them in batches, and either re-describes a file or inherits its prior description. This sub-PRD owns the three intake/coalescing mechanisms that make the loop change-lazy rather than eager: the 30s queue poll that selects the latest pending version per nectar, the 500ms watcher intake debounce that collapses rapid-fire saves, and the meaningful-change heuristic (Jaccard ≥ `REDESCRIBE_THRESHOLD`) that decides whether a content delta is cosmetic (inherit, no LLM call) or meaningful (queue for description). Together they ensure a developer hitting Cmd-S ten times in ten seconds triggers one enricher signal describing the latest content, not ten calls.
 
 ---
 
@@ -30,14 +30,14 @@ The enricher is the steady-state description-maintenance loop: it polls a work q
 
 ## The 30s queue poll
 
-The enricher runs as a background loop inside the hiveantennae daemon, polling a work queue of `source_graph_versions` rows where `describe_status = 'pending'`. After re-association appends a new version row, the enricher does not immediately describe it — the row sits in the queue pending. The loop runs on a configurable interval (default 30 seconds) and processes the queue in batches, which naturally coalesces rapid-fire edits to the same file: if a file was edited five times in a minute, only the most recent version row (the latest content) is worth describing, and the enricher skips the intermediate versions by selecting only `MAX(seq) per nectar WHERE describe_status = 'pending'` (`ai/enricher-and-llm-model.md` § Enricher queue debounce).
+The enricher runs as a background loop inside the hiveantennae daemon, polling a work queue of `hive_graph_versions` rows where `describe_status = 'pending'`. After re-association appends a new version row, the enricher does not immediately describe it — the row sits in the queue pending. The loop runs on a configurable interval (default 30 seconds) and processes the queue in batches, which naturally coalesces rapid-fire edits to the same file: if a file was edited five times in a minute, only the most recent version row (the latest content) is worth describing, and the enricher skips the intermediate versions by selecting only `MAX(seq) per nectar WHERE describe_status = 'pending'` (`ai/enricher-and-llm-model.md` § Enricher queue debounce).
 
 The pending-work query, carried verbatim from `ai/enricher-and-llm-model.md` § Enricher queue debounce (simplified; the real query is `sqlStr`-guarded per the codebase convention):
 
 ```sql
 -- The enricher's pending-work query (simplified; real query is sqlStr-guarded)
 SELECT nectar, MAX(seq) AS seq
-FROM source_graph_versions
+FROM hive_graph_versions
 WHERE describe_status = 'pending'
   AND org_id = :org
   AND workspace_id = :workspace
@@ -57,7 +57,7 @@ The loop cadence mirrors the adaptive poll loop in `honeycomb/src/daemon/runtime
 
 ## The 500ms watcher intake debounce
 
-The watcher fires events on every save. A developer hitting Cmd-S ten times in ten seconds must not trigger ten enricher calls (or even ten re-association ladders). Hivenectar applies the watcher intake debounce as the first layer: the `node:fs.watch` intake debounces events per-path with a configurable window (default 500ms). Multiple uncorrelated `(eventType, filename)` observations on the same path within the window collapse to a single "the file at this path changed" signal, which then enters re-association (`ai/enricher-and-llm-model.md` § Watcher intake debounce).
+The watcher fires events on every save. A developer hitting Cmd-S ten times in ten seconds must not trigger ten enricher calls (or even ten re-association ladders). Nectar applies the watcher intake debounce as the first layer: the `node:fs.watch` intake debounces events per-path with a configurable window (default 500ms). Multiple uncorrelated `(eventType, filename)` observations on the same path within the window collapse to a single "the file at this path changed" signal, which then enters re-association (`ai/enricher-and-llm-model.md` § Watcher intake debounce).
 
 This mirrors Honeycomb's existing `fs.watch` + `setTimeout`/`clearTimeout` debounce pattern (DECISION #4 — `node:fs.watch`, not chokidar; `MASTER-PRD-INDEX.md` decision #4) and avoids adding another watcher dependency. The watcher intake is the first of two debounce layers; the 30s queue poll is the second.
 
@@ -67,14 +67,14 @@ This mirrors Honeycomb's existing `fs.watch` + `setTimeout`/`clearTimeout` debou
 
 Not every content change warrants a re-description. A developer who reformats a file (Prettier, gofmt, rustfmt) has not changed its meaning, and re-describing it wastes LLM calls and produces an artificially-churned description (the LLM phrases the new description slightly differently even for identical semantic content, which pollutes the version chain) (`ai/enricher-and-llm-model.md` § The "meaningful change" heuristic).
 
-Hivenectar applies a fast pre-LLM diff to decide whether to re-describe, carried verbatim from `ai/enricher-and-llm-model.md` § The "meaningful change" heuristic:
+Nectar applies a fast pre-LLM diff to decide whether to re-describe, carried verbatim from `ai/enricher-and-llm-model.md` § The "meaningful change" heuristic:
 
 1. **Tokenize both versions** with a lightweight, language-aware tokenizer (the same one the structural CodeGraph uses for its parse-error reporting — not a full AST, just a token stream).
 2. **Compute a Jaccard similarity** over the token multisets.
 3. **If similarity ≥ `REDESCRIBE_THRESHOLD`** (default 0.85), the change is deemed cosmetic. The new version row inherits the previous version's `title`, `description`, `concepts`, and `embedding`, and `describe_status` is set to `described` with a `describe_model` marker of `inherited-from:<prev_content_hash>`.
 4. **If similarity < threshold**, the change is deemed meaningful and the new version row enters the pending queue.
 
-This is the same intuition Smith uses (`Hash != Described-Against-Hash` triggers re-description; equality skips it), adapted to token similarity rather than raw hash equality so that a reformat (which changes the hash but not the tokens meaningfully) does not trigger re-description. The threshold is configurable and tunable per-repo via `~/.honeycomb/hivenectar.json` (`ai/enricher-and-llm-model.md` § The "meaningful change" heuristic).
+This is the same intuition Smith uses (`Hash != Described-Against-Hash` triggers re-description; equality skips it), adapted to token similarity rather than raw hash equality so that a reformat (which changes the hash but not the tokens meaningfully) does not trigger re-description. The threshold is configurable and tunable per-repo via `~/.honeycomb/nectar.json` (`ai/enricher-and-llm-model.md` § The "meaningful change" heuristic).
 
 ### Why token similarity, not raw hash equality
 
@@ -132,7 +132,7 @@ A reformat changes the content hash (so raw-hash equality would trigger a wastef
 
 - **[DEFAULT — confirm before implementation]** Enricher poll interval: 30s (`ai/enricher-and-llm-model.md` § Enricher queue debounce — "default 30 seconds"). From corpus, confirm.
 - **[DEFAULT — confirm before implementation]** Watcher intake debounce: 500ms. The corpus (`ai/enricher-and-llm-model.md` § Watcher intake debounce) specifies the mechanism but leaves the window value unspecified; the 500ms figure mirrors Honeycomb's `honeycomb/src/daemon/runtime/services/file-watcher.ts:177` (`fs.watch` + `setTimeout` pattern, DECISION #4). Mirrored default, confirm.
-- **[DEFAULT — confirm before implementation]** `REDESCRIBE_THRESHOLD`: 0.85 (`ai/enricher-and-llm-model.md` § The "meaningful change" heuristic — "default 0.85"; configurable per-repo via `~/.honeycomb/hivenectar.json`). From corpus, confirm.
+- **[DEFAULT — confirm before implementation]** `REDESCRIBE_THRESHOLD`: 0.85 (`ai/enricher-and-llm-model.md` § The "meaningful change" heuristic — "default 0.85"; configurable per-repo via `~/.honeycomb/nectar.json`). From corpus, confirm.
 
 ---
 

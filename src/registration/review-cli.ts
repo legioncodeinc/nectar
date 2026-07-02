@@ -1,5 +1,5 @@
 /**
- * `hivenectar review-matches` command logic (PRD-006d AC-18).
+ * `nectar review-matches` command logic (PRD-006d AC-18).
  *
  * Lists the pending low-confidence step-4 candidates (new path <-> candidate
  * missing nectar, with confidence / TLSH distance and a diff preview) and lets
@@ -17,16 +17,16 @@
  * `--accept`/`--reject`/`--all` flag grammar is invented; the flag surface
  * remains a flagged implementation decision.
  */
-import type { SourceGraphStore } from "../source-graph/store.js";
-import type { Tenancy } from "../source-graph/model.js";
-import { inTenancy } from "../source-graph/model.js";
+import type { HiveGraphStore } from "../hive-graph/store.js";
+import type { Tenancy } from "../hive-graph/model.js";
+import { inTenancy } from "../hive-graph/model.js";
 import type { PendingReviewStore, PendingReviewCandidate } from "./review-store.js";
 import { carryNectar } from "./ladder.js";
 
 export type ReviewDecision = "accept" | "reject" | "skip";
 
 export interface ReviewMatchesDeps {
-  readonly store: SourceGraphStore;
+  readonly store: HiveGraphStore;
   readonly tenancy: Tenancy;
   readonly pendingReviews: PendingReviewStore;
   /** Per-candidate decision. The interactive prompt (default) or a scripted test decider. */
@@ -45,7 +45,7 @@ export interface ReviewMatchesResult {
 }
 
 /** Build a short human-readable preview for one candidate. */
-function buildPreview(store: SourceGraphStore, candidate: PendingReviewCandidate): string {
+function buildPreview(store: HiveGraphStore, candidate: PendingReviewCandidate): string {
   const source = store.latestVersion(candidate.candidateNectar);
   const lastKnownPath = source?.path ?? "(unknown)";
   const distance = candidate.distance === null ? "n/a" : String(candidate.distance);

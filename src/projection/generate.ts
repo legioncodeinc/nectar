@@ -4,8 +4,8 @@
  * Pure generation core plus a store-backed entry point via the thin adapter in
  * `store-adapter.ts`.
  */
-import type { Tenancy } from "../source-graph/model.js";
-import type { AsyncSourceGraphStore, SourceGraphStore } from "../source-graph/store.js";
+import type { Tenancy } from "../hive-graph/model.js";
+import type { AsyncHiveGraphStore, HiveGraphStore } from "../hive-graph/store.js";
 import {
   DEFAULT_GENERATOR,
   PROJECTION_SCHEMA_VERSION,
@@ -97,7 +97,7 @@ export interface BuildProjectionFromStoreOptions extends BuildProjectionOptions,
 
 /** Scan the store and build a complete projection document. */
 export function buildProjectionFromStore(
-  store: SourceGraphStore,
+  store: HiveGraphStore,
   tenancy: Tenancy,
   opts: BuildProjectionFromStoreOptions = {},
 ): PortableProjection {
@@ -106,7 +106,7 @@ export function buildProjectionFromStore(
 }
 
 /**
- * Scan the durable {@link AsyncSourceGraphStore} (Deep Lake) and build a
+ * Scan the durable {@link AsyncHiveGraphStore} (Deep Lake) and build a
  * complete projection document (PRD-011c). The async twin of
  * {@link buildProjectionFromStore}: it collects the projection sources via
  * {@link collectProjectionSourcesAsync} (latest described version per nectar,
@@ -115,7 +115,7 @@ export function buildProjectionFromStore(
  * output to the sync one for the same state (modulo `generated_at`).
  */
 export async function buildProjectionFromAsyncStore(
-  store: AsyncSourceGraphStore,
+  store: AsyncHiveGraphStore,
   tenancy: Tenancy,
   opts: BuildProjectionOptions = {},
 ): Promise<PortableProjection> {

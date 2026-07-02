@@ -1,5 +1,5 @@
 /**
- * `hivenectar prune [--confirm]` command logic (PRD-006d AC-19).
+ * `nectar prune [--confirm]` command logic (PRD-006d AC-19).
  *
  * The SOLE nectar-deletion path. The re-association ladder never deletes or
  * reuses a nectar; deletion is a separate, explicit, human-triggered operation:
@@ -14,15 +14,15 @@
  * DEFAULT (flagged, not load-bearing on any algorithm): the grace period is 30
  * days ({@link PRUNE_GRACE_MS}), configurable via `graceMs`.
  */
-import type { SourceGraphStore } from "../source-graph/store.js";
-import type { Tenancy } from "../source-graph/model.js";
-import { inTenancy } from "../source-graph/model.js";
+import type { HiveGraphStore } from "../hive-graph/store.js";
+import type { Tenancy } from "../hive-graph/model.js";
+import { inTenancy } from "../hive-graph/model.js";
 
 /** Prune grace period: 30 days - DEFAULT - confirm before implementation. Configurable via `graceMs`. */
 export const PRUNE_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface PruneDeps {
-  readonly store: SourceGraphStore;
+  readonly store: HiveGraphStore;
   readonly tenancy: Tenancy;
   /** Whether a repo-relative path currently exists on disk. */
   existsOnDisk(relPath: string): boolean;
@@ -80,7 +80,7 @@ export function runPrune(deps: PruneDeps): PruneResult {
       const days = Math.floor(c.ageMs / (24 * 60 * 60 * 1000));
       deps.out(`  ${c.nectar}  ${c.path}  (missing/last-updated ${c.lastUpdateDate}, ~${days}d)`);
     }
-    deps.out("Run 'hivenectar prune --confirm' to delete these nectars. This is the only deletion path.");
+    deps.out("Run 'nectar prune --confirm' to delete these nectars. This is the only deletion path.");
     return { candidates, deleted: 0, confirmed: false };
   }
 

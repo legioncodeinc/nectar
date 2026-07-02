@@ -95,8 +95,8 @@ Provenance-tracked file identity across repos and teams. Every file's history ch
 - 🪪 **Stable file identity.** 26-char ULID per file, minted by the daemon, never reused, never deleted by the ladder. *(registration protocol shipped, PRD-006)*
 - 🪜 **5-step re-association ladder.** Survives renames, moves, offline edits, and cold catch-up after your laptop was closed. TLSH fuzzy matching with a confidence-scored review surface. *(mechanics implemented and tested; durable-store wiring lands with daemon integration)*
 - 🧬 **Copy-paste provenance.** `derived_from_nectar` + `fork_content_hash` record every fork as a first-class edge.
-- 🗄️ **Two Deeplake tables.** `source_graph` (one row per logical file) + append-only `source_graph_versions` (one row per observed state, carrying 768-dim embeddings). *(shipped, PRD-005)*
-- 🛡️ **Supervised daemon.** `hivenectar daemon` binds `127.0.0.1:3854`, serves `/health`, registers with Doctor, and installs as an OS service on launchd, systemd, and Windows. *(shipped, PRD-002/003/004)*
+- 🗄️ **Two Deeplake tables.** `hive_graph` (one row per logical file) + append-only `hive_graph_versions` (one row per observed state, carrying 768-dim embeddings). *(shipped, PRD-005)*
+- 🛡️ **Supervised daemon.** `nectar daemon` binds `127.0.0.1:3854`, serves `/health`, registers with Doctor, and installs as an OS service on launchd, systemd, and Windows. *(shipped, PRD-002/003/004)*
 - ✍️ **LLM-minted descriptions.** Lazy, batched, cheap: a long-context model describes files on demand, not eagerly, so a full pass on a 2000-file repo lands under $3 and a committed projection makes every subsequent clone free. *(spec stage, PRD-007/010/016)*
 - 🔒 **Portable projection.** `.honeycomb/nectars.json`, regenerated from Deeplake after every brood and enrich. *(in work, PRD-011)*
 - 🔀 **Hybrid recall arm.** A `UNION ALL` arm over described files inside Honeycomb's BM25 + vector RRF pipeline, with silent BM25 fallback when embeddings are off. *(spec stage, PRD-012/013)*
@@ -143,20 +143,20 @@ Requires Node ≥ 22. `npm run typecheck` and `npm test` are the local gates.
 <!-- screenshot pending: drop nectar dashboard capture into assets/screenshots/dashboard.png -->
 <img src="assets/screenshots/dashboard.png" alt="Nectar dashboard" width="100%">
 
-Straight talk: Nectar does not ship its own dashboard, and that is by design. The always-on **thehive portal** owns the unified dashboard for the whole Apiary and aggregates from each daemon's API, fail-soft per daemon ([ADR-0004](library/knowledge/private/architecture/ADR-0004-thehive-portal-daemon-role-and-boundaries.md)). The **Source Graph page** (PRD-015, spec stage) renders your file graph, identity search, and brood status by fetching Nectar's `/api/source-graph/*` endpoints through the portal. If the Nectar daemon is down, that page degrades gracefully instead of taking the whole dashboard with it.
+Straight talk: Nectar does not ship its own dashboard, and that is by design. The always-on **hive portal** owns the unified dashboard for the whole Apiary and aggregates from each daemon's API, fail-soft per daemon ([ADR-0004](library/knowledge/private/architecture/ADR-0004-hive-portal-daemon-role-and-boundaries.md)). The **Hive Graph page** (PRD-015, spec stage) renders your file graph, identity search, and brood status by fetching Nectar's `/api/hive-graph/*` endpoints through the portal. If the Nectar daemon is down, that page degrades gracefully instead of taking the whole dashboard with it.
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
 ## ⌨️ Using the CLI
 
-The `hivenectar` binary ships with the package. What exists today:
+The `nectar` binary ships with the package. What exists today:
 
 ```bash
-hivenectar daemon             # start the daemon (127.0.0.1:3854, /health)
-hivenectar install            # register the OS service unit + Doctor registry entry
-hivenectar uninstall          # deregister the OS service unit
-hivenectar service-status     # report the OS service unit's running state
-hivenectar --help
+nectar daemon             # start the daemon (127.0.0.1:3854, /health)
+nectar install            # register the OS service unit + Doctor registry entry
+nectar uninstall          # deregister the OS service unit
+nectar service-status     # report the OS service unit's running state
+nectar --help
 ```
 
 Verbs that exist but honestly tell you they are not ready: `brood` (mechanics owned by PRD-007), `rebuild-projection` (PRD-011), and `prune --confirm` / `review-matches` (logic implemented and tested, durable-store wiring pending). They exit non-zero with a clear notice instead of silently no-oping, because a destructive verb that pretends to work is worse than no verb at all.
@@ -187,7 +187,7 @@ Same nectar, same description, new path. The identity followed the file, so the 
 flowchart TD
     W["watcher + hiveantennae daemon<br/>127.0.0.1:3854"] --> M["mint 26-char ULID<br/>+ LLM-minted description"]
     W --> L["re-association ladder<br/>path/mtime/size → hash → TLSH → mint"]
-    M --> DL["Deeplake<br/>source_graph + source_graph_versions<br/>768-dim embeddings, append-only history"]
+    M --> DL["Deeplake<br/>hive_graph + hive_graph_versions<br/>768-dim embeddings, append-only history"]
     L --> DL
     DL --> P[".honeycomb/nectars.json<br/>committed projection (lockfile)"]
     DL --> R["Honeycomb hybrid recall<br/>4th arm · BM25 + vector · RRF"]
@@ -212,8 +212,8 @@ Meaning is the other half. Structural tools can tell you a symbol named `authent
 Most code-indexing tools bolt onto a vector-only store, which forces every access pattern through a similarity engine. Nectar needs exact identity joins **and** semantic search, and [**Deeplake**](https://deeplake.ai), the database for AI, gives it both natively:
 
 - **SQL + vector in one engine.** "Latest version row for this nectar" is a deterministic SQL join; "files that mean login" is a vector search over 768-dim embeddings. One store serves both. No second database, no sync problem, no sidecar.
-- **Versioned and append-only.** `source_graph_versions` never overwrites: every observed state of every file stays on disk. That is what makes re-association *auditable*: you can trace exactly when a nectar was carried across a move, at what confidence, and what the file looked like on both sides.
-- **Identity table + versions table, cleanly split.** `source_graph` anchors the stable key; `source_graph_versions` carries the history. Collapsing them forces you to lose either history or the stable key. Deeplake makes the split cheap.
+- **Versioned and append-only.** `hive_graph_versions` never overwrites: every observed state of every file stays on disk. That is what makes re-association *auditable*: you can trace exactly when a nectar was carried across a move, at what confidence, and what the file looked like on both sides.
+- **Identity table + versions table, cleanly split.** `hive_graph` anchors the stable key; `hive_graph_versions` carries the history. Collapsing them forces you to lose either history or the stable key. Deeplake makes the split cheap.
 - **Graceful degradation.** Embeddings off? The embedding column stays NULL and recall falls back to BM25 over titles and descriptions. No error, no quality cliff.
 
 > Nectar stands on the same two shoulders as the rest of the Apiary: **[Deeplake](https://deeplake.ai)** gives identity somewhere durable and queryable to live, and **[Hivemind](https://github.com/activeloopai/hivemind)**, Activeloop's open-source agent-memory project, is the foundation Legion Code extended into Honeycomb.
@@ -233,7 +233,7 @@ Nectar's file identity and descriptions reach every harness through Honeycomb's 
 
 ## 🎛️ Other interfaces
 
-- **Dashboard.** The thehive portal's Source Graph page (PRD-015, spec stage), fed by Nectar's `/api/source-graph/*` endpoints (PRD-008). Nectar deliberately owns no dashboard of its own.
+- **Dashboard.** The hive portal's Hive Graph page (PRD-015, spec stage), fed by Nectar's `/api/hive-graph/*` endpoints (PRD-008). Nectar deliberately owns no dashboard of its own.
 - **MCP server.** Nectar does not ship a separate MCP server; its results surface through Honeycomb's existing MCP recall tools once the recall arm (PRD-013) lands. One boundary, not two.
 - **TypeScript SDK.** `@legioncodeinc/nectar` ships a typed `dist/index` entry today. It is early: the daemon and service lifecycle are the real surface right now, and the SDK grows as the API endpoints (PRD-008) land.
 

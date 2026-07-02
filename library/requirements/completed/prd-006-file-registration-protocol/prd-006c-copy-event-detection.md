@@ -8,13 +8,13 @@
 
 This sub-PRD owns the **copy detector** — the special case of a `NEW` path (006b) whose content hash exactly matches an existing file's **current** content. The detector runs ahead of the ladder's step 5 (mint new) for every `NEW` path that survives steps 3 and 4 (i.e., its content does not match any *missing* file). When the match is to an existing file's *current* content, the daemon mints a **fresh nectar N2** for the new path and records provenance back to the source nectar N1 via `derived_from_nectar` + `fork_content_hash`. This is the case minted identity handles best and source-embedded serials handle worst: the copy is its own identity, permanently linked to its source.
 
-The contract is carried verbatim from [`identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) § "Copy-paste as a first-class provenance edge", including the `classifyNewFile` logic and the resulting `source_graph` row shape. This sub-PRD specifies when the detector runs in the cycle, how it distinguishes a copy from a missing-file move, and the deliberate ambiguity it accepts (two independent files with identical content).
+The contract is carried verbatim from [`identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) § "Copy-paste as a first-class provenance edge", including the `classifyNewFile` logic and the resulting `hive_graph` row shape. This sub-PRD specifies when the detector runs in the cycle, how it distinguishes a copy from a missing-file move, and the deliberate ambiguity it accepts (two independent files with identical content).
 
 ## Goals
 
 - Specify that the copy detector runs on every `NEW` path that survives ladder steps 3 and 4, comparing the new path's hash against existing files' **current** content.
 - Carry the `classifyNewFile` logic verbatim from `identity-and-reassociation.md`: hash match to an existing file's current content → `action: "copy"` with `sourceNectar`; else → `action: "mint"`.
-- Pin the resulting `source_graph` row: fresh nectar N2, `derived_from_nectar = N1`, `fork_content_hash = H1` (the source's content at copy time).
+- Pin the resulting `hive_graph` row: fresh nectar N2, `derived_from_nectar = N1`, `fork_content_hash = H1` (the source's content at copy time).
 - Specify the ordering against the missing-files set (step 3/4 vs copy detection) so a move is never mistaken for a copy.
 - Document the accepted ambiguity (two independent identical files) and its low cost, carried from the corpus.
 
@@ -55,11 +55,11 @@ function classifyNewFile(
 }
 ```
 
-The lookup is keyed by **latest (current) content hash**, not by historical version hashes. A match means "another file that exists right now has this exact content." The `knownNectars` map is built from `source_graph` + the latest `source_graph_versions` row per nectar (PRD-005), scoped by the project tenancy filter (`org_id` + `workspace_id` + `project_id`).
+The lookup is keyed by **latest (current) content hash**, not by historical version hashes. A match means "another file that exists right now has this exact content." The `knownNectars` map is built from `hive_graph` + the latest `hive_graph_versions` row per nectar (PRD-005), scoped by the project tenancy filter (`org_id` + `workspace_id` + `project_id`).
 
 ### The minted row
 
-When `classifyNewFile` returns `action: "copy"`, the daemon mints a **fresh nectar N2** (ULID, per the minting contract) and writes the `source_graph` identity row with provenance. The row shape is carried verbatim from the corpus:
+When `classifyNewFile` returns `action: "copy"`, the daemon mints a **fresh nectar N2** (ULID, per the minting contract) and writes the `hive_graph` identity row with provenance. The row shape is carried verbatim from the corpus:
 
 ```
 nectar: N2
@@ -69,7 +69,7 @@ derived_from_nectar: N1      # provenance back to A (the source)
 fork_content_hash: H1        # A's content at the moment of copy
 ```
 
-`derived_from_nectar` and `fork_content_hash` are columns on the `source_graph` table (defined in PRD-005a). The initial `source_graph_versions` row for N2 carries `content_hash = H1`, `path = <new path>`, and `describe_status = 'pending'` — the new file is enqueued for enrichment like any mint, but the description may be inherited from N1's current description via the meaningful-change heuristic (PRD-016) since the content is identical at copy time.
+`derived_from_nectar` and `fork_content_hash` are columns on the `hive_graph` table (defined in PRD-005a). The initial `hive_graph_versions` row for N2 carries `content_hash = H1`, `path = <new path>`, and `describe_status = 'pending'` — the new file is enqueued for enrichment like any mint, but the description may be inherited from N1's current description via the meaningful-change heuristic (PRD-016) since the content is identical at copy time.
 
 The result, per the corpus: "B is its own identity (N2), and yet it is permanently linked to A (N1) through `derived_from_nectar`. When B is later edited and its content diverges from A, the link survives."
 
@@ -87,7 +87,7 @@ The copy detector and the ladder's missing-file steps (3, 4) are mutually exclus
 
 - [ ] The copy detector runs on every `NEW` path **after** ladder steps 3 and 4 fail to match it to a missing file (ordering is load-bearing: missing-file match takes precedence).
 - [ ] The detection logic matches `classifyNewFile` in `identity-and-reassociation.md` § "Copy-paste as a first-class provenance edge" verbatim: hash match to an existing file's **current** content → `action: "copy"`; else → `action: "mint"`.
-- [ ] On a copy, the daemon mints a **fresh nectar N2** (never carries the source's nectar) and writes `source_graph` with `derived_from_nectar = N1` + `fork_content_hash = H1` (the source's content at copy time).
+- [ ] On a copy, the daemon mints a **fresh nectar N2** (never carries the source's nectar) and writes `hive_graph` with `derived_from_nectar = N1` + `fork_content_hash = H1` (the source's content at copy time).
 - [ ] The `knownNectars` lookup is keyed by latest (current) content hash, scoped by `org_id` + `workspace_id` + `project_id` (PRD-005c); re-association never crosses project boundaries.
 - [ ] The accepted ambiguity (two independent identical files both treated as copies) is documented; no disambiguation is attempted in v1; `derived_kind: 'coincidental'` vs `'fork'` is a named future enrichment, not shipped.
 - [ ] A copy never carries the source's nectar (collapsing two logical files into one identity is the failure mode the corpus warns against).
@@ -97,6 +97,6 @@ The copy detector and the ladder's missing-file steps (3, 4) are mutually exclus
 - [PRD-006 index](./prd-006-file-registration-protocol-index.md) — module scope.
 - [PRD-006b](./prd-006b-event-to-ladder-step-classification.md) — the `NEW`-path class the detector consumes.
 - [PRD-006d](./prd-006d-reassociation-ladder.md) — steps 3 and 4 (which must miss before the detector runs) + step 5 (the bare mint the copy specializes).
-- [PRD-005a](../prd-005-source-graph-catalog-tables/prd-005a-source-graph-table.md) — `source_graph` columns `derived_from_nectar` + `fork_content_hash`.
+- [PRD-005a](../prd-005-hive-graph-catalog-tables/prd-005a-hive-graph-table.md) — `hive_graph` columns `derived_from_nectar` + `fork_content_hash`.
 - [`knowledge/private/ai/identity-and-reassociation.md`](../../../knowledge/private/ai/identity-and-reassociation.md) § "Copy-paste as a first-class provenance edge" — the authoritative `classifyNewFile` logic + row shape + accepted ambiguity (carried verbatim).
 - [`knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../../../knowledge/private/architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md) — the identity decision that makes copy provenance possible (and that source-embedded serials cannot produce).

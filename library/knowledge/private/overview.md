@@ -1,29 +1,29 @@
-# Hivenectar Overview
+# Nectar Overview
 
 > Category: Overview | Version: 1.0 | Date: June 2026 | Status: Draft
 
-What Hivenectar is, the problem it solves that the structural CodeGraph cannot, how it differs from every code-indexing tool in the market today, and where to read next.
+What Nectar is, the problem it solves that the structural CodeGraph cannot, how it differs from every code-indexing tool in the market today, and where to read next.
 
 **Related:**
 - [`architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md)
-- [`data/source-graph-schema.md`](data/source-graph-schema.md)
+- [`data/hive-graph-schema.md`](data/hive-graph-schema.md)
 - [`ai/identity-and-reassociation.md`](ai/identity-and-reassociation.md)
 - [`ai/brooding-pipeline.md`](ai/brooding-pipeline.md)
 - [`ai/enricher-and-llm-model.md`](ai/enricher-and-llm-model.md)
 - [`data/recall-integration.md`](data/recall-integration.md)
 - [`data/portable-registry.md`](data/portable-registry.md)
 - [`reference/prior-art-crosswalk.md`](reference/prior-art-crosswalk.md)
-- [`architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md)
+- [`architecture/ADR-0003-three-daemon-topology-and-hive-portal.md`](architecture/ADR-0003-three-daemon-topology-and-hive-portal.md)
 
 ---
 
-## What Hivenectar is
+## What Nectar is
 
-Hivenectar gives every file in a project a **stable identity** and a **human-and-machine-readable description**, then serves both back through semantic search so an agent can answer *"give me everything associated with logins"* and receive files scattered across directories that are not named `login-*`. It is a semantic memory layer over the source tree, distinct from but complementary to the existing structural CodeGraph.
+Nectar gives every file in a project a **stable identity** and a **human-and-machine-readable description**, then serves both back through semantic search so an agent can answer *"give me everything associated with logins"* and receive files scattered across directories that are not named `login-*`. It is a semantic memory layer over the source tree, distinct from but complementary to the existing structural CodeGraph.
 
-The component that builds and maintains this layer is the **Hivenectar daemon** (the `hiveantennae` process), an independent workload daemon supervised by **hivedoctor** rather than a worker inside the Honeycomb daemon (see `architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`). The broader topology is three-daemon: hivedoctor is the minimal supervisor with a daemon registry, **thehive** is the always-on portal daemon that hosts the unified dashboard, and Honeycomb/Hivenectar are workload daemons surfaced through that portal (see `architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`). Hivenectar watches the project directory, mints identity for new files, re-associates identity after moves and edits, and lazily describes file contents through a cheap long-context LLM. The descriptions and their embeddings are persisted in Deep Lake alongside the existing memory tables, so they participate in the same hybrid recall pipeline that already serves session and skill memory.
+The component that builds and maintains this layer is the **Nectar daemon** (the `hiveantennae` process), an independent workload daemon supervised by **doctor** rather than a worker inside the Honeycomb daemon (see `architecture/ADR-0002-nectar-independent-daemon-supervised-by-doctor.md`). The broader topology is three-daemon: doctor is the minimal supervisor with a daemon registry, **hive** is the always-on portal daemon that hosts the unified dashboard, and Honeycomb/Nectar are workload daemons surfaced through that portal (see `architecture/ADR-0003-three-daemon-topology-and-hive-portal.md`). Nectar watches the project directory, mints identity for new files, re-associates identity after moves and edits, and lazily describes file contents through a cheap long-context LLM. The descriptions and their embeddings are persisted in Deep Lake alongside the existing memory tables, so they participate in the same hybrid recall pipeline that already serves session and skill memory.
 
-Hivenectar is named for its function. The hive is the team of agents and engineers working in the repo. The antennae are what sense the environment — what files exist, what they mean, how they relate. A *nectar* is the minted identity record for a single file: small, stable, and the raw material from which richer understanding is produced.
+Nectar is named for its function. The hive is the team of agents and engineers working in the repo. The antennae are what sense the environment — what files exist, what they mean, how they relate. A *nectar* is the minted identity record for a single file: small, stable, and the raw material from which richer understanding is produced.
 
 ---
 
@@ -31,7 +31,7 @@ Hivenectar is named for its function. The hive is the team of agents and enginee
 
 The existing CodeGraph (see `data/codebase-graph.md` in the main Honeycomb corpus) builds a live graph of files, symbols, and edges from source using tree-sitter. It answers *"who calls this function"*, *"what is the blast radius of changing this symbol"*, and *"walk me through this subsystem"*. It does this by extracting AST facts: `function`, `class`, `calls`, `extends`, `imports`. It never consults an LLM, and that is a deliberate choice — the graph is fast, deterministic, and reproducible byte-for-byte from the same source.
 
-But the CodeGraph cannot answer *"where is the login logic"*. It can find a symbol named `login` or `authenticate`, but it has no concept of what those symbols *mean*, and it has no way to surface a file like `src/middleware/session-refresh.ts` (which implements a critical piece of login behavior) unless the agent already knows to look for it by name. Structural identity is about *how code is wired*. Semantic identity is about *what code is for*. Hivenectar provides the second without compromising the first.
+But the CodeGraph cannot answer *"where is the login logic"*. It can find a symbol named `login` or `authenticate`, but it has no concept of what those symbols *mean*, and it has no way to surface a file like `src/middleware/session-refresh.ts` (which implements a critical piece of login behavior) unless the agent already knows to look for it by name. Structural identity is about *how code is wired*. Semantic identity is about *what code is for*. Nectar provides the second without compromising the first.
 
 ```mermaid
 flowchart LR
@@ -40,7 +40,7 @@ flowchart LR
         ast --> sym[symbols: function, class, method]
         ast --> edge[edges: calls, extends, imports]
     end
-    subgraph semantic[Hivenectar - semantic]
+    subgraph semantic[Nectar - semantic]
         desc[LLM title + description]
         desc --> emb[768-dim embedding]
         desc --> concepts[concept tags]
@@ -66,7 +66,7 @@ The rejected alternative — embedding a serial number in a first-line comment o
 
 Files are described on demand, not eagerly. A nectar can exist for hours or days with a null description; the enricher fills it the first time recall might surface it, or on a debounced watch trigger after a meaningful edit. The model is **Gemini 2.5 Flash** routed through the existing Portkey gateway: ~$0.30 per million input tokens for the ≤200K tier and a true 1M-token context window, which lets the brooder batch 30–50 small files per call instead of one-per-call. The cost math is documented in `ai/brooding-pipeline.md`; the full brooding pass on a 2000-file repository lands under $2.
 
-Long context is the load-bearing property here, not raw cheapness. A model with a 200K window (Haiku, Sonnet) can describe one large file or a few small ones per call; a model with a 1M window can describe an entire directory of small files in a single round-trip, collapsing the per-file cost by an order of magnitude. This is why Hivenectar specifies Gemini 2.5 Flash specifically, not "the cheapest available model."
+Long context is the load-bearing property here, not raw cheapness. A model with a 200K window (Haiku, Sonnet) can describe one large file or a few small ones per call; a model with a 1M window can describe an entire directory of small files in a single round-trip, collapsing the per-file cost by an order of magnitude. This is why Nectar specifies Gemini 2.5 Flash specifically, not "the cheapest available model."
 
 ### 3. Durable state in Deep Lake, with a portable projection
 
@@ -78,7 +78,7 @@ A single committed, reviewable file — `.honeycomb/nectars.json` at the project
 
 ## The hiveantennae daemon
 
-hiveantennae is the **Hivenectar daemon** — an independent OS process registered with and supervised by **hivedoctor**, not a worker inside the Honeycomb daemon (per `ADR-0002` and `ADR-0003`). It owns its own Deep Lake client, auth context, scoping, and observability within hivedoctor's supervised lifecycle. It is parallel to (not a phase of) the Honeycomb daemon's codebase-graph worker: the graph worker is build-triggered and on-demand; hiveantennae is watch-driven and continuous. The two write to disjoint Deep Lake tables and run without coordination; Honeycomb recall reads Hivenectar rows through a guarded source-graph arm at query time. Dashboard surfaces for those rows are hosted by thehive, which fetches from Hivenectar's API.
+hiveantennae is the **Nectar daemon** — an independent OS process registered with and supervised by **doctor**, not a worker inside the Honeycomb daemon (per `ADR-0002` and `ADR-0003`). It owns its own Deep Lake client, auth context, scoping, and observability within doctor's supervised lifecycle. It is parallel to (not a phase of) the Honeycomb daemon's codebase-graph worker: the graph worker is build-triggered and on-demand; hiveantennae is watch-driven and continuous. The two write to disjoint Deep Lake tables and run without coordination; Honeycomb recall reads Nectar rows through a guarded hive-graph arm at query time. Dashboard surfaces for those rows are hosted by hive, which fetches from Nectar's API.
 
 ```mermaid
 flowchart TD
@@ -91,7 +91,7 @@ flowchart TD
     queueEnrich --> enricher[enricher worker]
     enricher -->|Gemini 2.5 Flash via Portkey| descMint[title + description + concepts]
     descMint --> embed[768-dim embedding]
-    versionAppend --> deeplake[(Deep Lake - source_graph)]
+    versionAppend --> deeplake[(Deep Lake - hive_graph)]
     descMint --> deeplake
     embed --> deeplake
     deeplake --> projection[regenerate nectars.json]
@@ -110,34 +110,34 @@ The worker has four operating modes, all documented in their own pages:
 
 ## The data model in one paragraph
 
-Two tables. `source_graph` is one row per logical file, keyed by nectar (ULID primary key), carrying creation time, optional provenance (`derived_from_nectar`, `fork_content_hash`), and a `kind` discriminator reserved for future directory support. `source_graph_versions` is append-only, one row per observed state of a file, keyed by `(nectar, content_hash)`: it carries the current path, extension, size, mtime, and the LLM-minted `title`, `description`, `embedding`, and `concepts` (filled lazily, nullable until the enricher runs). "Current state of file X" is the latest version row for its nectar. "History of file X" is all its version rows. The full DDL is in `data/source-graph-schema.md`.
+Two tables. `hive_graph` is one row per logical file, keyed by nectar (ULID primary key), carrying creation time, optional provenance (`derived_from_nectar`, `fork_content_hash`), and a `kind` discriminator reserved for future directory support. `hive_graph_versions` is append-only, one row per observed state of a file, keyed by `(nectar, content_hash)`: it carries the current path, extension, size, mtime, and the LLM-minted `title`, `description`, `embedding`, and `concepts` (filled lazily, nullable until the enricher runs). "Current state of file X" is the latest version row for its nectar. "History of file X" is all its version rows. The full DDL is in `data/hive-graph-schema.md`.
 
 ---
 
 ## How recall uses it
 
-Hivenectar plugs into the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank). Honeycomb adds a guarded source-graph recall arm over `source_graph_versions` (latest-per-nectar, description non-null), weighted to contribute alongside session, memory, and skill hits. The arm follows Honeycomb's per-arm fail-soft pattern: if the Hivenectar table is missing in a fresh workspace, that arm returns empty while the other recall arms still answer. An agent query like *"everything associated with logins"* now returns both structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as "refreshes JWT claims on each authenticated request, part of the login session lifecycle"). The wiring is documented in `data/recall-integration.md`.
+Nectar plugs into the existing hybrid recall pipeline (BM25 lexical + 768-dim vector, fused by reciprocal rank). Honeycomb adds a guarded hive-graph recall arm over `hive_graph_versions` (latest-per-nectar, description non-null), weighted to contribute alongside session, memory, and skill hits. The arm follows Honeycomb's per-arm fail-soft pattern: if the Nectar table is missing in a fresh workspace, that arm returns empty while the other recall arms still answer. An agent query like *"everything associated with logins"* now returns both structural hits (the CodeGraph's `find/authenticate`) and semantic hits (the `session-refresh.ts` middleware described as "refreshes JWT claims on each authenticated request, part of the login session lifecycle"). The wiring is documented in `data/recall-integration.md`.
 
 ---
 
-## What Hivenectar is not
+## What Nectar is not
 
-- **Not a replacement for the CodeGraph.** The CodeGraph answers structural questions deterministically; Hivenectar answers semantic questions probabilistically. Both ship.
+- **Not a replacement for the CodeGraph.** The CodeGraph answers structural questions deterministically; Nectar answers semantic questions probabilistically. Both ship.
 - **Not an LSP.** hiveantennae does not resolve types, run compilers, or produce compiler-accurate references. The structural CodeGraph and any future LSP layer own that.
 - **Not eager.** A file can exist in Deep Lake with a null description for as long as nobody asks about it. Description is a cache, not a prerequisite.
 - **Not a source mutation.** No file on disk is ever edited by hiveantennae. The only file hiveantennae writes is the committed `.honeycomb/nectars.json` projection, and even that is regenerable.
 - **Not a separate database.** Deep Lake is the store. The "SQLite would be faster" instinct is addressed and rejected in `ADR-0001`.
-- **Not the portal host.** Hivenectar exposes Source Graph APIs and status; the unified dashboard and Source Graph page live in thehive.
+- **Not the portal host.** Nectar exposes Hive Graph APIs and status; the unified dashboard and Hive Graph page live in hive.
 
 ---
 
 ## Reading guide
 
-New to Hivenectar: this overview, then [`data/source-graph-schema.md`](data/source-graph-schema.md), then [`ai/identity-and-reassociation.md`](ai/identity-and-reassociation.md).
+New to Nectar: this overview, then [`data/hive-graph-schema.md`](data/hive-graph-schema.md), then [`ai/identity-and-reassociation.md`](ai/identity-and-reassociation.md).
 
 Understanding the identity decision: [`architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md) (read this before arguing about serials-in-source).
 
-Understanding the process topology: [`architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md`](architecture/ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md), then [`architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md`](architecture/ADR-0003-three-daemon-topology-and-thehive-portal.md).
+Understanding the process topology: [`architecture/ADR-0002-nectar-independent-daemon-supervised-by-doctor.md`](architecture/ADR-0002-nectar-independent-daemon-supervised-by-doctor.md), then [`architecture/ADR-0003-three-daemon-topology-and-hive-portal.md`](architecture/ADR-0003-three-daemon-topology-and-hive-portal.md).
 
 Implementing the worker: [`ai/brooding-pipeline.md`](ai/brooding-pipeline.md), [`ai/enricher-and-llm-model.md`](ai/enricher-and-llm-model.md), [`ai/identity-and-reassociation.md`](ai/identity-and-reassociation.md).
 
@@ -158,7 +158,7 @@ Each of the nine core documents above has been expanded into a five-document dee
 | `ai/identity-and-reassociation.md` | [`ai/identity-deep-dive/`](ai/identity-deep-dive/) |
 | `ai/brooding-pipeline.md` | [`ai/brooding-deep-dive/`](ai/brooding-deep-dive/) |
 | `ai/enricher-and-llm-model.md` | [`ai/enricher-deep-dive/`](ai/enricher-deep-dive/) |
-| `data/source-graph-schema.md` | [`data/source-graph-deep-dive/`](data/source-graph-deep-dive/) |
+| `data/hive-graph-schema.md` | [`data/hive-graph-deep-dive/`](data/hive-graph-deep-dive/) |
 | `data/portable-registry.md` | [`data/portable-registry-deep-dive/`](data/portable-registry-deep-dive/) |
 | `data/recall-integration.md` | [`data/recall-integration-deep-dive/`](data/recall-integration-deep-dive/) |
 | `reference/prior-art-crosswalk.md` | [`reference/prior-art-deep-dive/`](reference/prior-art-deep-dive/) |

@@ -12,7 +12,7 @@ import type { DimRejection } from "../dist/embeddings/guard.js";
 import { resolveEmbedProvider } from "../dist/embeddings/provider.js";
 import { resolveEmbeddingsConfig } from "../dist/embeddings/config.js";
 import type { LocalNomicTransport } from "../dist/embeddings/local-nomic.js";
-import { EMBED_DIMS } from "../dist/source-graph/model.js";
+import { EMBED_DIMS } from "../dist/hive-graph/model.js";
 
 // ── AC-3: wrong-dim from the LOCAL provider is discarded ───────────────────────
 
@@ -41,11 +41,11 @@ test("014-AC-3 a 767-dim vector from the cohere provider is discarded to null an
     status: 200,
     text: async () => JSON.stringify({ data: [{ embedding: new Array(767).fill(0.1), index: 0 }] }),
   });
-  const config = resolveEmbeddingsConfig({ selector: "cohere", cohere: { apiKey: "k", configId: "c" }, env: {} });
+  const config = resolveEmbeddingsConfig({ selector: "hosted", hosted: { apiKey: "k", configId: "c" }, env: {} });
   const provider = resolveEmbedProvider(config, { fetch, onDimRejected: (r) => rejections.push(r) });
   const out = await provider.embed(["x"]);
   assert.deepEqual(out, [null]);
-  assert.equal(rejections[0]?.provider, "cohere");
+  assert.equal(rejections[0]?.provider, "hosted");
   assert.equal(rejections[0]?.expected, EMBED_DIMS);
   assert.equal(rejections[0]?.actual, 767);
 });
@@ -56,15 +56,15 @@ test("014-AC-3 guardVector passes a valid 768-dim vector and null, discards any 
   const valid = new Array(EMBED_DIMS).fill(0.3);
   assert.equal(guardVector(valid, "local"), valid);
   assert.equal(guardVector(null, "local"), null);
-  assert.equal(guardVector(new Array(10).fill(1), "cohere"), null);
-  assert.equal(guardVector(new Array(1536).fill(1), "cohere"), null);
+  assert.equal(guardVector(new Array(10).fill(1), "hosted"), null);
+  assert.equal(guardVector(new Array(1536).fill(1), "hosted"), null);
 });
 
 test("014-AC-3 a mixed batch discards only the wrong-dim entries and keeps the valid ones", async () => {
   const rejections: DimRejection[] = [];
   // A raw provider stub: first vector valid, second wrong-dim, third null.
   const raw = {
-    kind: "cohere" as const,
+    kind: "hosted" as const,
     async embed(): Promise<(number[] | null)[]> {
       return [new Array(768).fill(0.1), new Array(5).fill(0.2), null];
     },

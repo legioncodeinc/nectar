@@ -2,12 +2,12 @@
 
 > Category: QA Report | Version: 1.0 | Date: July 2026 | Status: Active
 
-Conformance audit of PRD-016 (index + 016a/016b/016c) against the Hivenectar knowledge corpus and the cited Honeycomb code, armed with quality-stinger + hivenectar-stinger. This is the Wave-0 spec-QA gate (blocker B-1): no implementation exists yet. Every acceptance criterion and load-bearing claim was traced to `ai/enricher-and-llm-model.md` (AUTHORITATIVE: the enricher contract, the two debounce layers, the meaningful-change heuristic, rate limiting, failure modes), `data/source-graph-schema.md` (the `describe_status` enum and `source_graph_versions` columns the enricher drives), the `PRD-003-016-DEPENDENCY-MAP.md` / `PRD-DECISIONS-AND-DEFAULTS.md` decision ledger, and the real files under `honeycomb/src/daemon/runtime/services/poll-loop.ts`, `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts`, and `honeycomb/src/daemon/runtime/services/file-watcher.ts`. Matches the bar and format of the PRD-005 and PRD-010 reports.
+Conformance audit of PRD-016 (index + 016a/016b/016c) against the Nectar knowledge corpus and the cited Honeycomb code, armed with quality-stinger + hivenectar-stinger. This is the Wave-0 spec-QA gate (blocker B-1): no implementation exists yet. Every acceptance criterion and load-bearing claim was traced to `ai/enricher-and-llm-model.md` (AUTHORITATIVE: the enricher contract, the two debounce layers, the meaningful-change heuristic, rate limiting, failure modes), `data/hive-graph-schema.md` (the `describe_status` enum and `hive_graph_versions` columns the enricher drives), the `PRD-003-016-DEPENDENCY-MAP.md` / `PRD-DECISIONS-AND-DEFAULTS.md` decision ledger, and the real files under `honeycomb/src/daemon/runtime/services/poll-loop.ts`, `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts`, and `honeycomb/src/daemon/runtime/services/file-watcher.ts`. Matches the bar and format of the PRD-005 and PRD-010 reports.
 
 **Related:**
 - [`../prd-016-enricher-steady-state-index.md`](../prd-016-enricher-steady-state-index.md)
 - [`../../../knowledge/private/ai/enricher-and-llm-model.md`](../../../knowledge/private/ai/enricher-and-llm-model.md)
-- [`../../../knowledge/private/data/source-graph-schema.md`](../../../knowledge/private/data/source-graph-schema.md)
+- [`../../../knowledge/private/data/hive-graph-schema.md`](../../../knowledge/private/data/hive-graph-schema.md)
 - [`../../PRD-003-016-DEPENDENCY-MAP.md`](../../PRD-003-016-DEPENDENCY-MAP.md)
 - [`../../PRD-DECISIONS-AND-DEFAULTS.md`](../../PRD-DECISIONS-AND-DEFAULTS.md)
 
@@ -73,7 +73,7 @@ By contrast, the index's Non-Goals section explicitly calls out every other touc
 | AC-2: multiple `(eventType, filename)` events within the 500ms window collapse to one signal | `ai/enricher-and-llm-model.md` § Watcher intake debounce (window described, not numbered — see W-6 for the number's true source) | PASS (behavior grounded; numeric-attribution precision flagged W-6) |
 | AC-3: Jaccard ≥ 0.85 → cosmetic → inherit title/description/concepts/embedding, `describe_model = inherited-from:<prev_content_hash>`, no LLM call | `ai/enricher-and-llm-model.md` § The "meaningful change" heuristic (step 3, verbatim) | PASS |
 | AC-4: Jaccard < 0.85 → meaningful → enters pending queue | `ai/enricher-and-llm-model.md` § The "meaningful change" heuristic (step 4) | PASS |
-| AC-5: `describe_model` records the producing model id | `ai/enricher-and-llm-model.md` § Why Gemini 2.5 Flash specifically; `data/source-graph-schema.md:108` (`describe_model` column doc) | PASS |
+| AC-5: `describe_model` records the producing model id | `ai/enricher-and-llm-model.md` § Why Gemini 2.5 Flash specifically; `data/hive-graph-schema.md:108` (`describe_model` column doc) | PASS |
 | AC-6: batch fails all Portkey retries → `describe_status = 'failed'`, retried solo next cycle | `ai/enricher-and-llm-model.md` § Rate limiting; § Failure modes and observability (verbatim table) | PASS |
 | AC-7: 5 consecutive failed cycles (default) → dashboard alert, enrichment halts until ack | `ai/enricher-and-llm-model.md` § Rate limiting — "default: 5 consecutive cycles" (verbatim) | PASS |
 
@@ -96,9 +96,9 @@ Code-citation spot-check: `honeycomb/src/daemon/runtime/services/poll-loop.ts:1-
 
 | AC | Source | Verdict |
 |---|---|---|
-| AC-016b.1.1: enricher calls model via Portkey `/v1/chat/completions` (PRD-010 transport) with version row content | `ai/enricher-and-llm-model.md` § What Hivenectar needs from the model; PRD-010a (transport owner, not re-specified here) | PASS |
-| AC-016b.1.2: valid description object → `title`/`description`/`concepts` written, `describe_status='described'` | `data/source-graph-schema.md:101-103` (column purposes) | PASS |
-| AC-016b.2.1: LLM-produced description → `describe_model` records producing model id | `ai/enricher-and-llm-model.md` § Why Gemini 2.5 Flash specifically; `data/source-graph-schema.md:108` | PASS |
+| AC-016b.1.1: enricher calls model via Portkey `/v1/chat/completions` (PRD-010 transport) with version row content | `ai/enricher-and-llm-model.md` § What Nectar needs from the model; PRD-010a (transport owner, not re-specified here) | PASS |
+| AC-016b.1.2: valid description object → `title`/`description`/`concepts` written, `describe_status='described'` | `data/hive-graph-schema.md:101-103` (column purposes) | PASS |
+| AC-016b.2.1: LLM-produced description → `describe_model` records producing model id | `ai/enricher-and-llm-model.md` § Why Gemini 2.5 Flash specifically; `data/hive-graph-schema.md:108` | PASS |
 | AC-016b.2.2: cosmetic inheritance → `describe_model = inherited-from:<prev_content_hash>` | `ai/enricher-and-llm-model.md` § The "meaningful change" heuristic step 3 | PASS |
 | AC-016b.3.1: description written + embeddings on → 768-dim embedding over `title + ' ' + description` via configured provider | `ai/enricher-and-llm-model.md` § Embeddings (verbatim: "computes a 768-dim embedding over `title + ' ' + description`") | PASS |
 | AC-016b.3.2: embeddings off → embedding NULL, `describe_status='described'`, BM25 fallback, no error | `ai/enricher-and-llm-model.md` § Embeddings ("no error, no quality cliff, just lexical-only recall") | PASS |
@@ -111,12 +111,12 @@ Code-citation spot-check: `honeycomb/src/daemon/runtime/services/poll-loop.ts:1-
 | AC-016c.1.2: retry still fails → each row marked `failed`, processed solo next cycle | `ai/enricher-and-llm-model.md` § Failure modes and observability (verbatim table row 1) | PASS |
 | AC-016c.1.3: wrong-length response → same retry-then-solo path | `ai/enricher-and-llm-model.md` § Failure modes and observability (verbatim table row 2) | PASS |
 | AC-016c.2.1: batch exceeds context window → split in half, retried | `ai/enricher-and-llm-model.md` § Failure modes and observability (verbatim table row 4) | PASS |
-| AC-016c.3.1: file deleted while pending → `describe_status='skipped-deleted'` next cycle, no LLM call | `ai/enricher-and-llm-model.md` § Failure modes and observability (verbatim table row 6); `data/source-graph-schema.md:109` (enum incl. `skipped-deleted`, decision #14) | PASS |
+| AC-016c.3.1: file deleted while pending → `describe_status='skipped-deleted'` next cycle, no LLM call | `ai/enricher-and-llm-model.md` § Failure modes and observability (verbatim table row 6); `data/hive-graph-schema.md:109` (enum incl. `skipped-deleted`, decision #14) | PASS |
 | AC-016c.4.1: 5 consecutive failed cycles (default) → dashboard alert | `ai/enricher-and-llm-model.md` § Rate limiting (verbatim "default: 5 consecutive cycles") | PASS |
 | AC-016c.4.2: alert raised → enrichment halts until operator acknowledges | `ai/enricher-and-llm-model.md` § Rate limiting (verbatim, incl. the corpus's own capitalization of "Acknowledges," see N-1) | PASS |
 | AC-016c.4.3: cycle succeeds before threshold → counter resets to zero | Corpus does not state this explicitly; reasonable implication of "consecutive," not a hallucinated number (no numeric claim made) | PASS (no grounding risk — behavioral inference, not a fabricated figure) |
 | AC-016c.5.1: every cycle logs described/inherited/failed/tokens/cost | `ai/enricher-and-llm-model.md` § Failure modes and observability ("Every enricher cycle logs...") | PASS |
-| AC-016c.5.2: dashboard surfaces rolling 24h cost counter + queue-depth gauge via PRD-008 status endpoint | `ai/enricher-and-llm-model.md` § Failure modes and observability; PRD-008 index (`/api/source-graph/status`, SOFT dep, correctly Non-Goal'd) | PASS |
+| AC-016c.5.2: dashboard surfaces rolling 24h cost counter + queue-depth gauge via PRD-008 status endpoint | `ai/enricher-and-llm-model.md` § Failure modes and observability; PRD-008 index (`/api/hive-graph/status`, SOFT dep, correctly Non-Goal'd) | PASS |
 
 Code-citation spot-check: `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts:236-260` is exact — the cited span is precisely the `processLeased` method (kind-routing guard → `handler(job)` in a try → `queue.complete` on success → `queue.fail` in the catch), matching the claimed "route → run → complete/fail harness shape ... handler throws → `queue.fail`." **Zero drift.**
 
@@ -126,7 +126,7 @@ Code-citation spot-check: `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts
 - **Symbol/directory-level description remains a stated v1 non-goal.** Not re-litigated anywhere in PRD-016.
 - **Automatic re-description on model swap is correctly excluded** as a Non-Goal (index, 016b), matching the corpus's "What the enricher explicitly does not do" and PRD-010b's `brood --force --model <new>` ownership.
 - **No double-retry logic is invented.** 016c explicitly defers all transient-429/5xx backoff to Portkey/PRD-010 and scopes its own retry to the content-level malformed-JSON case only — matches `ai/enricher-and-llm-model.md` § Rate limiting exactly.
-- **The `skipped-deleted` enum value** is used correctly and consistently (016c) and matches decision #14 (`PRD-DECISIONS-AND-DEFAULTS.md` §A) and the corpus DDL description (`data/source-graph-schema.md:109`), which already lists all six `describe_status` values. No invented enum value.
+- **The `skipped-deleted` enum value** is used correctly and consistently (016c) and matches decision #14 (`PRD-DECISIONS-AND-DEFAULTS.md` §A) and the corpus DDL description (`data/hive-graph-schema.md:109`), which already lists all six `describe_status` values. No invented enum value.
 
 ## 8. High-risk surfaces verified verbatim / against source
 
@@ -137,7 +137,7 @@ Code-citation spot-check: `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts
 - `honeycomb/src/daemon/runtime/services/poll-loop.ts:1-227` (whole file, 227 lines) and `:192-227` (`buildWorkerPollLoop`) — exact, zero drift.
 - `honeycomb/src/daemon/runtime/pipeline/stage-worker.ts:171` (`DEFAULT_POLL_INTERVAL_MS = 1_000`), `:210-217` (constructor wiring), `:236-260` (`processLeased`) — exact, zero drift across all three spans.
 - `honeycomb/src/daemon/runtime/services/file-watcher.ts:177` (`debounceMs = 500`) — confirmed live as the true origin of the 500ms figure (see W-6; the PRD's own citations don't pin this exact line, but the value itself is correct).
-- `data/source-graph-schema.md`'s `describe_status` enum (six values incl. `skipped-deleted`) and `describe_model`/`embedding`/`confidence` column docs — consistent with every 016-family claim.
+- `data/hive-graph-schema.md`'s `describe_status` enum (six values incl. `skipped-deleted`) and `describe_model`/`embedding`/`confidence` column docs — consistent with every 016-family claim.
 
 No fabricated values, no invented SQL-helper names, no invented enum values.
 
@@ -148,7 +148,7 @@ PRD-016's dependency profile per `PRD-003-016-DEPENDENCY-MAP.md` §4 is HARD-dep
 | Dependency | Grounded in PRD-016 text? | Where |
 |---|---|---|
 | 002 (daemon host) | Yes | Index Overview: "runs as a background loop inside the hiveantennae daemon" |
-| 005 (`source_graph_versions` rows) | Yes | Index Data model changes: "owned by PRD-005" |
+| 005 (`hive_graph_versions` rows) | Yes | Index Data model changes: "owned by PRD-005" |
 | 006 (re-association ladder feeds the queue) | Yes | Index Non-Goals; 016a Non-Goals + Related (post-fix, now correctly pointed at `completed/`) |
 | 010 (Portkey transport) | Yes | Index + 016b + 016c Non-Goals/Related (post-fix, now correctly pointed at `in-work/`) |
 | 011 (co-dependent projection trigger) | **Gap** | Only two passing "(PRD-011a)" mentions in 016b; the trigger relationship itself is undocumented — see W-7 |

@@ -3,13 +3,13 @@
  * US-014b.2 / 014c US-014c.3).
  *
  * The 768-dim contract is load-bearing: it ties to the `FLOAT4[768]` column and
- * `EMBED_DIMS` (`source-graph/model.ts`), matching `sessions.message_embedding`
+ * `EMBED_DIMS` (`hive-graph/model.ts`), matching `sessions.message_embedding`
  * and `memory.summary_embedding` so the hybrid recall vector index sees one
  * consistent dimensionality across every semantic arm
  * (`ai/enricher-and-llm-model.md` § Embeddings). A vector of the wrong dimension
  * from EITHER provider is discarded HERE — replaced with `null` so the caller
  * leaves the column NULL and recall degrades to BM25, never stored as valid
- * recall data. This is hivenectar's client-side mirror of honeycomb's
+ * recall data. This is nectar's client-side mirror of honeycomb's
  * `embed.dim_rejected` guard (`honeycomb .../embed-client.ts` returns `null` on
  * `parsed.vector.length !== EMBEDDING_DIMS`).
  *
@@ -18,7 +18,7 @@
  * concrete telemetry surface. The default sink is a no-op — a wrong-dim vector
  * still fails soft to `null` whether or not a sink is wired.
  */
-import { EMBED_DIMS, isValidEmbedding } from "../source-graph/model.js";
+import { EMBED_DIMS, isValidEmbedding } from "../hive-graph/model.js";
 import type { EmbedProvider, EmbedProviderSelector } from "./provider.js";
 
 /** One discarded-vector event: which provider produced it, the contract dim, and the actual length. */
@@ -42,7 +42,7 @@ export type DimRejectionSink = (rejection: DimRejection) => void;
  */
 export function stderrDimRejectionSink(rejection: DimRejection): void {
   process.stderr.write(
-    `hivenectar: embed.dim_rejected provider=${rejection.provider} expected=${rejection.expected} actual=${rejection.actual}\n`,
+    `nectar: embed.dim_rejected provider=${rejection.provider} expected=${rejection.expected} actual=${rejection.actual}\n`,
   );
 }
 

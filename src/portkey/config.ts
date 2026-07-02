@@ -1,8 +1,8 @@
 /**
- * Portkey + activeModel resolution for hivenectar (PRD-010).
+ * Portkey + activeModel resolution for nectar (PRD-010).
  *
  * Disabled or keyless Portkey is an explicit, testable `{ enabled: false }` state;
- * this module never throws at import time. Env names follow the `HIVENECTAR_*`
+ * this module never throws at import time. Env names follow the `NECTAR_*`
  * convention used by `src/config.ts`.
  */
 
@@ -53,36 +53,36 @@ function envBool(env: NodeJS.ProcessEnv, name: string): boolean | undefined {
  * Resolve Portkey enablement, credentials, and the active description model.
  *
  * Env layer (each flagged [DEFAULT - confirm before implementation] in PRD-010):
- *   - `HIVENECTAR_PORTKEY_ENABLED`     explicit on/off gate (absent => off)
- *   - `HIVENECTAR_PORTKEY_API_KEY`     Portkey API key (required when enabled)
- *   - `HIVENECTAR_PORTKEY_CONFIG`      `portkey.config` / virtual-key id (required when enabled)
- *   - `HIVENECTAR_ACTIVE_MODEL`        description model id (default `gemini-2.5-flash`, decision #29)
+ *   - `NECTAR_PORTKEY_ENABLED`     explicit on/off gate (absent => off)
+ *   - `NECTAR_PORTKEY_API_KEY`     Portkey API key (required when enabled)
+ *   - `NECTAR_PORTKEY_CONFIG`      `portkey.config` / virtual-key id (required when enabled)
+ *   - `NECTAR_ACTIVE_MODEL`        description model id (default `gemini-2.5-flash`, decision #29)
  */
 export function resolvePortkeyConfig(overrides: PortkeyConfigOverrides = {}): PortkeyRuntimeConfig {
   const env = overrides.env ?? process.env;
 
   const enabled =
     overrides.enabled ??
-    envBool(env, "HIVENECTAR_PORTKEY_ENABLED") ??
+    envBool(env, "NECTAR_PORTKEY_ENABLED") ??
     false;
 
   if (!enabled) {
     return { enabled: false, reason: "disabled" };
   }
 
-  const apiKey = overrides.apiKey ?? envStr(env, "HIVENECTAR_PORTKEY_API_KEY");
+  const apiKey = overrides.apiKey ?? envStr(env, "NECTAR_PORTKEY_API_KEY");
   if (apiKey === undefined) {
     return { enabled: false, reason: "missing_api_key" };
   }
 
-  const configId = overrides.configId ?? envStr(env, "HIVENECTAR_PORTKEY_CONFIG");
+  const configId = overrides.configId ?? envStr(env, "NECTAR_PORTKEY_CONFIG");
   if (configId === undefined) {
     return { enabled: false, reason: "missing_config_id" };
   }
 
   const activeModel =
     overrides.activeModel ??
-    envStr(env, "HIVENECTAR_ACTIVE_MODEL") ??
+    envStr(env, "NECTAR_ACTIVE_MODEL") ??
     DEFAULT_ACTIVE_MODEL;
 
   return { enabled: true, apiKey, configId, activeModel };

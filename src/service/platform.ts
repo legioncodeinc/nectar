@@ -1,9 +1,9 @@
 /**
- * Platform + scope resolution for hivenectar's OS service unit (PRD-003b).
+ * Platform + scope resolution for nectar's OS service unit (PRD-003b).
  *
- * hivenectar registers itself with the OS so it survives its own crash and a reboot,
- * mirroring hivedoctor's own self-registration module
- * (hivedoctor/src/service/platform.ts:1-187) with hivenectar's own label/unit/task
+ * nectar registers itself with the OS so it survives its own crash and a reboot,
+ * mirroring doctor's own self-registration module
+ * (doctor/src/service/platform.ts:1-187) with nectar's own label/unit/task
  * names and run command. WHICH service manager and at WHICH scope is decided here,
  * once, from three injected facts (the platform, the home dir, and whether the
  * process is privileged) so the rest of the service module is pure string + argv
@@ -24,7 +24,7 @@
 
 import { homedir, userInfo } from "node:os";
 
-/** The OS families hivenectar knows how to register a service on. */
+/** The OS families nectar knows how to register a service on. */
 export type ServicePlatform = "darwin" | "linux" | "win32";
 
 /** Which service manager backs a plan. */
@@ -64,7 +64,7 @@ export interface ServiceEnvironment {
   readonly home: string;
   /** True iff the process can install a system-scoped unit (root on POSIX, admin on Windows). */
   readonly privileged: boolean;
-  /** The absolute path to the `hivenectar` executable the unit will exec. */
+  /** The absolute path to the `nectar` executable the unit will exec. */
   readonly execPath: string;
   /**
    * Opt INTO system scope when privileged (enterprise path). Default false: even as root

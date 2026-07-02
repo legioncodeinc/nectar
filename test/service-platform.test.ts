@@ -13,12 +13,12 @@ function env(overrides: Partial<Parameters<typeof resolveServicePlan>[0]> = {}) 
     platform: "linux" as NodeJS.Platform,
     home: "/home/op",
     privileged: false,
-    execPath: "/usr/local/bin/hivenectar",
+    execPath: "/usr/local/bin/nectar",
     ...overrides,
   };
 }
 
-test("hivenectar's service constants follow the decision-#32 fleet scheme (short name `nectar`)", () => {
+test("nectar's service constants follow the decision-#32 fleet scheme (short name `nectar`)", () => {
   assert.equal(SERVICE_LABEL, "com.legioncode.nectar");
   assert.equal(SYSTEMD_UNIT_NAME, "nectar.service");
   assert.equal(WINDOWS_TASK_NAME, "nectar");

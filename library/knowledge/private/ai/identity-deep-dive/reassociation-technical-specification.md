@@ -10,7 +10,7 @@ The algorithmic contract for the re-association ladder: each of the five steps s
 - [`reassociation-user-stories.md`](reassociation-user-stories.md)
 - [`reassociation-ecosystem-story-arc.md`](reassociation-ecosystem-story-arc.md)
 - [`../enricher-and-llm-model.md`](../enricher-and-llm-model.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 - [`../../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md)
 
 ---
@@ -49,7 +49,7 @@ The fast path. If a file at a known path has the same mtime and byte size as the
 | Post-condition | The nectar's current version row is unchanged. |
 | Confidence handling | Not applicable — exact match, no ambiguity. |
 
-The mtime/size pair lives on `source_graph_versions` for the latest version of each nectar. The check is a single SELECT against the latest-version index, scoped by tenancy (`org_id`, `workspace_id`, `project_id`) and path. This step covers the vast majority of files on a typical cold boot — most files were not touched while the daemon was down.
+The mtime/size pair lives on `hive_graph_versions` for the latest version of each nectar. The check is a single SELECT against the latest-version index, scoped by tenancy (`org_id`, `workspace_id`, `project_id`) and path. This step covers the vast majority of files on a typical cold boot — most files were not touched while the daemon was down.
 
 mtime is treated as a cache key only, never as an authority. The predicate combines mtime with size; a path that fails step 1 is content-hashed before any step-2-through-5 decision is made. See the "does not trust mtime alone" contract in [`reassociation-conclusion-and-deliverables.md`](reassociation-conclusion-and-deliverables.md).
 
@@ -63,7 +63,7 @@ The path exists in Deep Lake under some nectar, but the content hash differs fro
 |---|---|
 | Input state | Latest version row for some nectar at the same `path`, with stored `content_hash`. |
 | Comparison predicate | `disk.path == row.path AND sha256(disk.content) != row.content_hash`. |
-| Action | (1) Append a new `source_graph_versions` row: `(nectar, content_hash = new, seq = prev_seq + 1)`, new path/metadata, `title/description/embedding = NULL`, `describe_status = 'pending'`. (2) Update `source_graph.last_update_date`. (3) Enqueue a lazy enrich job for the new version. |
+| Action | (1) Append a new `hive_graph_versions` row: `(nectar, content_hash = new, seq = prev_seq + 1)`, new path/metadata, `title/description/embedding = NULL`, `describe_status = 'pending'`. (2) Update `hive_graph.last_update_date`. (3) Enqueue a lazy enrich job for the new version. |
 | Post-condition | The nectar's version chain has one more row; the previous version row is retained as history. |
 | Confidence handling | Not applicable — the path is a stable identity anchor at this step, the edit is unambiguous. |
 
@@ -79,7 +79,7 @@ The move detector. The daemon keeps a map of files that used to exist but do not
 |---|---|
 | Input state | A nectar whose latest version's `path` is absent from disk; a new on-disk path whose content hashes to that nectar's latest `content_hash`. |
 | Comparison predicate | `sha256(disk.content at newPath) == missingFile.latest_content_hash`. |
-| Action | (1) Append a new `source_graph_versions` row for the existing nectar with the new `path` and the same `content_hash` (the composite key `(nectar, content_hash)` is unique, but `seq` increments and `path` differs, so the row is new). (2) The previous version row's path is now stale but retained as history. |
+| Action | (1) Append a new `hive_graph_versions` row for the existing nectar with the new `path` and the same `content_hash` (the composite key `(nectar, content_hash)` is unique, but `seq` increments and `path` differs, so the row is new). (2) The previous version row's path is now stale but retained as history. |
 | Post-condition | The nectar's current path is the new location; no enrich job is enqueued. |
 | Confidence handling | Not applicable — exact sha256 match is high-confidence by construction. The only failure mode is a coincidental hash collision, which is cryptographically negligible. |
 
@@ -95,8 +95,8 @@ The hard case. The file was moved *and* edited while the daemon was offline, so 
 |---|---|
 | Input state | A nectar whose latest version's `path` is absent from disk; a new on-disk path whose content hash matches nothing, with a computed TLSH fingerprint. |
 | Comparison predicate | `tlshDiff(newFingerprint, candidate.fingerprint)` minimized over missing-file candidates, compared against the fuzzy threshold. |
-| Action (high confidence) | Append a new `source_graph_versions` row for the existing nectar with the new `path`, new `content_hash`, and `confidence` field set; enqueue an enrich job. |
-| Action (low confidence) | Surface the candidate match for human review via `honeycomb hivenectar review-matches`; do not auto-claim the nectar. |
+| Action (high confidence) | Append a new `hive_graph_versions` row for the existing nectar with the new `path`, new `content_hash`, and `confidence` field set; enqueue an enrich job. |
+| Action (low confidence) | Surface the candidate match for human review via `honeycomb nectar review-matches`; do not auto-claim the nectar. |
 | Action (no match) | Fall through to step 5. |
 | Post-condition (high confidence) | The nectar follows the file to its new location with a version row flagging the confidence of the association. |
 | Confidence handling | The `confidence` field on the appended version row is `1 − normalizedTLSHDistance`. Matches at or above the high band are carried; matches in the review band are surfaced; matches below the low band fall through to mint. |
@@ -113,7 +113,7 @@ The file is genuinely new. No exact match, no high-confidence fuzzy match, no re
 |---|---|
 | Input state | No step 1–4 match resolved the file to an existing nectar. |
 | Comparison predicate | None — this is the default. |
-| Action | (1) Mint a ULID nectar. (2) Write the `source_graph` row (identity + provenance). (3) Append the initial `source_graph_versions` row. (4) Enqueue enrichment. |
+| Action | (1) Mint a ULID nectar. (2) Write the `hive_graph` row (identity + provenance). (3) Append the initial `hive_graph_versions` row. (4) Enqueue enrichment. |
 | Post-condition | A new nectar exists in Deep Lake, scoped by tenancy, pending description. |
 | Confidence handling | Not applicable — a fresh mint is unambiguous. |
 
@@ -138,7 +138,7 @@ Two properties of ULID make it the right choice, documented in [`../identity-and
 - **Lexicographic sortability by creation time.** A ULID is `timestamp_ms (48 bits) + randomness (80 bits)`, so "nectars minted while I was offline" is a string-prefix range scan, no timestamp parsing.
 - **Collision resistance without a registry.** The 80 bits of randomness per millisecond makes a collision astronomically unlikely across a single workspace, so minting is lock-free and distributed-safe — two harnesses minting in parallel cannot collide.
 
-The nectar is written to `source_graph.nectar` as the primary key. The `created_at` column is set to the decoded ULID timestamp in ISO 8601. The nectar is **never re-derived and never recomputed** — if the minting logic changes, old nectars keep their values; new nectars use the new logic. This is what makes identity stable across daemon upgrades.
+The nectar is written to `hive_graph.nectar` as the primary key. The `created_at` column is set to the decoded ULID timestamp in ISO 8601. The nectar is **never re-derived and never recomputed** — if the minting logic changes, old nectars keep their values; new nectars use the new logic. This is what makes identity stable across daemon upgrades.
 
 ---
 
@@ -162,7 +162,7 @@ function classifyNewFile(
 }
 ```
 
-A copy event mints a fresh nectar for the new path and sets `source_graph`:
+A copy event mints a fresh nectar for the new path and sets `hive_graph`:
 
 ```
 nectar:              <fresh ULID N2>
@@ -212,7 +212,7 @@ The source spec deliberately commits **no concrete threshold value**: the high b
 | Band | Bound | Behavior |
 |---|---|---|
 | High confidence | above the configurable high band (default tuned during brooding) | The daemon carries the nectar automatically, appends the version row with the `confidence` value, and flags it. No human review required. |
-| Review band | below the high band, above the low band | The daemon does **not** auto-claim the nectar. It surfaces the candidate match to the review surface (`honeycomb hivenectar review-matches`). |
+| Review band | below the high band, above the low band | The daemon does **not** auto-claim the nectar. It surfaces the candidate match to the review surface (`honeycomb nectar review-matches`). |
 | Low confidence | at or below the low band | The match is not surfaced; the daemon mints a new nectar instead (step 5). |
 
 The bands are configurable and the defaults are determined empirically during brooding — they are not fixed constants in the spec. The high band is deliberately strict: a false claim at the high band is the failure mode the ladder exists to prevent, so the threshold errs toward minting rather than carrying.
@@ -223,10 +223,10 @@ The `confidence` value is persisted on the version row so that a reviewer can se
 
 ## The review surface
 
-Low-confidence matches are surfaced for human review rather than auto-claimed. The review surface is the interactive command `honeycomb hivenectar review-matches`, plus a dashboard view. The source spec names the command but does not pin its sub-flag syntax; the command lists pending candidates and lets a reviewer accept (carry the candidate nectar) or reject (leave the provisional mint in place). The exact flag surface is an implementation detail left to the daemon.
+Low-confidence matches are surfaced for human review rather than auto-claimed. The review surface is the interactive command `honeycomb nectar review-matches`, plus a dashboard view. The source spec names the command but does not pin its sub-flag syntax; the command lists pending candidates and lets a reviewer accept (carry the candidate nectar) or reject (leave the provisional mint in place). The exact flag surface is an implementation detail left to the daemon.
 
 ```bash
-honeycomb hivenectar review-matches        # list pending low-confidence candidates
+honeycomb nectar review-matches        # list pending low-confidence candidates
 # then accept/reject each candidate via the command's review flow
 ```
 
@@ -248,7 +248,7 @@ A nectar, once minted, is never deleted by the re-association ladder. If a file 
 Deletion of nectar records is a separate, explicit, human-triggered operation.
 
 ```bash
-honeycomb hivenectar prune --confirm
+honeycomb nectar prune --confirm
 ```
 
 This removes nectars whose latest version's `path` has been missing for longer than the configurable grace period. The defaults are conservative:

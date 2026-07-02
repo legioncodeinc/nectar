@@ -1,6 +1,6 @@
 /**
  * Tests for the PostHog usage-telemetry chokepoint (src/telemetry-usage/emit.ts):
- * the gates (empty key, HONEYCOMB_TELEMETRY=0, DO_NOT_TRACK), the closed
+ * the gates (empty key, NECTAR_TELEMETRY=0, the detected HONEYCOMB_TELEMETRY=0, DO_NOT_TRACK), the closed
  * property allow-list, the dedupe ledger (per machine, per version for
  * updated), the distinct_id preference (install-id file over a persisted
  * UUID), the lifecycle firing helpers, and the fail-soft guarantee that a
@@ -40,7 +40,7 @@ function recorder(status = 200): { calls: RecordedCall[]; fetch: UsageFetch } {
 }
 
 function tmpStateDir(): string {
-  return mkdtempSync(join(tmpdir(), "hivenectar-usage-"));
+  return mkdtempSync(join(tmpdir(), "nectar-usage-"));
 }
 
 /** Keyed deps with an isolated env so the host machine's DO_NOT_TRACK never bleeds in. */
@@ -58,7 +58,7 @@ test("gate: empty baked key hard-disables (no fetch, no state written)", async (
   const dir = tmpStateDir();
   const rec = recorder();
   try {
-    const outcome = await emitUsageEvent("hivenectar_installed", keyedDeps(dir, rec.fetch, { posthogKey: "" }));
+    const outcome = await emitUsageEvent("nectar_installed", keyedDeps(dir, rec.fetch, { posthogKey: "" }));
     assert.deepEqual(outcome, { sent: false, skipped: "disabled" });
     assert.equal(rec.calls.length, 0);
     assert.ok(!existsSync(join(dir, USAGE_LEDGER_FILE_NAME)), "no ledger written behind the disabled gate");
@@ -67,17 +67,34 @@ test("gate: empty baked key hard-disables (no fetch, no state written)", async (
   }
 });
 
-test("gate: HONEYCOMB_TELEMETRY=0 opts out (no fetch, no state written)", async () => {
+test("gate: NECTAR_TELEMETRY=0 (nectar's own switch) opts out (no fetch, no state written)", async () => {
   const dir = tmpStateDir();
   const rec = recorder();
   try {
     const outcome = await emitUsageEvent(
-      "hivenectar_installed",
-      keyedDeps(dir, rec.fetch, { env: { HONEYCOMB_TELEMETRY: "0" } }),
+      "nectar_installed",
+      keyedDeps(dir, rec.fetch, { env: { NECTAR_TELEMETRY: "0" } }),
     );
     assert.deepEqual(outcome, { sent: false, skipped: "opted_out" });
     assert.equal(rec.calls.length, 0);
     assert.ok(!existsSync(join(dir, USAGE_LEDGER_FILE_NAME)), "no ledger written behind the opt-out gate");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("gate: the DETECTED family opt-out (HONEYCOMB_TELEMETRY=0) is honored without being required", async () => {
+  const dir = tmpStateDir();
+  const rec = recorder();
+  try {
+    const outcome = await emitUsageEvent(
+      "nectar_installed",
+      keyedDeps(dir, rec.fetch, { env: { HONEYCOMB_TELEMETRY: "0" } }),
+    );
+    assert.deepEqual(outcome, { sent: false, skipped: "opted_out" });
+    assert.equal(rec.calls.length, 0);
+    // Detection-only per ADR-0002: honeycomb's env ABSENT means no opt-out from that branch.
+    assert.equal(isOptedOut({}), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -94,14 +111,14 @@ test("gate: DO_NOT_TRACK truthy opts out; empty or '0' does not", async () => {
   const rec = recorder();
   try {
     const blocked = await emitUsageEvent(
-      "hivenectar_installed",
+      "nectar_installed",
       keyedDeps(dir, rec.fetch, { env: { DO_NOT_TRACK: "1" } }),
     );
     assert.deepEqual(blocked, { sent: false, skipped: "opted_out" });
     assert.equal(rec.calls.length, 0);
 
     const allowed = await emitUsageEvent(
-      "hivenectar_installed",
+      "nectar_installed",
       keyedDeps(dir, rec.fetch, { env: { DO_NOT_TRACK: "0" } }),
     );
     assert.equal(allowed.sent, true);
@@ -118,7 +135,7 @@ test("POST goes to {host}/i/v0/e/ with body {api_key, event, properties, distinc
   const rec = recorder();
   try {
     const outcome = await emitUsageEvent(
-      "hivenectar_first_run",
+      "nectar_first_run",
       keyedDeps(dir, rec.fetch, { posthogHost: "https://ph.example.com/" }),
     );
     assert.equal(outcome.sent, true);
@@ -131,11 +148,11 @@ test("POST goes to {host}/i/v0/e/ with body {api_key, event, properties, distinc
 
     assert.deepEqual(Object.keys(call.body).sort(), ["api_key", "distinct_id", "event", "properties"]);
     assert.equal(call.body["api_key"], "phc_test_key");
-    assert.equal(call.body["event"], "hivenectar_first_run");
+    assert.equal(call.body["event"], "nectar_first_run");
 
     const props = call.body["properties"] as Record<string, unknown>;
     assert.deepEqual(Object.keys(props).sort(), ["arch", "node", "os", "package", "version"]);
-    assert.equal(props["package"], "hivenectar");
+    assert.equal(props["package"], "nectar");
     assert.equal(props["version"], "1.2.3");
     assert.equal(props["node"], process.version);
   } finally {
@@ -158,26 +175,26 @@ test("dedupe: an event sends once per machine; the second attempt is already_rep
     assert.equal(first.sent, true);
     assert.deepEqual(second, { sent: false, skipped: "already_reported" });
     assert.equal(rec.calls.length, 1);
-    assert.ok(readLedger(dir).reported.includes("hivenectar_installed"));
+    assert.ok(readLedger(dir).reported.includes("nectar_installed"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("dedupe: hivenectar_updated dedupes PER VERSION, so a new version fires again", async () => {
+test("dedupe: nectar_updated dedupes PER VERSION, so a new version fires again", async () => {
   const dir = tmpStateDir();
   const rec = recorder();
   try {
-    const v1a = await emitUsageEvent("hivenectar_updated", keyedDeps(dir, rec.fetch, { version: "1.0.0" }));
-    const v1b = await emitUsageEvent("hivenectar_updated", keyedDeps(dir, rec.fetch, { version: "1.0.0" }));
-    const v2 = await emitUsageEvent("hivenectar_updated", keyedDeps(dir, rec.fetch, { version: "1.1.0" }));
+    const v1a = await emitUsageEvent("nectar_updated", keyedDeps(dir, rec.fetch, { version: "1.0.0" }));
+    const v1b = await emitUsageEvent("nectar_updated", keyedDeps(dir, rec.fetch, { version: "1.0.0" }));
+    const v2 = await emitUsageEvent("nectar_updated", keyedDeps(dir, rec.fetch, { version: "1.1.0" }));
     assert.equal(v1a.sent, true);
     assert.deepEqual(v1b, { sent: false, skipped: "already_reported" });
     assert.equal(v2.sent, true);
     assert.equal(rec.calls.length, 2);
     const reported = readLedger(dir).reported;
-    assert.ok(reported.includes("hivenectar_updated@1.0.0"));
-    assert.ok(reported.includes("hivenectar_updated@1.1.0"));
+    assert.ok(reported.includes("nectar_updated@1.0.0"));
+    assert.ok(reported.includes("nectar_updated@1.1.0"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -217,7 +234,7 @@ test("distinct_id: without install-id, a UUID is minted once, persisted, and sta
   const rec = recorder();
   try {
     await emitInstalled(keyedDeps(dir, rec.fetch));
-    await emitUsageEvent("hivenectar_first_run", keyedDeps(dir, rec.fetch));
+    await emitUsageEvent("nectar_first_run", keyedDeps(dir, rec.fetch));
     const id1 = rec.calls[0]!.body["distinct_id"] as string;
     const id2 = rec.calls[1]!.body["distinct_id"] as string;
     assert.match(id1, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
@@ -291,7 +308,7 @@ test("recordDaemonStart: first start fires first_run once, no updated, persists 
     assert.deepEqual(second.firstRun, { sent: false, skipped: "already_reported" });
     assert.equal(second.updated, null, "same version means no updated event");
     assert.equal(rec.calls.length, 1);
-    assert.equal(rec.calls[0]!.body["event"], "hivenectar_first_run");
+    assert.equal(rec.calls[0]!.body["event"], "nectar_first_run");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -310,7 +327,7 @@ test("recordDaemonStart: a version change fires updated once per version, then p
     assert.equal(again.updated, null, "restart on the same version does not re-fire");
 
     const events = rec.calls.map((c) => c.body["event"]);
-    assert.deepEqual(events, ["hivenectar_first_run", "hivenectar_updated"]);
+    assert.deepEqual(events, ["nectar_first_run", "nectar_updated"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

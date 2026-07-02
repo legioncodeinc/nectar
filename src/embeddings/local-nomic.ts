@@ -6,7 +6,7 @@
  * (`nomic-embed-text-v1.5`, q8 quantization)"). Honeycomb's embed daemon
  * (`honeycomb/embeddings/src/index.ts`) serves that model over a loopback
  * request surface (`POST /embed { text } -> { vector }`, `GET /health`) on
- * `127.0.0.1:3851`. Hivenectar reaches it over the network through its OWN
+ * `127.0.0.1:3851`. Nectar reaches it over the network through its OWN
  * client rather than importing the honeycomb runtime in-process (ADR-0002); the
  * daemon owns the pinned `MODEL_ID` / `MODEL_REVISION` / `MODEL_QUANTIZATION` /
  * `DOCUMENT_PREFIX` consts (PRD-014a keeps them pinned), so this client only

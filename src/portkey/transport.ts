@@ -1,5 +1,5 @@
 /**
- * Portkey chat-completions client for hivenectar description calls (PRD-010a).
+ * Portkey chat-completions client for nectar description calls (PRD-010a).
  *
  * POSTs the OpenAI-compatible chat body to {@link PORTKEY_CHAT_COMPLETIONS_URL}
  * with headers from {@link buildPortkeyHeaders}. Mirrors honeycomb's error mapping
@@ -27,7 +27,7 @@ export const PORTKEY_MAX_ATTEMPTS = 3 as const;
 export const PORTKEY_RETRY_BACKOFF_MS = 250 as const;
 
 /**
- * Per-attempt request timeout (ms), mirroring `source-graph/deeplake-transport.ts`'s
+ * Per-attempt request timeout (ms), mirroring `hive-graph/deeplake-transport.ts`'s
  * `DEFAULT_TRANSPORT_TIMEOUT_MS` AbortController pattern: an unresponsive gateway
  * aborts rather than hanging the caller indefinitely.
  */

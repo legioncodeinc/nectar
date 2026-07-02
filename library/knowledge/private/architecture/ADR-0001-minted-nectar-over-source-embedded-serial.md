@@ -2,12 +2,12 @@
 
 > **Status:** Accepted · **Date:** 2026-06-30
 > **Supersedes:** none · **Superseded by:** none
-> **Owners:** hivenectar, daemon, storage
-> **Related:** Hivenectar overview, `data/source-graph-schema.md`, `ai/identity-and-reassociation.md`, `reference/prior-art-crosswalk.md`, `ADR-0002-hivenectar-independent-daemon-supervised-by-hivedoctor.md` (process topology; refines this ADR's implicit colocation assumption without superseding the identity decision)
+> **Owners:** nectar, daemon, storage
+> **Related:** Nectar overview, `data/hive-graph-schema.md`, `ai/identity-and-reassociation.md`, `reference/prior-art-crosswalk.md`, `ADR-0002-nectar-independent-daemon-supervised-by-doctor.md` (process topology; refines this ADR's implicit colocation assumption without superseding the identity decision)
 
 ## Context
 
-Hivenectar gives every file in a project a stable identity that survives edits, renames, moves, and copy-paste, so that an LLM-minted title and description can follow the file around indefinitely instead of being lost the moment the file moves. The identity model is the most consequential and least reversible decision in the design: it determines the database schema, the re-association algorithm, the watcher contract, the fresh-clone story, and the team-share path. Getting it wrong means either corrupting history chains (a mis-association) or losing history entirely (an identity that churns).
+Nectar gives every file in a project a stable identity that survives edits, renames, moves, and copy-paste, so that an LLM-minted title and description can follow the file around indefinitely instead of being lost the moment the file moves. The identity model is the most consequential and least reversible decision in the design: it determines the database schema, the re-association algorithm, the watcher contract, the fresh-clone story, and the team-share path. Getting it wrong means either corrupting history chains (a mis-association) or losing history entirely (an identity that churns).
 
 Three candidate identity models were on the table. Each has real prior art (see `reference/prior-art-crosswalk.md`), and each fails in a specific, concrete way under Honeycomb's constraints.
 
@@ -15,7 +15,7 @@ Three candidate identity models were on the table. Each has real prior art (see 
 
 Every source file gets a serial number embedded in a first-line comment (`// nectar:01J...` or `# nectar:01J...`). A git hook mints the serial on pre-commit for any new file. The serial lives in the file and travels with it through git operations.
 
-This is the model the original Hivenectar sketch proposed. It has intuitive appeal: the identity is literally in the artifact, visible to humans, no separate database required to resolve "is this the same file."
+This is the model the original Nectar sketch proposed. It has intuitive appeal: the identity is literally in the artifact, visible to humans, no separate database required to resolve "is this the same file."
 
 ### Candidate B: content hash as identity
 
@@ -23,7 +23,7 @@ Every file's identity is `sha256(content)`. Same content → same identity, glob
 
 ### Candidate C: daemon-minted ULID, never in the file (CHOSEN)
 
-The hiveantennae daemon mints a 26-character ULID once per logical file and stores it in Deep Lake as the primary key of `source_graph`. The ULID never lives in the file. Re-association to the file on disk is performed by a ladder of exact-match (path/mtime/size, then content hash) and fuzzy-match (TLSH) heuristics at daemon boot and on watcher events.
+The hiveantennae daemon mints a 26-character ULID once per logical file and stores it in Deep Lake as the primary key of `hive_graph`. The ULID never lives in the file. Re-association to the file on disk is performed by a ladder of exact-match (path/mtime/size, then content hash) and fuzzy-match (TLSH) heuristics at daemon boot and on watcher events.
 
 ## Decision drivers
 
@@ -61,13 +61,13 @@ The hiveantennae daemon mints a 26-character ULID once per logical file and stor
 
 **Why it is rejected.** Content hash changes on every edit. A file saved twice has two different identities, which means identity is not actually stable — it is path-as-identity moved one layer down (where "path" is now "content"). This fails the primary decision driver.
 
-The Aura project documents this exact failure and the fix: *"Aura combines body hash (for rename-proofing and dedup) with a persistent identity anchor (for history continuity across edits). Neither alone is enough."* Content hash alone is the rejected half of Aura's model. Hivenectar's Option C is the other half (a persistent identity anchor) plus a content hash as the version key — the same synthesis Aura arrived at, at file granularity.
+The Aura project documents this exact failure and the fix: *"Aura combines body hash (for rename-proofing and dedup) with a persistent identity anchor (for history continuity across edits). Neither alone is enough."* Content hash alone is the rejected half of Aura's model. Nectar's Option C is the other half (a persistent identity anchor) plus a content hash as the version key — the same synthesis Aura arrived at, at file granularity.
 
-**What content hash is good for.** Content hash is not useless — it is the correct *secondary* attribute. It is the version key in `source_graph_versions`. It is the delta-indexing fast path. It is the copy-event detector (a new path with a content hash matching an existing file's current content is a copy). Option C uses content hash for all of these; Option B is rejected only as the *identity* key.
+**What content hash is good for.** Content hash is not useless — it is the correct *secondary* attribute. It is the version key in `hive_graph_versions`. It is the delta-indexing fast path. It is the copy-event detector (a new path with a content hash matching an existing file's current content is a copy). Option C uses content hash for all of these; Option B is rejected only as the *identity* key.
 
 ### Option C, Daemon-minted ULID, never in the file (CHOSEN)
 
-**The model.** A 26-character ULID, minted once by the hiveantennae daemon, persisted in Deep Lake as the primary key of `source_graph`. Never written into the file. Re-associated to the file on disk by the ladder documented in `ai/identity-and-reassociation.md`.
+**The model.** A 26-character ULID, minted once by the hiveantennae daemon, persisted in Deep Lake as the primary key of `hive_graph`. Never written into the file. Re-associated to the file on disk by the ladder documented in `ai/identity-and-reassociation.md`.
 
 **Why it wins on every decision driver.**
 
@@ -93,7 +93,7 @@ A *cache* (the regenerable `(path → mtime → last_hash)` map the daemon keeps
 
 ## Decision
 
-Adopt **Option C**: daemon-minted ULID nectar, persisted in Deep Lake, re-associated by the exact-then-fuzzy ladder, with a committed regenerable projection for fresh-clone inheritance. The full algorithm is documented in `ai/identity-and-reassociation.md`; the schema is in `data/source-graph-schema.md`; the projection is in `data/portable-registry.md`.
+Adopt **Option C**: daemon-minted ULID nectar, persisted in Deep Lake, re-associated by the exact-then-fuzzy ladder, with a committed regenerable projection for fresh-clone inheritance. The full algorithm is documented in `ai/identity-and-reassociation.md`; the schema is in `data/hive-graph-schema.md`; the projection is in `data/portable-registry.md`.
 
 The nectar format is **ULID** (26-char, Crockford base32, uppercase, timestamp-sortable). The format decision is recorded separately from the identity-model decision because the format is reversible (a future migration could re-encode nectars) while the model is not (once source files are mutated or content hashes are baked in, unmutating is expensive).
 
@@ -129,7 +129,7 @@ The nectar format is **ULID** (26-char, Crockford base32, uppercase, timestamp-s
 ## References
 
 - `ai/identity-and-reassociation.md` — the full re-association ladder algorithm.
-- `data/source-graph-schema.md` — the `source_graph` and `source_graph_versions` DDL.
+- `data/hive-graph-schema.md` — the `hive_graph` and `hive_graph_versions` DDL.
 - `data/portable-registry.md` — the committed projection that makes fresh-clone inheritance work.
 - `reference/prior-art-crosswalk.md` — Aura, Mimir, Orbit, Grove, Cartog, Smith surveyed.
 - Aura's "identity anchor + content hash" model (https://docs.auravcs.com/function-level-identity/) is the clearest intellectual predecessor for the two-table identity+version split.

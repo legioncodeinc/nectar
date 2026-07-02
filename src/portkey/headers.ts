@@ -1,7 +1,7 @@
 /**
  * Portkey gateway request headers and endpoint constants (PRD-010a).
  *
- * Mirrors honeycomb's shared header builder and base URL so hivenectar reaches
+ * Mirrors honeycomb's shared header builder and base URL so nectar reaches
  * the same gateway wire shape without importing honeycomb in-process (ADR-0002).
  * Canonical reference: `honeycomb/src/daemon/runtime/inference/transport-portkey.ts`
  * (`PORTKEY_BASE_URL`, `PORTKEY_CHAT_COMPLETIONS_URL`, `buildPortkeyHeaders`).

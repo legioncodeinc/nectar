@@ -13,7 +13,7 @@ The deliverable restated as a single sentence, the four-rule hard contract that 
 - [`../../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md`](../../architecture/ADR-0001-minted-nectar-over-source-embedded-serial.md)
 - [`../brooding-pipeline.md`](../brooding-pipeline.md)
 - [`../../data/portable-registry.md`](../../data/portable-registry.md)
-- [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)
+- [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)
 
 ---
 
@@ -60,7 +60,7 @@ This is a correctness property, not just a performance one. Running re-associati
 
 Re-association is scoped by `project_id` as a soft column filter (plus the org/workspace Deep Lake scope). Two projects in the same workspace that happen to share a file path do not share nectars. The missing-files map is built per-project; the known-nectars map is scoped per-project; the fuzzy-match candidate set is scoped per-project.
 
-This rule exists because project identity is a deliberate boundary in the data model (see the tenancy discussion in [`../../data/source-graph-schema.md`](../../data/source-graph-schema.md)). A file's meaning is contextual to its project; the same path in two projects is two different logical files. Cross-project re-association would conflate them.
+This rule exists because project identity is a deliberate boundary in the data model (see the tenancy discussion in [`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md)). A file's meaning is contextual to its project; the same path in two projects is two different logical files. Cross-project re-association would conflate them.
 
 ```mermaid
 flowchart TD
@@ -78,7 +78,7 @@ flowchart TD
 
 ## Forward pointers
 
-The re-association ladder is one piece of the Hivenectar identity model. The decisions and mechanisms that surround it live in the source documents below. This deep-dive does not duplicate them; it links to them.
+The re-association ladder is one piece of the Nectar identity model. The decisions and mechanisms that surround it live in the source documents below. This deep-dive does not duplicate them; it links to them.
 
 ### To the identity-model decision
 
@@ -86,7 +86,7 @@ The re-association ladder is one piece of the Hivenectar identity model. The dec
 
 ### To first-run behavior
 
-[`../brooding-pipeline.md`](../brooding-pipeline.md) documents the brooding mode that mints the initial nectars and writes the first descriptions. Brooding is the *only* mode that mints original nectars at scale; after brooding, the daemon is in live-watch mode with cold catch-up handling restarts. Re-association's step 5 (mint new) is the steady-state mint path, firing on genuinely new files the watcher detects. The brood's resumability — state is fully derivable from `source_graph_versions.describe_status`, no lockfile — is the same append-only pattern the re-association ladder relies on for its version chain.
+[`../brooding-pipeline.md`](../brooding-pipeline.md) documents the brooding mode that mints the initial nectars and writes the first descriptions. Brooding is the *only* mode that mints original nectars at scale; after brooding, the daemon is in live-watch mode with cold catch-up handling restarts. Re-association's step 5 (mint new) is the steady-state mint path, firing on genuinely new files the watcher detects. The brood's resumability — state is fully derivable from `hive_graph_versions.describe_status`, no lockfile — is the same append-only pattern the re-association ladder relies on for its version chain.
 
 ### To fresh-clone inheritance
 
@@ -94,7 +94,7 @@ The re-association ladder is one piece of the Hivenectar identity model. The dec
 
 ### To the rows the ladder writes
 
-[`../../data/source-graph-schema.md`](../../data/source-graph-schema.md) documents the two tables the ladder reads and writes. `source_graph` carries identity and provenance (`nectar` as primary key, `derived_from_nectar` and `fork_content_hash` for copy-paste provenance, the tenancy triple). `source_graph_versions` is the append-only content-and-description chain, keyed by the composite `(nectar, content_hash)` with a monotonic `seq` for latest-version lookups. Every ladder step that carries or mints appends a version row; every step that changes content sets `describe_status = 'pending'` for the enricher to pick up. The composite key's invariant — same content under the same nectar is a no-op, same content under a *different* nectar is the copy-paste signal — is what makes step 5's copy detection work.
+[`../../data/hive-graph-schema.md`](../../data/hive-graph-schema.md) documents the two tables the ladder reads and writes. `hive_graph` carries identity and provenance (`nectar` as primary key, `derived_from_nectar` and `fork_content_hash` for copy-paste provenance, the tenancy triple). `hive_graph_versions` is the append-only content-and-description chain, keyed by the composite `(nectar, content_hash)` with a monotonic `seq` for latest-version lookups. Every ladder step that carries or mints appends a version row; every step that changes content sets `describe_status = 'pending'` for the enricher to pick up. The composite key's invariant — same content under the same nectar is a no-op, same content under a *different* nectar is the copy-paste signal — is what makes step 5's copy detection work.
 
 ---
 
