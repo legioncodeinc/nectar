@@ -28,7 +28,13 @@ import {
   type RuntimeConfigOverrides,
   resolveConfig,
 } from "./config.js";
-import { HealthState, type PipelineStatus } from "./health.js";
+import { HealthState, type HealthBody, type PipelineStatus } from "./health.js";
+import { resolvePortkeyConfig, type PortkeyConfigOverrides } from "./portkey/config.js";
+import {
+  resolveEmbeddingsConfig,
+  type EmbeddingsConfigOverrides,
+} from "./embeddings/config.js";
+import type { EmbedProviderSelector } from "./embeddings/provider.js";
 import { acquireSingleInstanceLock, releaseSingleInstanceLock } from "./lock.js";
 import { createHttpServer, type HttpServer } from "./server.js";
 import type { Timer } from "./poll-loop.js";
@@ -61,6 +67,27 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
   readonly telemetryHeartbeatIntervalMs?: number;
   /** Injected timer for the heartbeat (deterministic tests). */
   readonly telemetryTimer?: Timer;
+  /** Portkey config overrides (default: resolve from `process.env`). Lets a test set the health `portkey.enabled` bit without env. */
+  readonly portkey?: PortkeyConfigOverrides;
+  /** Embeddings config overrides (default: resolve from `process.env`). Lets a test set the health `embeddings.provider` label without env. */
+  readonly embeddings?: EmbeddingsConfigOverrides;
+}
+
+/** Map the embeddings selector (`off | local | cohere`) to the health body's provider label. */
+function embeddingsHealthProvider(selector: EmbedProviderSelector): HealthBody["embeddings"]["provider"] {
+  switch (selector) {
+    case "off":
+      return "off";
+    case "local":
+      return "local-nomic";
+    case "cohere":
+      return "cohere";
+    default: {
+      // Exhaustiveness: a new selector variant fails the build here until mapped.
+      const unreachable: never = selector;
+      return unreachable;
+    }
+  }
 }
 
 export interface AssembledDaemon {
@@ -91,6 +118,17 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
   const config = resolveConfig(options);
   const baseLog = options.log ?? defaultLog;
   const health = new HealthState();
+
+  // Resolve the provider state ONCE here, not per /health request (decision #20).
+  // Both resolvers read only `process.env` (or an injected override bag) and never
+  // touch disk or the network, so this keeps construction side-effect free.
+  const portkeyConfig = resolvePortkeyConfig(options.portkey ?? {});
+  const embeddingsConfig = resolveEmbeddingsConfig(options.embeddings ?? {});
+  health.setProviderState({
+    portkeyEnabled: portkeyConfig.enabled,
+    embeddingsProvider: embeddingsHealthProvider(embeddingsConfig.selector),
+  });
+
   const telemetryDbPath = options.telemetryDbPath ?? telemetryDbPathForRuntimeDir(config.runtimeDir);
 
   // A no-op placeholder until the first start() actually opens the SQLite store
