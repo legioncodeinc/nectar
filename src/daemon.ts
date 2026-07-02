@@ -12,6 +12,16 @@
  * side-effect free). `start()` acquires the lock, starts the worker, and binds
  * the socket. `shutdown()` drains the worker, closes the socket, and releases
  * the lock, idempotently.
+ *
+ * PRD-017a wires hivenectar's telemetry check-in/heartbeat here: `start()`
+ * checks in (a fresh binding_time) right after `health.markStarted()` and arms
+ * a heartbeat interval; `shutdown()` disarms it and closes the SQLite handle.
+ * A fresh `Telemetry` is opened on every `start()` (not once at
+ * `assembleDaemon()` construction time), so a stop/start cycle on the SAME
+ * `AssembledDaemon` - not just a brand-new process - also gets a fresh
+ * binding_time and zeroed since-restart counters (AC-017a.3.2 / AC-017b.3.1).
+ * Opening/writing telemetry is fail-soft throughout (`telemetry/index.ts`):
+ * a SQLite failure never blocks the lock, the bind, or the pipeline (AC-7).
  */
 import {
   type RuntimeConfig,
@@ -21,6 +31,15 @@ import {
 import { HealthState, type PipelineStatus } from "./health.js";
 import { acquireSingleInstanceLock, releaseSingleInstanceLock } from "./lock.js";
 import { createHttpServer, type HttpServer } from "./server.js";
+import type { Timer } from "./poll-loop.js";
+import {
+  createLogTap,
+  createNullTelemetry,
+  createTelemetry,
+  telemetryDbPathForRuntimeDir,
+  type LogSink,
+  type Telemetry,
+} from "./telemetry/index.js";
 import {
   HiveantennaeWorker,
   type JobHandler,
@@ -36,6 +55,12 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
   readonly handlers?: Partial<Record<JobKind, JobHandler>>;
   /** Structured log sink; defaults to stderr NDJSON. */
   readonly log?: (line: Record<string, unknown>) => void;
+  /** Override the telemetry SQLite DB path (default: derived from the resolved runtime dir). */
+  readonly telemetryDbPath?: string;
+  /** Override the check-in heartbeat cadence (default: `DEFAULT_HEARTBEAT_INTERVAL_MS`). */
+  readonly telemetryHeartbeatIntervalMs?: number;
+  /** Injected timer for the heartbeat (deterministic tests). */
+  readonly telemetryTimer?: Timer;
 }
 
 export interface AssembledDaemon {
@@ -48,6 +73,8 @@ export interface AssembledDaemon {
   shutdown(): Promise<void>;
   /** The coarse health bit hivedoctor classifies on. */
   pipelineStatus(): PipelineStatus;
+  /** The current telemetry facade (PRD-017): a no-op before the first `start()`, real once bound. */
+  telemetry(): Telemetry;
   /** Register process SIGINT/SIGTERM handlers that call shutdown once. */
   installSignalHandlers(): void;
 }
@@ -62,8 +89,17 @@ function defaultLog(line: Record<string, unknown>): void {
  */
 export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
   const config = resolveConfig(options);
-  const log = options.log ?? defaultLog;
+  const baseLog = options.log ?? defaultLog;
   const health = new HealthState();
+  const telemetryDbPath = options.telemetryDbPath ?? telemetryDbPathForRuntimeDir(config.runtimeDir);
+
+  // A no-op placeholder until the first start() actually opens the SQLite store
+  // (constructing/importing the daemon must stay side-effect free, unchanged).
+  let telemetry: Telemetry = createNullTelemetry(telemetryDbPath);
+  // Indirection so `log` (built once, below) always taps whatever `telemetry`
+  // CURRENTLY is, across every start()/shutdown() cycle that reassigns it.
+  const telemetrySink: LogSink = { log: (level, message) => telemetry.log(level, message) };
+  const log = createLogTap(baseLog, telemetrySink);
 
   const worker = new HiveantennaeWorker({
     source: options.jobSource ?? emptyJobSource,
@@ -79,6 +115,8 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
   let signalsInstalled = false;
   /** The one in-flight (or settled) startup. Concurrent/repeat callers share it, so nobody observes a "started" port before listen() actually succeeds. */
   let startPromise: Promise<number> | null = null;
+  /** Stops the check-in heartbeat armed by the current telemetry instance, or null before/after it is running. */
+  let stopHeartbeat: (() => void) | null = null;
 
   async function start(): Promise<number> {
     if (startPromise !== null) return startPromise;
@@ -90,6 +128,20 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
       // Step 6: start services (the worker's adaptive poll loop).
       worker.start();
       health.markStarted();
+
+      // PRD-017a: open a FRESH telemetry store and check in (a new binding_time)
+      // on every start(), so a stop/start cycle on this SAME daemon object also
+      // resets since-restart state, not only a brand-new process. Fail-soft
+      // throughout (`createTelemetry`): a SQLite failure never blocks the bind.
+      telemetry = createTelemetry({
+        dbPath: telemetryDbPath,
+        onceFailure: (msg) => baseLog({ level: "warn", scope: "telemetry", msg }),
+      });
+      stopHeartbeat = telemetry.startCheckin(() => health.pipelineStatus, {
+        intervalMs: options.telemetryHeartbeatIntervalMs,
+        timer: options.telemetryTimer,
+      });
+
       // Step 7: bind the socket.
       server = createHttpServer(health, config.host, config.port);
       const boundPort = await server.listen();
@@ -117,9 +169,13 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
       await server.close();
       server = null;
     }
+    stopHeartbeat?.();
+    stopHeartbeat = null;
     releaseSingleInstanceLock(lockPaths);
     startPromise = null; // allow a fresh start after a clean shutdown
     log({ level: "info", scope: "daemon", msg: "shutdown complete" });
+    telemetry.close();
+    telemetry = createNullTelemetry(telemetryDbPath);
   }
 
   function installSignalHandlers(): void {
@@ -140,6 +196,7 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     start,
     shutdown,
     pipelineStatus: () => health.pipelineStatus,
+    telemetry: () => telemetry,
     installSignalHandlers,
   };
 }

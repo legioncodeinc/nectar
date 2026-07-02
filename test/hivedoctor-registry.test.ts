@@ -13,6 +13,7 @@ import {
   buildHivenectarRegistryEntry,
   registerWithHivedoctor,
 } from "../dist/hivedoctor-registry.js";
+import { TELEMETRY_DB_FILE_NAME, TELEMETRY_DIR_NAME } from "../dist/telemetry/db.js";
 
 function tmpDir() {
   return mkdtempSync(join(tmpdir(), "hivenectar-registry-"));
@@ -29,6 +30,16 @@ test("buildHivenectarRegistryEntry resolves healthUrl/pidPath from config and hi
   assert.equal(entry.startupGraceMs, DEFAULT_STARTUP_GRACE_MS);
   assert.equal(entry.restartGiveUpThreshold, DEFAULT_RESTART_GIVE_UP_THRESHOLD);
   assert.equal(entry.restartCooldownMs, DEFAULT_RESTART_COOLDOWN_MS);
+});
+
+test("buildHivenectarRegistryEntry declares the absolute telemetry SQLite DB path, colocated with pidPath's runtime dir (AC-1 / AC-017a.1.1)", () => {
+  const entry = buildHivenectarRegistryEntry(config);
+  assert.equal(entry.telemetryDbPath, join("/home/op/.honeycomb", TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME));
+});
+
+test("telemetryDbPath is overridable, mirroring the other per-daemon override fields", () => {
+  const entry = buildHivenectarRegistryEntry(config, { telemetryDbPath: "/custom/telemetry.sqlite" });
+  assert.equal(entry.telemetryDbPath, "/custom/telemetry.sqlite");
 });
 
 test("registerWithHivedoctor creates the registry file with a single hivenectar entry when absent", () => {
@@ -99,6 +110,48 @@ test("re-registering replaces hivenectar's own entry rather than duplicating it 
     const parsed = JSON.parse(readFileSync(registryPath, "utf8"));
     assert.equal(parsed.daemons.length, 1, "no duplicate hivenectar entries");
     assert.equal(parsed.daemons[0].healthUrl, "http://127.0.0.1:3999/health", "the entry was updated");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("re-registration (reinstall/upgrade) refreshes the entry idempotently while telemetryDbPath stays stable (AC-017a.1.2)", () => {
+  const dir = tmpDir();
+  try {
+    const registryPath = join(dir, "hivedoctor.daemons.json");
+    const first = registerWithHivedoctor({ config, registryPath });
+    const second = registerWithHivedoctor({ config: { ...config, port: 3999 }, registryPath });
+
+    assert.equal(second.entry.telemetryDbPath, first.entry.telemetryDbPath, "the DB path is stable across reinstall");
+
+    const parsed = JSON.parse(readFileSync(registryPath, "utf8"));
+    assert.equal(parsed.daemons.length, 1, "no duplicate hivenectar entries");
+    assert.equal(parsed.daemons[0].telemetryDbPath, first.entry.telemetryDbPath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("registering hivenectar preserves another daemon's entry byte-for-byte, including its own fields (untouched by the telemetryDbPath extension)", () => {
+  const dir = tmpDir();
+  try {
+    const registryPath = join(dir, "hivedoctor.daemons.json");
+    const honeycombEntry = {
+      name: "honeycomb",
+      healthUrl: "http://127.0.0.1:3850/health",
+      pidPath: "/home/op/.honeycomb/daemon.pid",
+      probeIntervalMs: 30000,
+      startupGraceMs: 60000,
+      restartGiveUpThreshold: 3,
+      restartCooldownMs: 5000,
+    };
+    writeFileSync(registryPath, JSON.stringify({ daemons: [honeycombEntry] }), "utf8");
+
+    registerWithHivedoctor({ config, registryPath });
+
+    const parsed = JSON.parse(readFileSync(registryPath, "utf8"));
+    assert.deepEqual(parsed.daemons[0], honeycombEntry, "honeycomb's entry is byte-for-byte unchanged (no telemetryDbPath added to it)");
+    assert.ok(parsed.daemons[1].telemetryDbPath, "hivenectar's own entry carries the new field");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -4,6 +4,11 @@
   "description": "Hivenectar: a semantic memory layer over a source tree. The hiveantennae daemon mints a stable identity (a nectar) and an LLM-minted description for every file, served through the hybrid recall Honeycomb already uses.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "//publishConfig": "PRD-001c: minimum fix needed for a valid scoped-package publish, mirroring honeycomb/hivedoctor. `access: public` is required because scoped packages default to restricted; `provenance` pairs with release.yaml's `id-token: write` OIDC identity.",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
     "node": ">=22"
   },
@@ -19,10 +24,11 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test \"test/**/*.test.ts\"",
-    "start": "node dist/cli.js daemon",
-    "daemon": "node dist/cli.js daemon",
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+    "test": "npm run build && node --experimental-sqlite --test \"test/**/*.test.ts\"",
+    "start": "node --experimental-sqlite dist/cli.js daemon",
+    "daemon": "node --experimental-sqlite dist/cli.js daemon",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "npm run build"
   },
   "keywords": [
     "hivenectar",

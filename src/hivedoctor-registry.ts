@@ -19,6 +19,20 @@
  * A PRESENT-but-malformed registry file fails loudly (this module never silently
  * clobbers a broken file it cannot safely parse), mirroring hivedoctor's own
  * fail-loud posture for a malformed registry (`hivedoctor/src/registry.ts`).
+ * PRD-017a deliberately does NOT change this posture to match hivedoctor's own
+ * fail-soft posture for a malformed registry read - the two are intentionally
+ * different (this writer refuses to clobber a broken install-time file; a
+ * malformed registry read is hivedoctor's own runtime concern, not this one).
+ *
+ * PRD-017a extends this entry with `telemetryDbPath`: the absolute path to
+ * hivenectar's runtime telemetry SQLite database (`telemetry/db.ts`,
+ * `~/.honeycomb/telemetry/hivenectar.sqlite` by default), per hivedoctor's
+ * `ADR-0002-service-registration-static-registry-plus-runtime-sqlite.md`. It is
+ * derived from `config.pidFilePath`'s directory (the same resolved runtime dir
+ * `healthUrl`/`pidPath` already come from), so a test-overridden runtime dir
+ * (`HIVENECTAR_RUNTIME_DIR` / `resolveConfig({ runtimeDir })`) keeps every
+ * per-daemon artifact - pid, lock, and now telemetry DB - colocated, with no
+ * separate `~` round-trip needed here (same rationale as `healthUrl`/`pidPath`).
  *
  * Built-ins only: node:fs, node:os, node:path.
  */
@@ -27,6 +41,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RuntimeConfig } from "./config.js";
+import { TELEMETRY_DB_FILE_NAME, TELEMETRY_DIR_NAME } from "./telemetry/db.js";
 
 /** The daemon name hivenectar registers itself under. */
 export const HIVENECTAR_DAEMON_NAME = "hivenectar" as const;
@@ -43,6 +58,14 @@ export interface HivedoctorRegistryEntry {
   readonly startupGraceMs: number;
   readonly restartGiveUpThreshold: number;
   readonly restartCooldownMs: number;
+  /**
+   * The absolute path to hivenectar's runtime telemetry SQLite database
+   * (PRD-017a), so hivedoctor knows where to poll (read-only) for check-in
+   * status, metrics, and logs. Optional in the type only so a pre-PRD-017
+   * entry a test constructs by hand still type-checks; `buildHivenectarRegistryEntry`
+   * always populates it.
+   */
+  readonly telemetryDbPath?: string;
 }
 
 /** hivedoctor's per-daemon defaults hivenectar's entry resolves to (PRD-003c table). */
@@ -69,16 +92,22 @@ export function defaultHivedoctorRegistryPath(home: string = homedir()): string 
  * (PRD-003c table): `healthUrl`/`pidPath` come from hivenectar's own runtime
  * config (already home-expanded, so no `~` round-trip is needed here); the
  * remaining fields are hivedoctor's per-daemon defaults unless overridden.
+ *
+ * `telemetryDbPath` (PRD-017a) defaults to `<runtimeDir>/telemetry/hivenectar.sqlite`,
+ * where `runtimeDir` is `pidFilePath`'s own directory - the same resolved
+ * runtime dir every other per-daemon artifact already lives under, so a
+ * test-overridden runtime dir keeps pid/lock/telemetry colocated automatically.
  */
 export function buildHivenectarRegistryEntry(
   config: Pick<RuntimeConfig, "host" | "port" | "pidFilePath">,
   overrides: Partial<
     Pick<
       HivedoctorRegistryEntry,
-      "probeIntervalMs" | "startupGraceMs" | "restartGiveUpThreshold" | "restartCooldownMs"
+      "probeIntervalMs" | "startupGraceMs" | "restartGiveUpThreshold" | "restartCooldownMs" | "telemetryDbPath"
     >
   > = {},
 ): HivedoctorRegistryEntry {
+  const runtimeDir = dirname(config.pidFilePath);
   return {
     name: HIVENECTAR_DAEMON_NAME,
     healthUrl: `http://${config.host}:${config.port}/health`,
@@ -87,6 +116,7 @@ export function buildHivenectarRegistryEntry(
     startupGraceMs: overrides.startupGraceMs ?? DEFAULT_STARTUP_GRACE_MS,
     restartGiveUpThreshold: overrides.restartGiveUpThreshold ?? DEFAULT_RESTART_GIVE_UP_THRESHOLD,
     restartCooldownMs: overrides.restartCooldownMs ?? DEFAULT_RESTART_COOLDOWN_MS,
+    telemetryDbPath: overrides.telemetryDbPath ?? join(runtimeDir, TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME),
   };
 }
 
@@ -155,7 +185,7 @@ export interface RegisterWithHivedoctorOptions {
   readonly overrides?: Partial<
     Pick<
       HivedoctorRegistryEntry,
-      "probeIntervalMs" | "startupGraceMs" | "restartGiveUpThreshold" | "restartCooldownMs"
+      "probeIntervalMs" | "startupGraceMs" | "restartGiveUpThreshold" | "restartCooldownMs" | "telemetryDbPath"
     >
   >;
 }

@@ -36,6 +36,7 @@ import type { SourceGraphStore } from "../source-graph/store.js";
 import type { Tenancy } from "../source-graph/model.js";
 import { mintNectar } from "../source-graph/ulid.js";
 import type { Timer } from "../poll-loop.js";
+import type { PipelineMetricsSink } from "../telemetry/metrics.js";
 
 /** A file's on-disk state, resolved by the injected filesystem seam. */
 export interface StatResult {
@@ -75,6 +76,17 @@ export interface RegistrationServiceOptions {
   onEnrichQueued?(nectar: string): void;
   /** Structured log sink; defaults to a no-op. */
   log?(line: Record<string, unknown>): void;
+  /**
+   * The since-restart pipeline metrics sink (PRD-017b). Counts "files
+   * registered" - once per settled path actually resolved through the ladder
+   * (a NEW/CHANGED path, `resolveExisting`), regardless of the ladder's
+   * outcome. Nectar-mint and version-write counters are captured separately
+   * by wrapping `store` with `telemetry.wrapStore()` (`telemetry/metrics.ts`)
+   * before constructing this service, so this field only needs to cover the
+   * one counter with no other precise 1:1 store-level hook. Omit for a no-op
+   * (the default; existing callers are unaffected).
+   */
+  metrics?: PipelineMetricsSink;
 }
 
 export class RegistrationService {
@@ -87,6 +99,7 @@ export class RegistrationService {
   private readonly nowFn: () => string;
   private readonly onEnrichQueued: (nectar: string) => void;
   private readonly log: (line: Record<string, unknown>) => void;
+  private readonly metrics: PipelineMetricsSink | undefined;
   private readonly intake: WatchIntake;
 
   private readonly pending = new Set<string>();
@@ -104,6 +117,7 @@ export class RegistrationService {
     this.nowFn = opts.now ?? (() => new Date().toISOString());
     this.onEnrichQueued = opts.onEnrichQueued ?? (() => {});
     this.log = opts.log ?? (() => {});
+    this.metrics = opts.metrics;
     this.intake = new WatchIntake({
       root: opts.root,
       debounceMs: opts.debounceMs,
@@ -246,6 +260,12 @@ export class RegistrationService {
     // The ladder persists the content fingerprint on the appended version row, so
     // there is nothing to cache here; step 4 reads it back from the store (AC-8).
     const result = reassociate(file, this.ladderDeps());
+    // "files registered" (PRD-017b): one settled path actually resolved through
+    // the ladder, counted here at the real completion point regardless of which
+    // step fired or what action it took (noop/append/carry/mint/copy all count -
+    // each is one unit of registration work). A path that never reaches here
+    // (ignored, or classified "missing-path") is correctly never counted.
+    this.metrics?.incrementFilesRegistered();
     this.log({ level: "debug", scope: "registration.resolve", relPath, step: result.step, action: result.action });
   }
 
