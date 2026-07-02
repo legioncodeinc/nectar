@@ -526,3 +526,15 @@ The CodeRabbit Major "Step-4 fingerprints disappear across restarts" is now CLOS
 **Wave-0 QA completion (2 quality-worker-bees, parallel):** QA-009 (backlog/prd-009), QA-015 (backlog/prd-015); closes the last two open Wave-0 QA slots.
 
 Shared-file wiring (cli/daemon/index/worker/server) reserved to the orchestrator after workers land.
+
+### Wave C results (2026-07-02 PM)
+
+| ID | Item | Status |
+|---|---|---|
+| 007-ALL | PRD-007 brooding pipeline: fixed order, git ls-files discovery + walk fallback, hash pre-check inherit, 4 buckets + #22 dynamic packing (20k-token budget, 100KB cap, 50-file ceiling), verbatim cost math, verbatim batch prompt, describe_status resumability (no lockfile), --dry-run zero-LLM, --force/--limit, auto-trigger predicate | VERIFIED (29 AC-named tests in `test/brooding.test.ts`; orchestrator re-ran typecheck + full suite 401/0/3; spot-checked #22 constants + dry-run path) |
+| 016-ALL | PRD-016 enricher: MAX(seq) pending selection, 500ms intake debounce, Jaccard 0.85 cosmetic-inherit (inherited-from marker), gemini-2.5-flash stamp, failed->retry-solo, batch split on context error, skipped-deleted, 5-cycle alert + halt + acknowledge + reset, cycle stats, 30s poll, projection trigger #2 | VERIFIED (31 AC-named tests; orchestrator re-ran full suite) |
+| 012a-ALL | PRD-012a search engine: guarded ILIKE lexical arm, latest-described MAX(seq) join, sqlLike escaping, vector-search-then-hydrate `<#>` arm, 768-dim guard, RRF fusion + dedupe, LIMIT 20 (#34), embeds-off lexical-only degraded, missing-table fail-soft `{degraded:true}`, empty-query floor | VERIFIED (15 AC-named tests; orchestrator re-ran full suite; DEFAULT_RECALL_LIMIT=20 spot-checked) |
+| 013-ALL | PRD-013 recall arm (honeycomb): RecallSource member + readSource + kindOfSource memory-class weight 1.0, buildHiveGraphVersionsArmSql (MAX(seq) + described + scope conjunct, all guarded), Promise.all/arms + rowsToRankedArm, SEMANTIC_ARMS embedding entry + dim guard, per-arm fail-soft, #17 nectar_rrf_multiplier (boot read, fail-soft 1.0, clamp [0,10], hive-graph-only application, boot log) | VERIFIED (26 AC-named tests; orchestrator re-ran typecheck + memories/recall suites 496/496 + audit:sql OK in the honeycomb worktree; real-hit end-to-end validation remains data-presence-coupled per the wave plan, separable by design) |
+| INT-C | Wave C integration: brood CLI verb (+classifyBroodInvocation, dry-run local), daemon boot enricher loop start/stop + health sink, background auto-brood, PRD-011b AC-6 boot projection load + inheritance, decision-#20 health slices, index re-exports, DeepLakeEnricherStore adapter | VERIFIED (9 integration tests; suite 401/0/3; `nectar search` verb correctly DEFERRED to Wave D per 012b's thin-loopback AC, exits 2 with notice) |
+
+**Wave C exit gate: MET** (007/016/012a/013 module ACs verified; 013 end-to-end hits pending brooded data by design). Wave D entry gate satisfied (QA-008 PASS on disk). QA-009 returned FAIL (C-1 false transport chain, W-1 stale tenancy prose) -> remediation worker dispatched; QA-015 in flight.
