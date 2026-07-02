@@ -124,6 +124,21 @@ jobs:
       - name: Build (tsc)
         run: npm run build
 
+      # ── Bake the PostHog usage-telemetry key into dist/. This MUST run
+      # after the LAST build-producing step: `npm run test` above re-runs
+      # `tsc` (see package.json), and so does Build (tsc), either of which
+      # would overwrite a previously baked file. Every step below here only
+      # inspects package.json or resolves the publish mode; the artifact
+      # uploaded at the end of this job is the baked dist/, which the publish
+      # job ships verbatim (--ignore-scripts, no rebuild). With the secret
+      # unset (e.g. a fork), the script logs a no-op and the build stays
+      # unkeyed, which hard-disables telemetry at runtime. ──────────────────
+      - name: Bake PostHog key into dist
+        env:
+          HONEYCOMB_POSTHOG_KEY: ${{ secrets.HONEYCOMB_POSTHOG_KEY }}
+          HONEYCOMB_POSTHOG_HOST: ${{ vars.HONEYCOMB_POSTHOG_HOST }}
+        run: node scripts/bake-posthog-key.mjs
+
       # ── Tag-vs-package.json version guard. ───────────────────────────────
       - name: Guard - pushed tag matches package.json version
         if: ${{ github.ref_type == 'tag' }}
