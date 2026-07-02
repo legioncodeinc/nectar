@@ -552,3 +552,15 @@ PRD-009 is a DOC PRD: its deliverable (decision record + per-harness recall-call
 | 009-AC-5 | Ships no code, changes no table, zero TODO/OPEN QUESTION, no invented gap values | VERIFIED (orchestrator grep: only AC-5's self-referential mention; zero naming residue) |
 
 QA-009: FAIL (as audited) -> PASS after remediation (report section 10). QA-015: PASS-with-warnings; W-1 (unowned nodes/edges endpoint) remediation in flight (decision #39 pending). Wave 0 QA gate: ALL TWELVE of 005-016 now carry on-disk QA passes.
+
+### Wave D results (2026-07-02 PM)
+
+| ID | Item | Status |
+|---|---|---|
+| 008a-ALL | RouteGroup seam over node:http (no Hono, zero-dep, mirrors honeycomb ROUTE_GROUPS): /api/hive-graph mounts protect:true inheriting the permission gate; unfilled paths 501 scaffold; group() accessor; /health stays unprotected; 1 MiB POST cap -> 413 | VERIFIED (orchestrator re-ran typecheck + suite 442/0/3; spot-checked ROUTE_GROUPS/protect/cap in src/api/router.ts) |
+| 008b-ALL | POST /api/hive-graph/search delegates to the 012a engine unchanged shape; limit passthrough; no-scope 400; engine failure 500 | VERIFIED (AC-named tests; shape identity proven byte-identical vs CLI in 012b-AC-2.1/1.3) |
+| 008c-ALL | build handler (in-flight guard, 409 already_running, force passthrough), status (queueDepth + describe_status counts + cost; missing-table degrade; aggregate-only SQL), projection read + rebuild per-request scope | VERIFIED at the handler bar (AC-named tests with injected runner). KNOWN DORMANCY (inherited, not a Wave D defect): the LIVE build endpoint returns 501 build_unavailable and auto-brood stays dormant until the sync/async store bridge lands (runBrood consumes sync HiveGraphStore; DeepLakeHiveGraphStore is async; documented on AsyncHiveGraphStore). Tracked as the program's one open integration work item |
+| 012b-ALL | `nectar search <query> [--limit] [--json]` thin loopback client (node:http, type-only engine import proven by test), daemon-not-running DaemonUnreachableError, table render + degraded footer, --json byte-identical to endpoint | VERIFIED (replaces the Wave C exit-2 stub; AC-012b.3.1/3.2 tests) |
+| 008-residual | /api/status reconciliation: NOT added (PRD-002 Non-Goal); PRD-008's status surface is the protected /api/hive-graph/status; prefix-match can never shadow a future exact /api/status | VERIFIED (documented in router.ts + server.ts per the QA rider) |
+
+**Wave D exit gate: MET** (445 tests total, +41 AC-named; typecheck clean; Aikido clean on the new API code). Wave E entry gate for 015 now satisfied (008 verified, 004c host ready, 013 verified; QA-015 PASS with W-1 resolved via decision #39).
