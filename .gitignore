@@ -104,4 +104,5 @@ typings/
 CLAUDE.md
 
 # Nectar Specific Files
-.honeycomb/
+.honeycomb/nectars.json
+
