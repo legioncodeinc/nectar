@@ -118,6 +118,16 @@ function* walk(root: string, dir: string, isIgnored: IgnorePredicate, readDirSyn
 }
 
 /**
+ * Test/wiring seam for {@link probeCaseInsensitiveFs} (CodeRabbit PR-18
+ * finding #5): defaults to `node:fs`'s real `statSync`. Lets a test simulate
+ * the marker vanishing (or an EPERM/AV-interference-shaped fault) between the
+ * write and the re-stat without needing a real filesystem race.
+ */
+export interface ProbeCaseInsensitiveFsIo {
+  statSync: typeof statSync;
+}
+
+/**
  * Probe whether `root`'s filesystem is case-insensitive (PRD-018c NEC-034 /
  * AC-018c.8): a REAL filesystem probe, never a platform guess. Creates a
  * uniquely-named marker file under `root`, then stats a case-flipped version
@@ -126,7 +136,7 @@ function* walk(root: string, dir: string, isIgnored: IgnorePredicate, readDirSyn
  * behavior-preserving default) when `root` is not writable/statable, so a
  * probe failure never silently enables case-folding.
  */
-export function probeCaseInsensitiveFs(root: string): boolean {
+export function probeCaseInsensitiveFs(root: string, io: ProbeCaseInsensitiveFsIo = { statSync }): boolean {
   const base = `NectarCaseProbe-${process.pid.toString(36)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const lowerRel = base.toLowerCase();
   const upperRel = base.toUpperCase();
@@ -138,10 +148,21 @@ export function probeCaseInsensitiveFs(root: string): boolean {
     return false; // cannot probe (root missing/unwritable) - assume case-sensitive
   }
   try {
-    const lowerStat = statSync(lowerAbs);
+    // CodeRabbit PR-18 finding #5: the post-write `statSync(lowerAbs)` itself
+    // can throw (EPERM, antivirus interference, a marker removed out from
+    // under us) just as readily as the case-flipped `statSync(upperAbs)`
+    // below already accounted for. An uncaught throw here used to bubble out
+    // of RegistrationService construction; wrap it the same way, failing
+    // closed (case-SENSITIVE) rather than crashing the caller.
+    let lowerStat;
+    try {
+      lowerStat = io.statSync(lowerAbs);
+    } catch {
+      return false; // cannot re-stat our own marker -> assume case-sensitive
+    }
     let upperStat;
     try {
-      upperStat = statSync(upperAbs);
+      upperStat = io.statSync(upperAbs);
     } catch {
       return false; // the case-flipped name does not resolve -> case-sensitive
     }

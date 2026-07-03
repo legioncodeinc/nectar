@@ -134,3 +134,19 @@ test("AC-018c.8 probeCaseInsensitiveFs fails closed (case-SENSITIVE) when root d
   const missingRoot = join(tmpdir(), `nectar-case-probe-missing-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   assert.equal(probeCaseInsensitiveFs(missingRoot), false);
 });
+
+// ── CodeRabbit PR-18 finding #5: the post-write statSync can itself throw ────
+
+test("CodeRabbit PR-18 finding #5: a statSync failure on the just-written marker fails closed instead of throwing", () => {
+  const root = mkdtempSync(join(tmpdir(), "nectar-case-probe-vanish-"));
+  try {
+    const result = probeCaseInsensitiveFs(root, {
+      statSync: () => {
+        throw Object.assign(new Error("simulated EPERM (antivirus interference)"), { code: "EPERM" });
+      },
+    });
+    assert.equal(result, false, "fails closed (case-sensitive) rather than throwing out of construction");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

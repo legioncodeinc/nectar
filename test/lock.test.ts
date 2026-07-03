@@ -73,6 +73,59 @@ test("a stale lock (dead pid) is reclaimed", () => {
   }
 });
 
+// ── CodeRabbit PR-18 finding #2: a present-but-corrupt lock is reclaimed ──────
+
+test("a present-but-empty lock file is reclaimed instead of wedging every future acquire", () => {
+  const p = tmpPaths();
+  try {
+    // Present, but empty: readLockIdentity returns null for this the same way
+    // it does for "the file is gone" - the pre-fix reclaimStaleLock treated
+    // both as "already gone" and never removed it, so the daemon could never
+    // start again without a manual `rm`.
+    writeFileSync(p.lockFilePath, "", "utf8");
+    const identity = acquireSingleInstanceLock(p);
+    assert.equal(readLockIdentity(p.lockFilePath)?.token, identity.token, "the corrupt lock was reclaimed, not wedged");
+  } finally {
+    rmSync(p.dir, { recursive: true, force: true });
+  }
+});
+
+test("a present-but-garbage (non-JSON, non-numeric) lock file is also reclaimed", () => {
+  const p = tmpPaths();
+  try {
+    writeFileSync(p.lockFilePath, "{not valid json at all", "utf8");
+    const identity = acquireSingleInstanceLock(p);
+    assert.equal(readLockIdentity(p.lockFilePath)?.token, identity.token);
+  } finally {
+    rmSync(p.dir, { recursive: true, force: true });
+  }
+});
+
+// ── CodeRabbit PR-18 finding #2: a writeSync failure rolls back, no half-written lock left behind ──
+
+test("a writeSync failure while writing the lock body rolls back and leaves no half-written lock behind", () => {
+  const p = tmpPaths();
+  try {
+    assert.throws(
+      () =>
+        acquireSingleInstanceLock(p, {
+          writeLockBody: () => {
+            throw new Error("simulated disk-full while writing the lock body");
+          },
+        }),
+      /simulated disk-full/,
+    );
+    assert.equal(existsSync(p.lockFilePath), false, "the half-written lock file was rolled back, not left behind");
+
+    // With the write path healthy again, a fresh acquire against the same
+    // paths must succeed cleanly (nothing corrupt was left wedging it).
+    const identity = acquireSingleInstanceLock(p);
+    assert.ok(identity.token.length > 0);
+  } finally {
+    rmSync(p.dir, { recursive: true, force: true });
+  }
+});
+
 // ── AC-018a.5: PID reuse (live-but-foreign identity) is reclaimed, not wedged ──
 
 test("AC-018a.5 a lock recording a live pid from a prior boot is reclaimed instead of wedging startup", () => {

@@ -336,7 +336,12 @@ export class RegistrationService {
       this.log({ level: "error", scope: "registration.repair", err: err instanceof Error ? err.message : String(err) });
       return;
     }
-    if (report.healedOrphanIdentities > 0 || report.healedStaleLastUpdate > 0 || report.healedDuplicatePaths > 0) {
+    if (
+      report.healedOrphanIdentities > 0 ||
+      report.healedOrphanVersions > 0 ||
+      report.healedStaleLastUpdate > 0 ||
+      report.healedDuplicatePaths > 0
+    ) {
       this.log({ level: "info", scope: "registration.repair", ...report });
     }
   }

@@ -515,6 +515,39 @@ export function repairLadderState(store: HiveGraphStore, tenancy: Tenancy): Repa
     }
   }
 
+  // 4. An orphan VERSION (CodeRabbit PR-18 finding #8, layer b): a version row
+  // whose nectar has no identity row at all - the inverse of the orphan-
+  // identity case above. This happens when a durable `insertIdentity` flush
+  // failed but a later `appendVersion` for the same nectar still landed (the
+  // sync/async bridge's layer-a fix, `store-bridge.ts`, prevents this for NEW
+  // writes; this heals any that already exist). Reads join through identities
+  // (`listLatestVersions` et al never surface the row), so the only sound
+  // repair is reconstructing a minimal identity from the version row itself:
+  // the nectar ULID encodes `createdAt`, and the version row carries its own
+  // tenancy + `lastUpdateDate`. Requires the OPTIONAL `store.listVersionNectars`
+  // (skipped, not guessed at, when the adapter omits it, mirroring how
+  // orphan-identity healing above skips when `listIdentities` is omitted).
+  let healedOrphanVersions = 0;
+  if (store.listVersionNectars !== undefined) {
+    for (const nectar of store.listVersionNectars(tenancy)) {
+      if (store.getIdentity(nectar) !== undefined) continue; // already has an identity
+      const version = store.latestVersion(nectar);
+      if (version === undefined) continue; // nothing to reconstruct from
+      store.insertIdentity({
+        nectar,
+        kind: "file",
+        createdAt: nectarCreatedAt(nectar),
+        derivedFromNectar: "",
+        forkContentHash: "",
+        orgId: version.orgId,
+        workspaceId: version.workspaceId,
+        projectId: version.projectId,
+        lastUpdateDate: version.lastUpdateDate,
+      });
+      healedOrphanVersions += 1;
+    }
+  }
+
   const latest = store.listLatestVersions(tenancy);
 
   let healedStaleLastUpdate = 0;
@@ -548,12 +581,14 @@ export function repairLadderState(store: HiveGraphStore, tenancy: Tenancy): Repa
     }
   }
 
-  return { healedOrphanIdentities, healedStaleLastUpdate, healedDuplicatePaths };
+  return { healedOrphanIdentities, healedOrphanVersions, healedStaleLastUpdate, healedDuplicatePaths };
 }
 
 /** What {@link repairLadderState} healed in one sweep pass. */
 export interface RepairReport {
   readonly healedOrphanIdentities: number;
+  /** Orphan version rows (no matching identity) healed by reconstructing a minimal identity (CodeRabbit PR-18 finding #8). */
+  readonly healedOrphanVersions: number;
   readonly healedStaleLastUpdate: number;
   readonly healedDuplicatePaths: number;
 }

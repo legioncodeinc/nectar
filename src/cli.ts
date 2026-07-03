@@ -428,28 +428,89 @@ export async function runReviewMatchesVerb(deps: ReviewMatchesVerbDeps): Promise
 }
 
 /**
- * A stdin-driven per-candidate decider for the interactive `review-matches`
- * prompt. On a non-TTY stdin (a script, CI) it defaults every candidate to
- * `skip` (the safe, non-destructive choice) rather than blocking on input; a
- * real TTY gets an accept/reject/skip prompt. Returns a `close` so the caller
- * releases stdin (otherwise the readline interface would keep the process alive).
+ * The interactive review decider's IO seam (CodeRabbit PR-18 finding #6):
+ * factored out of {@link interactiveReviewDecider} so a test can drive it with
+ * a fake `question`/`write` pair instead of real stdin/stdout, and so the
+ * decider is self-contained (it prints its own context rather than relying on
+ * a caller having already done so earlier in the same loop iteration).
  */
-function interactiveReviewDecider(): {
-  decide: (candidate: PendingReviewCandidate, preview: string) => Promise<ReviewDecision>;
-  close: () => void;
-} {
-  if (process.stdin.isTTY !== true) {
-    return { decide: async () => "skip", close: () => {} };
+export interface InteractiveReviewIo {
+  /** True for a real TTY; a non-TTY input defaults every candidate to `skip`. */
+  readonly isTTY: boolean;
+  /** Ask the accept/reject/skip question and resolve with the raw answer. */
+  question(prompt: string): Promise<string>;
+  /** Write one line of context (the preview) before asking. */
+  write(line: string): void;
+  /** Release any resources the IO holds (e.g. a readline interface on stdin). */
+  close(): void;
+}
+
+/** The real stdin/stdout-backed {@link InteractiveReviewIo}. */
+function realInteractiveReviewIo(): InteractiveReviewIo {
+  const isTTY = process.stdin.isTTY === true;
+  if (!isTTY) {
+    return { isTTY, question: async () => "", write: () => {}, close: () => {} };
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return {
-    decide: async () => {
-      const answer = (await rl.question("  [a]ccept / [r]eject / [s]kip? ")).trim().toLowerCase();
+    isTTY,
+    question: (prompt) => rl.question(prompt),
+    write: (line) => process.stdout.write(`${line}\n`),
+    close: () => rl.close(),
+  };
+}
+
+/**
+ * A stdin-driven per-candidate decider for the interactive `review-matches`
+ * prompt. On a non-TTY stdin (a script, CI) it defaults every candidate to
+ * `skip` (the safe, non-destructive choice) rather than blocking on input; a
+ * real TTY gets the preview printed, then an accept/reject/skip prompt.
+ * Returns a `close` so the caller releases stdin (otherwise the readline
+ * interface would keep the process alive).
+ *
+ * CodeRabbit PR-18 finding #6: the prior implementation's `decide` ignored its
+ * `candidate`/`preview` parameters entirely, so on its own it asked
+ * accept/reject/skip with zero printed context. `runReviewMatches`
+ * (`review-cli.ts`) happens to print the same preview via `out()` immediately
+ * before calling `decide` today, but `decide` should not depend on that
+ * caller-side ordering to be usable - it prints the preview itself now.
+ */
+export function interactiveReviewDecider(
+  io: InteractiveReviewIo = realInteractiveReviewIo(),
+): {
+  decide: (candidate: PendingReviewCandidate, preview: string) => Promise<ReviewDecision>;
+  close: () => void;
+} {
+  if (!io.isTTY) {
+    return { decide: async () => "skip", close: io.close };
+  }
+  return {
+    decide: async (_candidate, preview) => {
+      io.write(preview);
+      const answer = (await io.question("  [a]ccept / [r]eject / [s]kip? ")).trim().toLowerCase();
       if (answer === "a" || answer === "accept") return "accept";
       if (answer === "r" || answer === "reject") return "reject";
       return "skip";
     },
-    close: () => rl.close(),
+    close: io.close,
+  };
+}
+
+/**
+ * Resolve the embed provider + its active embed model id for the CLI's
+ * mutating brood deps, the same way the daemon wiring does
+ * (`api/daemon-api-wiring.ts`'s `activeEmbedModel`) - CodeRabbit PR-18 finding
+ * #7. Exported so the resolution itself (independent of the live Deep Lake
+ * context `runBroodMutating` also needs) is unit-testable without network
+ * credentials: without threading `embedModelId` through, CLI-brooded rows
+ * stamped `embed_model = null` and were never requeued on a provider switch
+ * (AC-018i.3).
+ */
+export function resolveCliBroodEmbedDeps(): { embedProvider: EmbedProvider; embedModelId: string | null } {
+  const embeddingsConfig = resolveEmbeddingsConfig({});
+  return {
+    embedProvider: resolveEmbedProvider(embeddingsConfig),
+    embedModelId: activeEmbedModelId(embeddingsConfig),
   };
 }
 
@@ -477,7 +538,7 @@ async function runBroodMutating(options: BroodRunOptions): Promise<number> {
     );
     return 1;
   }
-  const embedProvider: EmbedProvider = resolveEmbedProvider(resolveEmbeddingsConfig({}));
+  const { embedProvider, embedModelId } = resolveCliBroodEmbedDeps();
   return runBroodMutatingVerb({
     config: {
       store: ctx.store,
@@ -485,7 +546,7 @@ async function runBroodMutating(options: BroodRunOptions): Promise<number> {
       root: ctx.projectRoot,
       fs: createDiskRegistrationFs(ctx.projectRoot),
     },
-    deps: { portkey, embedProvider },
+    deps: { portkey, embedProvider, embedModelId },
     options,
     out: (line) => process.stdout.write(`${line}\n`),
   });

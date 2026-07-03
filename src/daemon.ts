@@ -754,6 +754,18 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     if (startPromise !== null) return startPromise;
 
     startPromise = (async () => {
+      // CodeRabbit PR-18 finding #1: clear `closed` at the very top of the
+      // startPromise IIFE, before anything that can throw (the loopback guard,
+      // the lock acquire). On a REUSED daemon instance (start -> shutdown ->
+      // start again), a second start() that throws before this point used to
+      // leave `closed === true` from the prior shutdown; the catch handler's
+      // rollback `await shutdown()` then no-op'd on the `if (closed) return;`
+      // guard and never cleared `startPromise`, wedging every later start() on
+      // the same rejected promise forever. This is a synchronous assignment at
+      // the top of a prefix that is itself synchronous up to the awaited
+      // `listen()` call, so it does not affect the EX-1 race test's timing.
+      closed = false;
+
       // PRD-018j / NEC-029: refuse to bind off loopback when the default open gate
       // is active, so the API is never network-reachable without authentication.
       if (apiPermission === allowAllPermission && !isLoopbackHost(config.host)) {
@@ -764,7 +776,6 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
       // remember the identity we stamped so the rollback path releases only what
       // THIS instance acquired (PRD-018a NEC-002).
       lockIdentity = acquireSingleInstanceLock(lockPaths);
-      closed = false;
       // Step 6: start services (the worker's adaptive poll loop + the enricher loop).
       worker.start();
       enricherLoop?.start();

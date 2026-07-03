@@ -70,6 +70,19 @@ export class StoreBridge implements HiveGraphStore {
   private pending = 0;
   private failures = 0;
   private lastError: unknown = null;
+  /**
+   * Nectars whose durable `insertIdentity` flush has failed (CodeRabbit PR-18
+   * finding #8, layer a). If an identity's durable insert fails but a LATER
+   * `appendVersion`/`touchIdentity`/`deleteNectar` for the same nectar still
+   * flushed durably, `hive_graph_versions` (or a touch) would land with no
+   * matching `hive_graph` row - an orphan the read path can never resolve
+   * (reads join through identities). Every later write for a nectar in this
+   * set is parked (never sent durably) instead, so the orphan is never
+   * created in the first place. Bridge lifetime only; not persisted (a fresh
+   * bridge re-derives it from a fresh `insertIdentity` failure, should one
+   * happen again).
+   */
+  private readonly failedIdentityNectars = new Set<string>();
 
   constructor(opts: StoreBridgeOptions) {
     this.durable = opts.durable;
@@ -119,42 +132,69 @@ export class StoreBridge implements HiveGraphStore {
    * caught HERE (never rethrown into the synchronous ladder, and never left to
    * become an unhandled rejection), so the queue keeps draining and every
    * failure is surfaced exactly once.
+   *
+   * `nectar` is checked against {@link failedIdentityNectars} at RUN time (not
+   * enqueue time): because the queue is strictly serialized, by the time this
+   * op's turn comes up, an earlier `insertIdentity` for the same nectar has
+   * already settled, so the set is guaranteed up to date (CodeRabbit PR-18
+   * finding #8, layer a). Only `appendVersion`/`touchIdentity` are parkable -
+   * they are the writes that would ADD data referencing a still-missing
+   * identity. `deleteNectar` is exempt and always flows through: it is
+   * cleanup, not a write that can orphan anything (the durable `deleteNectar`
+   * contract is itself a no-op when the identity does not exist), and letting
+   * it through is what clears the nectar out of {@link failedIdentityNectars}
+   * again on success.
    */
-  private enqueue(op: DurableWriteOp, run: () => Promise<void>): void {
+  private enqueue(op: DurableWriteOp, nectar: string, run: () => Promise<void>): void {
     this.pending += 1;
-    this.tail = this.tail.then(run).then(
-      () => {
-        this.pending -= 1;
-      },
-      (err: unknown) => {
+    this.tail = this.tail.then(() => {
+      const parkable = op === "appendVersion" || op === "touchIdentity";
+      if (parkable && this.failedIdentityNectars.has(nectar)) {
         this.pending -= 1;
         this.failures += 1;
+        const err = new Error(
+          `durable ${op} for nectar ${nectar} parked: its identity insert already failed durably (would orphan hive_graph_versions)`,
+        );
         this.lastError = err;
         this.onFlushError(err, op);
-      },
-    );
+        return;
+      }
+      return run().then(
+        () => {
+          this.pending -= 1;
+          if (op === "deleteNectar") this.failedIdentityNectars.delete(nectar); // the nectar is gone; nothing left to orphan
+        },
+        (err: unknown) => {
+          this.pending -= 1;
+          this.failures += 1;
+          this.lastError = err;
+          if (op === "insertIdentity") this.failedIdentityNectars.add(nectar);
+          this.onFlushError(err, op);
+        },
+      );
+    });
   }
 
   // ── writes: apply to the mirror, then flush the identical write in order ─────
 
   insertIdentity(row: HiveGraphRow): void {
     this.mirror.insertIdentity(row);
-    this.enqueue("insertIdentity", () => this.durable.insertIdentity(row));
+    this.enqueue("insertIdentity", row.nectar, () => this.durable.insertIdentity(row));
   }
 
   touchIdentity(nectar: string, lastUpdateDate: string): void {
     this.mirror.touchIdentity(nectar, lastUpdateDate);
-    this.enqueue("touchIdentity", () => this.durable.touchIdentity(nectar, lastUpdateDate));
+    this.enqueue("touchIdentity", nectar, () => this.durable.touchIdentity(nectar, lastUpdateDate));
   }
 
   appendVersion(row: HiveGraphVersionRow): void {
     this.mirror.appendVersion(row);
-    this.enqueue("appendVersion", () => this.durable.appendVersion(row));
+    this.enqueue("appendVersion", row.nectar, () => this.durable.appendVersion(row));
   }
 
   deleteNectar(tenancy: Tenancy, nectar: string): void {
     this.mirror.deleteNectar(tenancy, nectar);
-    this.enqueue("deleteNectar", () => this.durable.deleteNectar(tenancy, nectar));
+    this.enqueue("deleteNectar", nectar, () => this.durable.deleteNectar(tenancy, nectar));
   }
 
   // ── reads: served synchronously from the mirror ──────────────────────────────
@@ -189,5 +229,9 @@ export class StoreBridge implements HiveGraphStore {
 
   listIdentities(tenancy: Tenancy): HiveGraphRow[] {
     return this.mirror.listIdentities(tenancy);
+  }
+
+  listVersionNectars(tenancy: Tenancy): string[] {
+    return this.mirror.listVersionNectars(tenancy);
   }
 }

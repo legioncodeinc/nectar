@@ -176,3 +176,56 @@ test("store-bridge: a failed durable flush is surfaced, not swallowed, and does 
   assert.deepEqual(ops, ["insertIdentity:n1", "appendVersion:n1#1"], "the good writes flushed; only the injected one failed");
   assert.equal(bridge.pendingDurableWrites, 0);
 });
+
+// ── CodeRabbit PR-18 finding #8 (layer a): park later writes for a nectar whose identity insert failed durably ──
+
+test("store-bridge: a later appendVersion for a nectar whose durable insertIdentity failed is parked, never producing a durable orphan version", async () => {
+  const surfaced: string[] = [];
+  const { store, ops } = recorderStore({ failOn: (op) => op === "insertIdentity" });
+  const bridge = new StoreBridge({
+    durable: store,
+    onFlushError: (err, op) => surfaced.push(op),
+  });
+
+  // The ladder-shaped mint sequence: insertIdentity (fails durably), then
+  // appendVersion for the SAME nectar (must never reach the durable store -
+  // that would orphan hive_graph_versions with no matching hive_graph row).
+  bridge.insertIdentity(identity("orphan-1"));
+  bridge.appendVersion(version("orphan-1", 0, "src/a.ts"));
+  bridge.touchIdentity("orphan-1", NOW);
+
+  await bridge.whenFlushed();
+
+  assert.deepEqual(ops, [], "the durable store never received ANY write for the failed-identity nectar");
+  assert.deepEqual(surfaced, ["insertIdentity", "appendVersion", "touchIdentity"], "every write for the nectar surfaced a failure, in order");
+  assert.equal(bridge.durableFlushFailures, 3, "the original failure plus the two parked writes all count");
+  // The mirror (source of truth for the sync ladder) is unaffected - the
+  // synchronous side of the bridge never observes the durable-layer problem.
+  assert.equal(bridge.latestVersion("orphan-1")?.seq, 0, "the mirror still has the row (the ladder never blocks on this)");
+});
+
+test("store-bridge: an UNRELATED nectar's writes are unaffected by another nectar's failed identity insert", async () => {
+  const { store, ops } = recorderStore({ failOn: (op, arg) => op === "insertIdentity" && arg === "n1" });
+  const bridge = new StoreBridge({ durable: store });
+
+  bridge.insertIdentity(identity("n1")); // fails durably
+  bridge.appendVersion(version("n1", 0, "src/a.ts")); // parked
+  bridge.insertIdentity(identity("n2")); // unrelated, must flush normally
+  bridge.appendVersion(version("n2", 0, "src/b.ts"));
+
+  await bridge.whenFlushed();
+
+  assert.deepEqual(ops, ["insertIdentity:n2", "appendVersion:n2#0"], "n2's writes flushed normally; n1's were parked");
+});
+
+test("store-bridge: deleteNectar clears the failed-identity tracking so the nectar id is not marked forever", async () => {
+  const { store, ops } = recorderStore({ failOn: (op) => op === "insertIdentity" });
+  const bridge = new StoreBridge({ durable: store });
+
+  bridge.insertIdentity(identity("n1")); // fails durably
+  bridge.deleteNectar(TEN, "n1"); // the nectar is gone; nothing left to orphan
+
+  await bridge.whenFlushed();
+
+  assert.deepEqual(ops, ["deleteNectar:n1"], "the delete itself flushed (it is not parked)");
+});

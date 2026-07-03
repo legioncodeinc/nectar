@@ -131,6 +131,55 @@ test("withHeal does not heal a non-missing-table failure", async () => {
   await assert.rejects(() => withHeal(fakeTransport, HIVE_GRAPH_TABLE, () => fakeTransport.query()));
 });
 
+// --- CodeRabbit PR-18 finding #3: the duplicate-column ALTER race ---
+
+test("withHeal swallows a duplicate-column ALTER failure (a concurrent heal already added it) and still retries the write", async () => {
+  const nectar = "N-CR18-3";
+  let alterAttempts = 0;
+  let insertAttempts = 0;
+  const fakeTransport = {
+    async query(sql: string): Promise<object[]> {
+      if (/^ALTER TABLE "hive_graph_versions" ADD COLUMN embed_model/.test(sql)) {
+        alterAttempts += 1;
+        // A concurrent heal already won the race and added the column; Deep
+        // Lake has no `ADD COLUMN IF NOT EXISTS`, so our ALTER fails even
+        // though the column we wanted now exists.
+        throw new TransportError("query", 'column "embed_model" of relation "hive_graph_versions" already exists');
+      }
+      if (/^INSERT INTO "hive_graph_versions"/.test(sql)) {
+        insertAttempts += 1;
+        if (insertAttempts === 1) throw new TransportError("query", 'column "embed_model" does not exist');
+        return [];
+      }
+      return [];
+    },
+  };
+  const rows = await withHeal(fakeTransport, HIVE_GRAPH_VERSIONS_TABLE, () =>
+    fakeTransport.query(`INSERT INTO "hive_graph_versions" (nectar) VALUES ('${nectar}')`),
+  );
+  assert.deepEqual(rows, [], "the retried write completed despite the duplicate-column ALTER failure");
+  assert.equal(alterAttempts, 1, "exactly one ALTER was attempted (no further retry loop)");
+  assert.equal(insertAttempts, 2, "the write retried exactly once after the (swallowed) heal attempt");
+});
+
+test("withHeal does NOT swallow a non-duplicate ALTER failure (e.g. a permission error) - it propagates unchanged", async () => {
+  let alterAttempts = 0;
+  const fakeTransport = {
+    async query(sql: string): Promise<object[]> {
+      if (/^ALTER TABLE "hive_graph_versions" ADD COLUMN embed_model/.test(sql)) {
+        alterAttempts += 1;
+        throw new TransportError("query", "permission denied for relation hive_graph_versions");
+      }
+      throw new TransportError("query", 'column "embed_model" does not exist');
+    },
+  };
+  await assert.rejects(
+    () => withHeal(fakeTransport, HIVE_GRAPH_VERSIONS_TABLE, () => fakeTransport.query("INSERT INTO x")),
+    /permission denied/,
+  );
+  assert.equal(alterAttempts, 1, "the ALTER was attempted exactly once before the real failure propagated");
+});
+
 // --- deeplake-credentials (unit, uses a temp dir override — never the real ~/.deeplake) ---
 
 test("loadDeepLakeCredentials fails closed with a clear reason when the file is absent", () => {
@@ -826,11 +875,16 @@ test("DeepLakeHiveGraphStore live round-trip: insert identity + append version +
 
     await assert.rejects(() => store.insertIdentity(identity), /already exists/, "duplicate insertIdentity throws");
   } catch (err) {
-    // Only genuine connectivity failures may skip. A `query`-kind error after
-    // credentials loaded is a REAL failure (schema drift, heal bug, bad SQL)
-    // and must fail the release gate, not silently skip it (PRD-018 QA
-    // finding).
-    if (err instanceof TransportError && (err.kind === "connection" || err.kind === "timeout")) {
+    // Only genuine connectivity failures may skip. A 4xx `query`-kind error
+    // after credentials loaded is a REAL failure (schema drift, heal bug, bad
+    // SQL) and must fail the release gate, not silently skip it (PRD-018 QA
+    // finding). A 5xx from the backend (e.g. 'failed to get database
+    // connection') is server-side unreachability, the same class as
+    // connection/timeout, and may skip.
+    if (
+      err instanceof TransportError &&
+      (err.kind === "connection" || err.kind === "timeout" || (err.status !== undefined && err.status >= 500))
+    ) {
       t.skip(`Deep Lake unreachable, skipping live round-trip: ${err.message}`);
       return;
     }

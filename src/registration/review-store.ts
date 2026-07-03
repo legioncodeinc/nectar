@@ -16,7 +16,7 @@
  *     the Deep-Lake-is-the-only-durable-store rule (FR-8): the durable nectar
  *     rows live in Deep Lake; this file only tracks unreviewed candidates.
  */
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -97,6 +97,18 @@ function isCandidate(value: unknown): value is PendingReviewCandidate {
 const LOCK_MAX_WAIT_MS = 5000;
 /** Poll interval while waiting for the advisory lock. */
 const LOCK_RETRY_DELAY_MS = 5;
+/**
+ * A lock file whose mtime is older than this is presumed abandoned by a
+ * crashed holder (CodeRabbit PR-18 finding #4): a crash between
+ * {@link acquireFileLock} and the caller's `finally` release used to leave
+ * `${filePath}.lock` behind forever, wedging every later `add()`/`remove()`
+ * to the full {@link LOCK_MAX_WAIT_MS} timeout. A live holder's critical
+ * section (a small JSON read-modify-write) always finishes well within
+ * `LOCK_MAX_WAIT_MS`; 3x that gives comfortable headroom over the slowest
+ * legitimate hold (another racer's full wait plus its own critical section)
+ * before this reclaims the lock as abandoned.
+ */
+const LOCK_STALE_MS = LOCK_MAX_WAIT_MS * 3;
 
 /** A synchronous, event-loop-blocking sleep (Node allows `Atomics.wait` on the main thread; browsers do not). */
 function sleepSyncMs(ms: number): void {
@@ -116,6 +128,15 @@ function sleepSyncMs(ms: number): void {
  * SERIALIZED critical section across the daemon and the `review-matches` CLI,
  * the store's stated two-writer use case).
  */
+/** True when `lockPath`'s mtime is older than {@link LOCK_STALE_MS} (an abandoned lock). False when it no longer exists (the caller's ENOENT race: another process reclaimed first). */
+function isLockStale(lockPath: string): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs > LOCK_STALE_MS;
+  } catch {
+    return false; // gone already; the create-retry below will settle it
+  }
+}
+
 function acquireFileLock(lockPath: string): void {
   mkdirSync(dirname(lockPath), { recursive: true });
   const deadline = Date.now() + LOCK_MAX_WAIT_MS;
@@ -125,6 +146,18 @@ function acquireFileLock(lockPath: string): void {
       return;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      // CodeRabbit PR-18 finding #4: reclaim an abandoned lock by mtime instead
+      // of waiting out the full timeout behind it every time.
+      if (isLockStale(lockPath)) {
+        try {
+          rmSync(lockPath);
+        } catch (rmErr) {
+          // ENOENT: another process reclaimed it first between our stat and
+          // our rm; anything else is a real filesystem problem.
+          if ((rmErr as NodeJS.ErrnoException).code !== "ENOENT") throw rmErr;
+        }
+        continue; // re-attempt the exclusive create immediately
+      }
       if (Date.now() >= deadline) {
         throw new Error(`timed out waiting for the pending-review lock at ${lockPath}`);
       }

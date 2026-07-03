@@ -130,7 +130,21 @@ export async function withHeal(
       // never arrive via ALTER; refusing them keeps a stray message from ALTERing
       // a bogus column). A future non-additive add must extend this rule.
       if (def !== undefined && !def.notNull) {
-        await transport.query(buildAddColumnSql(table, def));
+        // Deep Lake SQL has no `ADD COLUMN IF NOT EXISTS`, so two concurrent
+        // heals can both observe the missing-column failure and both issue the
+        // bare ALTER; the loser's ALTER then fails with a duplicate-column
+        // error even though the column it wanted is now there (CodeRabbit
+        // PR-18 finding #3). Swallow exactly that shape of failure and proceed
+        // to the retry - the column exists, which is all the heal needs - and
+        // let any OTHER ALTER failure (permission, connection, a genuine
+        // schema conflict) propagate unchanged.
+        try {
+          await transport.query(buildAddColumnSql(table, def));
+        } catch (alterErr: unknown) {
+          const alreadyExists =
+            alterErr instanceof TransportError && /already exists|duplicate column/i.test(alterErr.message);
+          if (!alreadyExists) throw alterErr;
+        }
         return runWrite();
       }
     }

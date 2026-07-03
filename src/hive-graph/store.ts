@@ -91,6 +91,22 @@ export interface HiveGraphStore {
    * rather than guessing.
    */
   listIdentities?(tenancy: Tenancy): HiveGraphRow[];
+
+  /**
+   * Every distinct nectar that has AT LEAST ONE `hive_graph_versions` row,
+   * scoped to `tenancy` (via the version rows' own tenancy columns, since an
+   * orphan version's nectar may have no `hive_graph` identity row to scope
+   * against). OPTIONAL and ADDITIVE (PRD-018 close-out, CodeRabbit PR-18
+   * finding #8): the ladder's crash-repair sweep (`repairLadderState`) uses
+   * this, together with {@link getIdentity}, to find an orphan VERSION - a
+   * version row whose nectar has no matching identity (the inverse of the
+   * orphan-IDENTITY case {@link listIdentities} already heals) - left by a
+   * durable identity-insert flush that failed after a later version for the
+   * same nectar still landed. Omit on an adapter with no cheap way to
+   * enumerate distinct version nectars; the sweep skips orphan-version
+   * healing (only) when this is undefined.
+   */
+  listVersionNectars?(tenancy: Tenancy): string[];
 }
 
 /**

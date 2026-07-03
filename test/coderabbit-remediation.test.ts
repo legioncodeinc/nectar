@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
@@ -181,6 +181,70 @@ test("FilePendingReviewStore writes a complete parseable file and ignores leftov
     // A leftover temp file in the same dir must NOT be treated as the queue.
     writeFileSync(`${filePath}.99999.deadbeef.tmp`, "garbage not json", "utf8");
     assert.equal(store.list().length, 1, "list reads only the target file, not stray .tmp files");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// CodeRabbit PR-18 finding #4 ---------------------------------------------
+test("FilePendingReviewStore reclaims an abandoned (stale-mtime) lock instead of waiting out the full timeout", () => {
+  const dir = mkdtempSync(join(tmpdir(), "hn-cr18-4-"));
+  const filePath = join(dir, "pending-reviews.json");
+  try {
+    const lockPath = `${filePath}.lock`;
+    writeFileSync(lockPath, "", "utf8");
+    // Back-date the abandoned lock's mtime well past the staleness threshold
+    // (3x the 5s max-wait, per review-store.ts) - simulating a crash between
+    // acquireFileLock() and the caller's `finally` release.
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lockPath, old, old);
+
+    const store = new FilePendingReviewStore(filePath);
+    const t0 = Date.now();
+    store.add({
+      id: "id-stale-lock",
+      candidateNectar: "N1",
+      newPath: "src/a.ts",
+      confidence: 0.5,
+      distance: null,
+      contentHash: "h",
+      sizeBytes: 1,
+      mtimeObserved: NOW,
+      mintedNectar: "M1",
+      createdAt: NOW,
+    });
+    const elapsed = Date.now() - t0;
+    assert.ok(elapsed < 2000, `add() reclaimed the stale lock instead of waiting out the timeout (took ${elapsed}ms)`);
+    assert.equal(store.list().length, 1, "the write still landed");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("FilePendingReviewStore still blocks/times out behind a FRESH (live) lock", () => {
+  const dir = mkdtempSync(join(tmpdir(), "hn-cr18-4-fresh-"));
+  const filePath = join(dir, "pending-reviews.json");
+  try {
+    const lockPath = `${filePath}.lock`;
+    writeFileSync(lockPath, "", "utf8"); // fresh mtime: just created
+
+    const store = new FilePendingReviewStore(filePath);
+    assert.throws(
+      () =>
+        store.add({
+          id: "id-fresh-lock",
+          candidateNectar: "N1",
+          newPath: "src/a.ts",
+          confidence: 0.5,
+          distance: null,
+          contentHash: "h",
+          sizeBytes: 1,
+          mtimeObserved: NOW,
+          mintedNectar: "M1",
+          createdAt: NOW,
+        }),
+      /timed out waiting for the pending-review lock/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

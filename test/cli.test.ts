@@ -16,10 +16,18 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runBroodMutatingVerb, runPruneVerb, runReviewMatchesVerb } from "../dist/cli.js";
+import {
+  runBroodMutatingVerb,
+  runPruneVerb,
+  runReviewMatchesVerb,
+  resolveCliBroodEmbedDeps,
+  interactiveReviewDecider,
+  type InteractiveReviewIo,
+} from "../dist/cli.js";
 import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
 import { InMemoryPendingReviewStore } from "../dist/registration/review-store.js";
 import { EMBED_DIMS } from "../dist/hive-graph/model.js";
+import { activeEmbedModelId, resolveEmbeddingsConfig } from "../dist/embeddings/config.js";
 import { filenameOf, extOf } from "../dist/hive-graph/paths.js";
 import { sha256Hex } from "../dist/hive-graph/hash.js";
 import { BATCH_SYSTEM_PROMPT } from "../dist/brooding/index.js";
@@ -151,6 +159,82 @@ test("cli review-matches: an accepted candidate carries the nectar onto the new 
   assert.equal(code, 0, "review-matches accept exits 0");
   assert.equal(store.latestVersionByPath(TEN, "new.ts")?.identity.nectar, "n-missing", "the nectar was carried to the new path");
   assert.equal(pendingReviews.list().length, 0, "the resolved candidate was removed");
+});
+
+// ── CodeRabbit PR-18 finding #6: the interactive decider prints its own context ──
+
+function fakeInteractiveIo(answers: readonly string[]): { io: InteractiveReviewIo; written: string[]; prompts: string[] } {
+  const written: string[] = [];
+  const prompts: string[] = [];
+  let call = 0;
+  return {
+    written,
+    prompts,
+    io: {
+      isTTY: true,
+      write: (line) => written.push(line),
+      question: async (prompt) => {
+        prompts.push(prompt);
+        const answer = answers[call] ?? "s";
+        call += 1;
+        return answer;
+      },
+      close: () => {},
+    },
+  };
+}
+
+test("interactiveReviewDecider writes the preview via its own IO before asking (CodeRabbit PR-18 finding #6)", async () => {
+  const { io, written, prompts } = fakeInteractiveIo(["a"]);
+  const decider = interactiveReviewDecider(io);
+  const candidate = {
+    id: "c1",
+    candidateNectar: "N1",
+    newPath: "src/b.ts",
+    confidence: 0.6,
+    distance: 10,
+    contentHash: "h",
+    sizeBytes: 3,
+    mtimeObserved: "2026-07-03T00:00:00.000Z",
+    mintedNectar: "M1",
+    createdAt: "2026-07-03T00:00:00.000Z",
+  };
+  const preview = `candidate ${candidate.id}\n  new path: ${candidate.newPath}`;
+
+  const decision = await decider.decide(candidate, preview);
+
+  assert.equal(decision, "accept");
+  assert.ok(written.length > 0, "the decider wrote at least one line via its own IO");
+  assert.equal(written[0], preview, "the preview text was written before the question");
+  assert.equal(prompts.length, 1, "the question was asked exactly once, after the preview was written");
+});
+
+test("interactiveReviewDecider defaults to skip on a non-TTY IO without asking or writing", async () => {
+  const decider = interactiveReviewDecider({
+    isTTY: false,
+    write: () => {
+      throw new Error("must never write on a non-TTY input");
+    },
+    question: async () => {
+      throw new Error("must never ask on a non-TTY input");
+    },
+    close: () => {},
+  });
+  const decision = await decider.decide({} as never, "unused preview");
+  assert.equal(decision, "skip");
+});
+
+// ── CodeRabbit PR-18 finding #7: the CLI brood path resolves a non-null embedModelId ──
+
+test("resolveCliBroodEmbedDeps resolves an embedModelId matching the currently-configured embed provider", () => {
+  const config = resolveEmbeddingsConfig({});
+  const expected = activeEmbedModelId(config);
+  const { embedProvider, embedModelId } = resolveCliBroodEmbedDeps();
+  assert.equal(embedModelId, expected, "matches whatever the process's own embeddings config currently resolves to");
+  assert.equal(typeof embedProvider.embed, "function", "an embed provider was resolved alongside the model id");
+  if (config.selector !== "off") {
+    assert.notEqual(embedModelId, null, "a configured (non-off) provider must yield a non-null embedModelId (AC-018i.3)");
+  }
 });
 
 // ── mutating brood against a fake async store ────────────────────────────────

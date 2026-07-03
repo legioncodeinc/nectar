@@ -20,6 +20,7 @@
  */
 import {
   closeSync,
+  existsSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -164,6 +165,13 @@ export interface AcquireOptions {
   readonly pid?: number;
   readonly boot?: number;
   readonly token?: string;
+  /**
+   * Test seam: override the lock-body write (default: `node:fs`'s `writeSync`).
+   * Lets a test inject a write failure (simulating a disk-full or similar
+   * mid-write fault) without needing a real filesystem-level fault or a
+   * mocking dependency (this repo has zero runtime deps and none for tests).
+   */
+  readonly writeLockBody?: (fd: number, data: string) => void;
 }
 
 /**
@@ -177,7 +185,25 @@ export interface AcquireOptions {
  */
 function reclaimStaleLock(lockFilePath: string, expected: LockIdentity | null): void {
   const current = readLockIdentity(lockFilePath);
-  if (current === null) return; // already gone; the retry loop re-creates it
+  if (current === null) {
+    // `readLockIdentity` returns null for two different situations: the file
+    // is now gone (someone else already reclaimed it; the retry loop
+    // re-creates it), OR the file is PRESENT but its content is empty/garbage
+    // (a corrupt lock). CodeRabbit PR-18 finding #2: the pre-fix code treated
+    // both as "already gone" and never removed a present-but-corrupt lock, so
+    // every later acquire hit EEXIST forever and the daemon could never start
+    // without a manual `rm`. A corrupt lock records no owner at all, so it is
+    // unconditionally stale; reclaim it the same way. Re-check immediately
+    // before removing (the same re-read-then-conditionally-remove discipline
+    // the live-lock branch below uses) so a concurrent racer that has already
+    // replaced the corrupt file with a fresh, parseable, live lock is never
+    // deleted out from under its new owner (NEC-020 - the atomic-reclaim
+    // guarantee this function exists to preserve).
+    if (existsSync(lockFilePath) && readLockIdentity(lockFilePath) === null) {
+      rmSync(lockFilePath, { force: true });
+    }
+    return;
+  }
   if (expected !== null && !sameIdentity(current, expected)) return; // changed under us
   if (isLockOwnerLive(current)) return; // became live under us; loop re-evaluates
   rmSync(lockFilePath, { force: true });
@@ -198,6 +224,7 @@ export function acquireSingleInstanceLock(paths: LockPaths, options: AcquireOpti
     token: options.token ?? randomUUID(),
   };
   const serialized = JSON.stringify(identity);
+  const writeLockBody = options.writeLockBody ?? writeSync;
 
   for (let attempt = 0; attempt < MAX_ACQUIRE_ATTEMPTS; attempt++) {
     let fd: number;
@@ -217,10 +244,17 @@ export function acquireSingleInstanceLock(paths: LockPaths, options: AcquireOpti
     }
 
     try {
-      writeSync(fd, serialized);
-    } finally {
+      writeLockBody(fd, serialized);
+    } catch (err) {
       closeSync(fd);
+      // Roll back: the lock file was just created by us (the "wx" open above
+      // succeeded), so a write failure must not leave a half-written/corrupt
+      // lock body behind wedging every future acquire (CodeRabbit PR-18
+      // finding #2), mirroring the pid-file write path's rollback below.
+      rmSync(paths.lockFilePath, { force: true });
+      throw err;
     }
+    closeSync(fd);
 
     // Verify-after-create: confirm the lock still records OUR token. A concurrent
     // reclaimer cannot have replaced it (our "wx" create means the file existed

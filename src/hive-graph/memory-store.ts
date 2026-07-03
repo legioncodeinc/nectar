@@ -122,4 +122,14 @@ export class InMemoryHiveGraphStore implements HiveGraphStore {
     }
     return out;
   }
+
+  /** Every nectar with at least one version row in scope, including one with NO identity row (CodeRabbit PR-18 finding #8 repair sweep). Scoped via the version row's own tenancy columns, since an orphan has no identity to scope against. */
+  listVersionNectars(tenancy: Tenancy): string[] {
+    const out: string[] = [];
+    for (const [nectar, list] of this.versions) {
+      const first = list[0];
+      if (first !== undefined && inTenancy(first, tenancy)) out.push(nectar);
+    }
+    return out;
+  }
 }

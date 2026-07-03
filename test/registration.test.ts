@@ -15,6 +15,8 @@ import { InMemoryHiveGraphStore } from "../dist/hive-graph/memory-store.js";
 import type { HiveGraphStore } from "../dist/hive-graph/store.js";
 import { sha256Hex } from "../dist/hive-graph/hash.js";
 import { findPruneCandidates } from "../dist/registration/prune-cli.js";
+import { mintNectar, nectarCreatedAt } from "../dist/hive-graph/ulid.js";
+import type { HiveGraphVersionRow } from "../dist/hive-graph/model.js";
 
 const TEN = { orgId: "o1", workspaceId: "w1", projectId: "p1" };
 const NOW = "2026-07-01T00:00:00.000Z";
@@ -494,7 +496,12 @@ test("AC-018d.4: a crash between mint's insertIdentity and appendVersion leaves 
 
   // Idempotent: running the sweep again on the healed store finds nothing to do.
   const second = repairLadderState(store, TEN);
-  assert.deepEqual(second, { healedOrphanIdentities: 0, healedStaleLastUpdate: 0, healedDuplicatePaths: 0 });
+  assert.deepEqual(second, {
+    healedOrphanIdentities: 0,
+    healedOrphanVersions: 0,
+    healedStaleLastUpdate: 0,
+    healedDuplicatePaths: 0,
+  });
 });
 
 test("AC-018d.4: a crash between an edit's appendVersion and touchIdentity leaves a stale identity.lastUpdateDate that the sweep heals", () => {
@@ -542,5 +549,87 @@ test("AC-018d.4: a crash between an edit's appendVersion and touchIdentity leave
   assert.ok(!healedCandidates.some((c) => c.nectar === first.nectar), "healed state correctly is NOT prune-eligible");
 
   const second = repairLadderState(store, TEN);
-  assert.deepEqual(second, { healedOrphanIdentities: 0, healedStaleLastUpdate: 0, healedDuplicatePaths: 0 }, "idempotent");
+  assert.deepEqual(
+    second,
+    { healedOrphanIdentities: 0, healedOrphanVersions: 0, healedStaleLastUpdate: 0, healedDuplicatePaths: 0 },
+    "idempotent",
+  );
+});
+
+// ── CodeRabbit PR-18 finding #8 (layer b): an orphan VERSION (no identity row) self-heals on resync ──
+
+function orphanVersionRow(nectar: string, path: string, content: string, observedAt = NOW): HiveGraphVersionRow {
+  return {
+    nectar,
+    contentHash: sha256Hex(content),
+    seq: 0,
+    path,
+    filename: path.split("/").pop() ?? path,
+    ext: "ts",
+    sizeBytes: content.length,
+    mtimeObserved: observedAt,
+    title: "",
+    description: "",
+    concepts: "[]",
+    embedding: null,
+    confidence: null,
+    fingerprint: null,
+    describedAt: "",
+    describeModel: "",
+    describeStatus: "pending",
+    observedAt,
+    orgId: TEN.orgId,
+    workspaceId: TEN.workspaceId,
+    projectId: TEN.projectId,
+    lastUpdateDate: observedAt,
+  };
+}
+
+test("CodeRabbit PR-18 finding #8: an orphan version row (no matching identity) self-heals - the repair sweep reconstructs a minimal identity", () => {
+  const store = new InMemoryHiveGraphStore();
+  const orphanNectar = mintNectar();
+  // Seed a version row directly (bypassing insertIdentity entirely), simulating
+  // the residue of a durable insertIdentity flush that failed while a later
+  // appendVersion for the same nectar still landed (pre-existing orphan, from
+  // before the store-bridge layer-a fix).
+  store.appendVersion(orphanVersionRow(orphanNectar, "src/orphan.ts", "orphan content"));
+
+  assert.equal(store.getIdentity(orphanNectar), undefined, "no identity row exists yet");
+  assert.equal(store.listLatestVersions(TEN).length, 0, "reads join through identities: the orphan is invisible until healed");
+
+  const report = repairLadderState(store, TEN);
+  assert.equal(report.healedOrphanVersions, 1);
+
+  const identity = store.getIdentity(orphanNectar);
+  assert.ok(identity !== undefined, "the repair sweep reconstructed a minimal identity");
+  assert.equal(identity?.createdAt, nectarCreatedAt(orphanNectar), "createdAt is decoded from the nectar ULID itself");
+  assert.equal(identity?.orgId, TEN.orgId);
+  assert.equal(identity?.workspaceId, TEN.workspaceId);
+  assert.equal(identity?.projectId, TEN.projectId);
+  assert.equal(
+    store.latestVersionByPath(TEN, "src/orphan.ts")?.identity.nectar,
+    orphanNectar,
+    "reads now see the nectar again",
+  );
+
+  // Idempotent: a second sweep on the healed store finds nothing further to do.
+  const second = repairLadderState(store, TEN);
+  assert.deepEqual(second, {
+    healedOrphanIdentities: 0,
+    healedOrphanVersions: 0,
+    healedStaleLastUpdate: 0,
+    healedDuplicatePaths: 0,
+  });
+});
+
+test("CodeRabbit PR-18 finding #8: an orphan version row OUTSIDE the swept tenancy is left alone", () => {
+  const store = new InMemoryHiveGraphStore();
+  const otherTenancy = { orgId: "o-other", workspaceId: "w-other", projectId: "p-other" };
+  const orphanNectar = mintNectar();
+  const row = orphanVersionRow(orphanNectar, "src/orphan.ts", "orphan content");
+  store.appendVersion({ ...row, orgId: otherTenancy.orgId, workspaceId: otherTenancy.workspaceId, projectId: otherTenancy.projectId });
+
+  const report = repairLadderState(store, TEN);
+  assert.equal(report.healedOrphanVersions, 0, "the orphan belongs to a different tenancy; this sweep must not touch it");
+  assert.equal(store.getIdentity(orphanNectar), undefined);
 });

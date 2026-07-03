@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { get } from "node:http";
@@ -380,6 +380,38 @@ test("a second start against the same lock throws before binding", async () => {
   } finally {
     await first.shutdown();
     await second.shutdown();
+    rmDirWithRetry(runtimeDir);
+  }
+});
+
+test("CodeRabbit PR-18 finding #1: a reused daemon whose second start() throws before the lock acquire does not wedge every later start() on a stale rejected promise", async () => {
+  const runtimeDir = tmpRuntimeDir();
+  const daemon = assembleDaemon({ port: 0, runtimeDir, log: silent });
+  const lockPath = daemon.config.lockFilePath;
+  try {
+    // start -> shutdown once, exactly as a normal lifecycle would.
+    await daemon.start();
+    await daemon.shutdown();
+    assert.equal(existsSync(lockPath), false, "the lock was released by the clean shutdown");
+
+    // Occupy the lock EXTERNALLY (a foreign live daemon), so the SAME daemon
+    // object's second start() throws DaemonAlreadyRunningError before it ever
+    // reaches `closed = false` in the pre-fix code (the throw happens at the
+    // lock acquire, upstream of that assignment). A legacy bare-pid lock
+    // naming this live test process is unambiguously "live" (isPidAlive).
+    writeFileSync(lockPath, String(process.pid), "utf8");
+    await assert.rejects(() => daemon.start(), DaemonAlreadyRunningError);
+
+    // Release the external lock (simulating the foreign daemon going away),
+    // then a THIRD start() on the very same object must succeed - not replay
+    // the second start's stale rejection forever.
+    rmSync(lockPath, { force: true });
+    const port = await daemon.start();
+    assert.ok(port > 0, "the third start() on the reused instance succeeded instead of wedging");
+    await daemon.shutdown();
+    assert.equal(existsSync(lockPath), false, "the successful third start's clean shutdown released the lock");
+  } finally {
+    await daemon.shutdown();
     rmDirWithRetry(runtimeDir);
   }
 });

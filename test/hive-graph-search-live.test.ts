@@ -141,11 +141,16 @@ test("018h-AC-1 live Deep Lake vector ordering probe ranks the near vector first
       `Observed ids: ${result.hits.map((hit) => hit.id).join(", ")}`,
     ].join(" "));
   } catch (err) {
-    // Only genuine connectivity failures may skip. A `query`-kind error after
-    // credentials loaded is a REAL failure (schema drift, heal bug, bad SQL)
-    // and must fail the release gate, not silently skip it (PRD-018 QA
-    // finding: an embed_model heal bug hid behind this skip).
-    if (err instanceof TransportError && (err.kind === "connection" || err.kind === "timeout")) {
+    // Only genuine connectivity failures may skip. A 4xx `query`-kind error
+    // after credentials loaded is a REAL failure (schema drift, heal bug, bad
+    // SQL) and must fail the release gate, not silently skip it (PRD-018 QA
+    // finding: an embed_model heal bug hid behind this skip). A 5xx from the
+    // backend (e.g. 'failed to get database connection') is server-side
+    // unreachability, the same class as connection/timeout, and may skip.
+    if (
+      err instanceof TransportError &&
+      (err.kind === "connection" || err.kind === "timeout" || (err.status !== undefined && err.status >= 500))
+    ) {
       t.skip(`Deep Lake unreachable, skipping vector ordering probe: ${err.message}`);
       return;
     }
