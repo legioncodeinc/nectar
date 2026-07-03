@@ -85,13 +85,33 @@ function parseDescriptionObject(raw: unknown): DescriptionPayload | null {
   return { title, description, concepts };
 }
 
-/** Parse and validate a model response for `expectedCount` descriptions. */
+/**
+ * Parse and validate a model response for `expectedCount` descriptions.
+ *
+ * Parsing is fence-tolerant (mirrors the brood path's `extractJson`): despite
+ * the "No markdown fences" instruction, Gemini intermittently wraps the array
+ * anyway, and a wrapper must not fail the batch (2026-07-03 soak: a fenced but
+ * otherwise valid 8-file response was rejected as malformed). Strict JSON is
+ * tried first; the fallback extracts the first bracketed span.
+ */
 export function parseDescribeResponse(content: string, expectedCount: number): DescriptionPayload[] | null {
+  const trimmed = content.trim();
   let parsed: unknown;
   try {
-    parsed = JSON.parse(content.trim());
+    parsed = JSON.parse(trimmed);
   } catch {
-    return null;
+    const firstArr = trimmed.indexOf("[");
+    const firstObj = trimmed.indexOf("{");
+    const start = firstArr === -1 ? firstObj : firstObj === -1 ? firstArr : Math.min(firstArr, firstObj);
+    if (start === -1) return null;
+    const close = trimmed[start] === "[" ? "]" : "}";
+    const end = trimmed.lastIndexOf(close);
+    if (end <= start) return null;
+    try {
+      parsed = JSON.parse(trimmed.slice(start, end + 1));
+    } catch {
+      return null;
+    }
   }
   let arr: unknown[];
   if (Array.isArray(parsed)) arr = parsed;

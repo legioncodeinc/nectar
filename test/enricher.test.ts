@@ -860,3 +860,12 @@ test("stall-fix: a truncated batch splits in half and both halves describe (no r
   assert.equal(result.stats.filesFailed, 0, "no files marked failed by the truncation");
   assert.ok(calls >= 3, "one truncated full-batch call plus one call per half");
 });
+
+test("stall-fix: a fence-wrapped but valid JSON response parses instead of failing the batch", () => {
+  const fenced = "```json\n" + JSON.stringify([{ title: "T", description: "D.", concepts: "[]" }]) + "\n```";
+  const parsed = parseDescribeResponse(fenced, 1);
+  assert.equal(parsed?.length, 1, "fenced JSON array is extracted and validated");
+  const prose = "Here are the descriptions:\n" + JSON.stringify([{ title: "T", description: "D.", concepts: "[]" }]);
+  assert.equal(parseDescribeResponse(prose, 1)?.length, 1, "prose-wrapped JSON is extracted");
+  assert.equal(parseDescribeResponse("no json here at all", 1), null, "garbage still fails validation");
+});
