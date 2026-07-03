@@ -18,6 +18,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StoreBridge } from "../dist/registration/store-bridge.js";
+import { DeepLakeHiveGraphStore } from "../dist/hive-graph/deeplake-store.js";
 import type { AsyncHiveGraphStore, LatestVersion } from "../dist/hive-graph/store.js";
 import type { HiveGraphRow, HiveGraphVersionRow, Tenancy } from "../dist/hive-graph/model.js";
 
@@ -228,4 +229,68 @@ test("store-bridge: deleteNectar clears the failed-identity tracking so the nect
   await bridge.whenFlushed();
 
   assert.deepEqual(ops, ["deleteNectar:n1"], "the delete itself flushed (it is not parked)");
+});
+
+// ── issue NEC: the rename-during-describe duplicate-(nectar, seq) race ──
+
+/**
+ * A fake QueryRunner over `hive_graph_versions` whose SELECT reads NEVER reflect
+ * a just-written INSERT (maximum Deep Lake read-after-write lag). It captures the
+ * seq every INSERT actually wrote, so a test can assert the durable rows got
+ * distinct seqs even though a lag-trusting allocator would have collided.
+ */
+function fullyLaggingVersionTransport() {
+  const insertedSeqs: number[] = [];
+  const transport = {
+    async query(sql: string): Promise<object[]> {
+      if (/^INSERT INTO "hive_graph_versions"/.test(sql)) {
+        const m = /VALUES \(\s*'[^']*',\s*'[^']*',\s*(-?\d+)/.exec(sql);
+        if (m !== null) insertedSeqs.push(Number(m[1]));
+        return [];
+      }
+      // Every read (the version INSERT probe, the identity probe/verify, the
+      // `SELECT seq` allocation read) lags fully: it reveals nothing yet.
+      return [];
+    },
+  };
+  return { transport, insertedSeqs };
+}
+
+test("issue NEC: an enricher append and a bridge carry flush for one nectar get distinct seqs despite fully-lagged reads", async () => {
+  const { transport, insertedSeqs } = fullyLaggingVersionTransport();
+  // The SINGLE durable store the live daemon shares between the enricher commit
+  // path and the registration bridge (cli.ts wires `ctx.store` into both).
+  const durable = new DeepLakeHiveGraphStore({
+    credentials: { apiUrl: "https://unused.invalid", token: "t", orgId: "o", workspaceId: "w" },
+    transport,
+  });
+  const bridge = new StoreBridge({ durable });
+  const nectar = "N".repeat(26);
+
+  // The enricher's durable describe append (its own store view) through the
+  // shared allocator: seq 0, and it records the in-process high-water for the
+  // nectar even though the SELECT read can never see it.
+  const enricherSeq = await durable.appendVersionAtNextSeq(version(nectar, 0, "src/old.ts", "a".repeat(64)));
+
+  // The ladder's carry flush at the NEW path, sequenced from the bridge mirror
+  // (which never saw the enricher's append). Pre-fix this trusted the mirror's
+  // seq and re-used seq 0/1; the bridge now re-allocates through the SAME
+  // durable allocator, whose high-water clears the enricher's lagged write.
+  bridge.insertIdentity(identity(nectar));
+  bridge.appendVersion(version(nectar, 0, "src/new.ts", "b".repeat(64)));
+  await bridge.whenFlushed();
+
+  assert.equal(enricherSeq, 0, "the enricher append took seq 0");
+  assert.equal(
+    new Set(insertedSeqs).size,
+    insertedSeqs.length,
+    "no duplicate (nectar, seq) pair was written durably despite the lagged reads",
+  );
+  assert.deepEqual(
+    [...insertedSeqs].sort((a, b) => a - b),
+    [0, 1],
+    "the two durable appends got distinct, monotonic seqs (0 and 1)",
+  );
+  // The mirror was reconciled to the durably-allocated seq (1), not the ladder's 0.
+  assert.equal(bridge.latestVersion(nectar)?.seq, 1, "the bridge mirror agrees with the durable seq after re-allocation");
 });

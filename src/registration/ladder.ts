@@ -548,6 +548,48 @@ export function repairLadderState(store: HiveGraphStore, tenancy: Tenancy): Repa
     }
   }
 
+  // 5. A duplicate (nectar, seq) pair at the nectar's MAX seq (issue NEC: the
+  // rename-during-describe race). Two components allocated the same seq from
+  // independent, lag-affected views of the store (the enricher's durable
+  // describe append and the registration bridge's carry flush), so one nectar
+  // ends with two rows tied for the highest seq - `reduceLatestVersion` then
+  // resolves an AMBIGUOUS latest, the carried row at the new path never gets
+  // described, and recall keeps serving the old path. The durable allocator fix
+  // (in-process high-water, `deeplake-store.ts`) prevents NEW duplicates; this
+  // heals any that already exist. The write pattern is append-only (no in-place
+  // UPDATE and no unique constraint on this backend), so the least-invasive
+  // correct repair is to APPEND a corrected copy of the winner one seq above the
+  // max, making it the sole latest - the stale tied rows stay in history but no
+  // longer contend for the top. The winner is the row with the newest
+  // `observedAt` (the most recently observed path/content, i.e. the new path
+  // after a rename); its fields are copied verbatim so a pending carry stays
+  // pending and the enricher describes the newest path. Idempotent: once the max
+  // seq is unique, a later pass finds nothing tied and does nothing. Requires
+  // the OPTIONAL `store.listAllVersions` (skipped, not guessed at, when the
+  // adapter omits it, mirroring the other optional-accessor gates above).
+  let healedDuplicateSeqs = 0;
+  if (store.listAllVersions !== undefined) {
+    const rowsByNectar = new Map<string, HiveGraphVersionRow[]>();
+    for (const version of store.listAllVersions(tenancy)) {
+      const group = rowsByNectar.get(version.nectar) ?? [];
+      group.push(version);
+      rowsByNectar.set(version.nectar, group);
+    }
+    for (const rows of rowsByNectar.values()) {
+      if (rows.length < 2) continue;
+      let maxSeq = rows[0]!.seq;
+      for (const version of rows) if (version.seq > maxSeq) maxSeq = version.seq;
+      const tiedAtMax = rows.filter((version) => version.seq === maxSeq);
+      if (tiedAtMax.length < 2) continue; // the latest is already unambiguous
+      let winner = tiedAtMax[0]!;
+      for (const version of tiedAtMax) {
+        if (Date.parse(version.observedAt) > Date.parse(winner.observedAt)) winner = version;
+      }
+      store.appendVersion({ ...winner, seq: maxSeq + 1 });
+      healedDuplicateSeqs += 1;
+    }
+  }
+
   const latest = store.listLatestVersions(tenancy);
 
   let healedStaleLastUpdate = 0;
@@ -581,7 +623,7 @@ export function repairLadderState(store: HiveGraphStore, tenancy: Tenancy): Repa
     }
   }
 
-  return { healedOrphanIdentities, healedOrphanVersions, healedStaleLastUpdate, healedDuplicatePaths };
+  return { healedOrphanIdentities, healedOrphanVersions, healedStaleLastUpdate, healedDuplicatePaths, healedDuplicateSeqs };
 }
 
 /** What {@link repairLadderState} healed in one sweep pass. */
@@ -591,4 +633,6 @@ export interface RepairReport {
   readonly healedOrphanVersions: number;
   readonly healedStaleLastUpdate: number;
   readonly healedDuplicatePaths: number;
+  /** Ambiguous latest versions (a duplicate `(nectar, seq)` at the MAX seq) healed by appending a corrected copy one seq above the max (issue NEC). */
+  readonly healedDuplicateSeqs: number;
 }

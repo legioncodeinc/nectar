@@ -279,6 +279,23 @@ export class DeepLakeHiveGraphStore implements AsyncHiveGraphStore {
    * writers sharing the store.
    */
   private readonly seqChains = new Map<string, Promise<unknown>>();
+  /**
+   * Per-nectar IN-PROCESS high-water mark for seq (issue NEC: the rename-during-
+   * describe duplicate-seq race). Deep Lake has documented read-after-write lag
+   * (`touchIdentity`'s docblock, citing honeycomb
+   * `src/daemon/storage/catalog/tenancy.ts:475-489`), so a just-appended row can
+   * be invisible to the very next `SELECT seq` for a short window. Two components
+   * with independent store views (the enricher's `appendVersionAtNextSeq` and the
+   * registration bridge's flushed `appendVersion`) both allocate against this ONE
+   * store instance in the live daemon (`cli.ts` wires `ctx.store` into both), so
+   * recording the highest seq THIS process has written and taking
+   * `max(inProcessHighWater, backendMax) + 1` at allocation makes allocation
+   * monotonic within the daemon regardless of backend lag - the read is no longer
+   * trusted to reflect an append that already happened here. This is the process-
+   * local complement to the per-nectar serialization above (`seqChains`): the
+   * chain removes intra-store races, the high-water removes lag-induced ones.
+   */
+  private readonly seqHighWater = new Map<string, number>();
 
   constructor(options: DeepLakeHiveGraphStoreOptions) {
     this.transport =
@@ -382,6 +399,18 @@ export class DeepLakeHiveGraphStore implements AsyncHiveGraphStore {
   async appendVersion(row: HiveGraphVersionRow): Promise<void> {
     const insertSql = buildInsertVersionSql(row);
     await withHeal(this.transport, HIVE_GRAPH_VERSIONS_TABLE, () => this.transport.query(insertSql));
+    // Record the seq we just wrote so a subsequent allocation (from this OR any
+    // other in-process caller sharing this store) cannot re-allocate it before
+    // Deep Lake's read lag catches up. Every durable append - the direct
+    // `appendVersion` path and the allocator's `allocateAndAppend` below - funnels
+    // through here, so the high-water reflects them all.
+    this.recordSeqHighWater(row.nectar, row.seq);
+  }
+
+  /** Advance the per-nectar in-process seq high-water to `seq` when it exceeds the current mark. */
+  private recordSeqHighWater(nectar: string, seq: number): void {
+    const current = this.seqHighWater.get(nectar);
+    if (current === undefined || seq > current) this.seqHighWater.set(nectar, seq);
   }
 
   /**
@@ -428,16 +457,19 @@ export class DeepLakeHiveGraphStore implements AsyncHiveGraphStore {
   }
 
   /**
-   * The next monotonic seq for a nectar: MAX(seq)+1 over every version row,
-   * computed client-side by {@link reduceLatestVersion} rather than trusted
-   * to an SQL `ORDER BY`/`LIMIT`/`MAX()` clause. See that function's docblock
-   * for why.
+   * The next monotonic seq for a nectar: `max(inProcessHighWater, backendMax) + 1`,
+   * with `backendMax` computed client-side (MAX over every version row) rather
+   * than trusted to an SQL `ORDER BY`/`LIMIT`/`MAX()` clause (see
+   * {@link reduceLatestVersion}'s docblock for why). Seeding the running maximum
+   * from {@link seqHighWater} is the lag fix (issue NEC): if this process already
+   * wrote a higher seq that Deep Lake's read has not surfaced yet, the returned
+   * seq still clears it, so no allocation collides with a just-written row. With
+   * no high-water and no rows the result is 0 (an unchanged fresh-nectar mint).
    */
   async nextSeq(nectar: string): Promise<number> {
     const sql = `SELECT seq FROM "${HIVE_GRAPH_VERSIONS_TABLE_NAME}" WHERE nectar = ${sLiteral(nectar)}`;
     const rows = await this.readTolerant(sql);
-    if (rows.length === 0) return 0;
-    let maxSeq = toNum(rows[0]?.seq);
+    let maxSeq = this.seqHighWater.get(nectar) ?? -1;
     for (const row of rows) {
       const seq = toNum(row.seq);
       if (seq > maxSeq) maxSeq = seq;

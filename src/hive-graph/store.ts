@@ -107,6 +107,20 @@ export interface HiveGraphStore {
    * healing (only) when this is undefined.
    */
   listVersionNectars?(tenancy: Tenancy): string[];
+
+  /**
+   * Every `hive_graph_versions` row (FULL history, not latest-per-nectar),
+   * scoped to `tenancy` via each row's own tenancy columns. OPTIONAL and
+   * ADDITIVE (issue NEC, the rename-during-describe duplicate-seq race): the
+   * crash-repair sweep (`repairLadderState`) uses it to detect a duplicate
+   * `(nectar, seq)` pair - two rows sharing one nectar's MAX seq, which makes
+   * latest-version resolution ambiguous. {@link listLatestVersions} collapses
+   * each nectar to a single row and so can never reveal such a duplicate; this
+   * exposes the raw rows the sweep needs. Omit on an adapter with no cheap way
+   * to enumerate full history; the sweep skips duplicate-seq healing (only) when
+   * this is undefined.
+   */
+  listAllVersions?(tenancy: Tenancy): readonly HiveGraphVersionRow[];
 }
 
 /**
@@ -141,6 +155,19 @@ export interface AsyncHiveGraphStore {
 
   /** Append a `hive_graph_versions` row. The caller supplies seq via `nextSeq`. */
   appendVersion(row: HiveGraphVersionRow): Promise<void>;
+
+  /**
+   * Allocate the next monotonic seq for `row.nectar` through the store's single
+   * per-nectar-serialized, in-process-high-water allocator and append `row` at
+   * it, resolving the seq actually written (`row.seq` is ignored). OPTIONAL and
+   * ADDITIVE (issue NEC): it is the ONE seq authority the live daemon routes
+   * every version append through - the enricher commit AND the registration
+   * bridge flush - so two components with independent store views cannot mint a
+   * duplicate `(nectar, seq)` even under Deep Lake read-after-write lag.
+   * `DeepLakeHiveGraphStore` implements it; an in-memory recorder fake may omit
+   * it (a caller then falls back to `appendVersion` with the supplied seq).
+   */
+  appendVersionAtNextSeq?(row: HiveGraphVersionRow): Promise<number>;
 
   /** The next monotonic seq for a nectar (0 if it has no versions yet). */
   nextSeq(nectar: string): Promise<number>;

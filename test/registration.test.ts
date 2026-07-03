@@ -501,6 +501,7 @@ test("AC-018d.4: a crash between mint's insertIdentity and appendVersion leaves 
     healedOrphanVersions: 0,
     healedStaleLastUpdate: 0,
     healedDuplicatePaths: 0,
+    healedDuplicateSeqs: 0,
   });
 });
 
@@ -551,7 +552,7 @@ test("AC-018d.4: a crash between an edit's appendVersion and touchIdentity leave
   const second = repairLadderState(store, TEN);
   assert.deepEqual(
     second,
-    { healedOrphanIdentities: 0, healedOrphanVersions: 0, healedStaleLastUpdate: 0, healedDuplicatePaths: 0 },
+    { healedOrphanIdentities: 0, healedOrphanVersions: 0, healedStaleLastUpdate: 0, healedDuplicatePaths: 0, healedDuplicateSeqs: 0 },
     "idempotent",
   );
 });
@@ -619,6 +620,7 @@ test("CodeRabbit PR-18 finding #8: an orphan version row (no matching identity) 
     healedOrphanVersions: 0,
     healedStaleLastUpdate: 0,
     healedDuplicatePaths: 0,
+    healedDuplicateSeqs: 0,
   });
 });
 
@@ -632,4 +634,94 @@ test("CodeRabbit PR-18 finding #8: an orphan version row OUTSIDE the swept tenan
   const report = repairLadderState(store, TEN);
   assert.equal(report.healedOrphanVersions, 0, "the orphan belongs to a different tenancy; this sweep must not touch it");
   assert.equal(store.getIdentity(orphanNectar), undefined);
+});
+
+// ── issue NEC: the rename-during-describe duplicate-(nectar, seq) race ──
+
+/** A version row for the duplicate-seq repair test, with an explicit describe status and observed time. */
+function dupSeqRow(
+  nectar: string,
+  seq: number,
+  path: string,
+  describeStatus: "pending" | "described",
+  observedAt: string,
+): HiveGraphVersionRow {
+  return {
+    nectar,
+    contentHash: sha256Hex(`${path}:${seq}:${describeStatus}`),
+    seq,
+    path,
+    filename: path.split("/").pop() ?? path,
+    ext: "ts",
+    sizeBytes: 10,
+    mtimeObserved: observedAt,
+    title: describeStatus === "described" ? "Old title" : "",
+    description: describeStatus === "described" ? "Old description" : "",
+    concepts: "[]",
+    embedding: null,
+    confidence: null,
+    fingerprint: null,
+    describedAt: describeStatus === "described" ? observedAt : "",
+    describeModel: describeStatus === "described" ? "gemini-2.5-flash" : "",
+    describeStatus,
+    observedAt,
+    orgId: TEN.orgId,
+    workspaceId: TEN.workspaceId,
+    projectId: TEN.projectId,
+    lastUpdateDate: observedAt,
+  };
+}
+
+test("issue NEC: a duplicate (nectar, seq) at the MAX seq (rename-during-describe race) self-heals - the sweep re-sequences the newest path's row to the sole latest", () => {
+  const store = new InMemoryHiveGraphStore();
+  const nectar = mintNectar();
+  const T0 = "2026-07-03T14:00:00.000Z"; // mint at old path
+  const T1 = "2026-07-03T14:00:05.000Z"; // enricher describe append at old path
+  const T2 = "2026-07-03T14:00:09.000Z"; // ladder carry append at NEW path
+
+  // The identity's lastUpdateDate matches the carry that touched it last (T2).
+  store.insertIdentity({
+    nectar,
+    kind: "file",
+    createdAt: nectarCreatedAt(nectar),
+    derivedFromNectar: "",
+    forkContentHash: "",
+    orgId: TEN.orgId,
+    workspaceId: TEN.workspaceId,
+    projectId: TEN.projectId,
+    lastUpdateDate: T2,
+  });
+  // Today's exact incident chain: seq0 pending (mint, old path), seq1 described
+  // (enricher describe append, old path), seq1 pending (ladder carry, NEW path).
+  store.appendVersion(dupSeqRow(nectar, 0, "src/old.ts", "pending", T0));
+  store.appendVersion(dupSeqRow(nectar, 1, "src/old.ts", "described", T1));
+  store.appendVersion(dupSeqRow(nectar, 1, "src/new.ts", "pending", T2));
+
+  // Pre-repair: latest resolution is ambiguous - two rows tie at the MAX seq.
+  const tied = store.listAllVersions(TEN).filter((v) => v.nectar === nectar && v.seq === 1);
+  assert.equal(tied.length, 2, "two rows tie for the nectar's MAX seq before repair");
+
+  const report = repairLadderState(store, TEN);
+  assert.equal(report.healedDuplicateSeqs, 1, "the ambiguous latest was healed exactly once");
+
+  // Post-repair: the newest path's row is the sole latest and is describable.
+  const latest = store.latestVersion(nectar);
+  assert.equal(latest?.seq, 2, "a corrected row was appended one seq above the tied max");
+  assert.equal(latest?.path, "src/new.ts", "the newest path (the carry) is now the unambiguous latest");
+  assert.equal(latest?.describeStatus, "pending", "the newest path's row is describable (pending), so the enricher will re-describe it");
+  assert.equal(
+    store.latestVersionByPath(TEN, "src/new.ts")?.identity.nectar,
+    nectar,
+    "recall now resolves the new path, not the old one",
+  );
+
+  // Idempotent: with the MAX seq now unique, a second sweep finds nothing tied.
+  const second = repairLadderState(store, TEN);
+  assert.deepEqual(second, {
+    healedOrphanIdentities: 0,
+    healedOrphanVersions: 0,
+    healedStaleLastUpdate: 0,
+    healedDuplicatePaths: 0,
+    healedDuplicateSeqs: 0,
+  });
 });

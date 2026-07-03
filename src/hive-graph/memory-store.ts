@@ -44,6 +44,26 @@ export class InMemoryHiveGraphStore implements HiveGraphStore {
     this.versions.set(row.nectar, list);
   }
 
+  /**
+   * Reconcile a mirrored version row's seq to the value the durable store
+   * actually allocated at flush time (`StoreBridge` re-allocation, issue NEC).
+   * The row is identified by its ORIGINAL `(seq, path, contentHash)` so that a
+   * concurrent reconcile of a different row for the same nectar can never move
+   * the wrong one (two pending flushes for one nectar can transiently share a
+   * seq value mid-reconcile; matching on path+contentHash keeps each targeting
+   * its own row). No-op when the row is absent or already at `toSeq`. This is a
+   * mirror-only correction: the durable row was written at `toSeq` directly.
+   */
+  reseqVersion(nectar: string, from: { seq: number; path: string; contentHash: string }, toSeq: number): void {
+    if (from.seq === toSeq) return;
+    const list = this.versions.get(nectar);
+    if (list === undefined) return;
+    const target = list.find(
+      (v) => v.seq === from.seq && v.path === from.path && v.contentHash === from.contentHash,
+    );
+    if (target !== undefined) target.seq = toSeq;
+  }
+
   nextSeq(nectar: string): number {
     const list = this.versions.get(nectar);
     if (list === undefined || list.length === 0) return 0;
@@ -129,6 +149,17 @@ export class InMemoryHiveGraphStore implements HiveGraphStore {
     for (const [nectar, list] of this.versions) {
       const first = list[0];
       if (first !== undefined && inTenancy(first, tenancy)) out.push(nectar);
+    }
+    return out;
+  }
+
+  /** Every version row (FULL history, not latest-per-nectar) in scope, for the duplicate-seq repair sweep (issue NEC). Scoped by each row's own tenancy columns. */
+  listAllVersions(tenancy: Tenancy): readonly HiveGraphVersionRow[] {
+    const out: HiveGraphVersionRow[] = [];
+    for (const list of this.versions.values()) {
+      for (const row of list) {
+        if (inTenancy(row, tenancy)) out.push({ ...row });
+      }
     }
     return out;
   }

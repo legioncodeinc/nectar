@@ -189,7 +189,29 @@ export class StoreBridge implements HiveGraphStore {
 
   appendVersion(row: HiveGraphVersionRow): void {
     this.mirror.appendVersion(row);
-    this.enqueue("appendVersion", row.nectar, () => this.durable.appendVersion(row));
+    // Re-allocate the seq at flush time through the durable store's single
+    // lag-immune, per-nectar-serialized allocator instead of trusting the seq
+    // the mirror computed synchronously (issue NEC: the rename-during-describe
+    // duplicate-seq race). The mirror cannot see the enricher's independent
+    // durable appends, so its `nextSeq` can hand out a value the enricher has
+    // already durably taken; `appendVersionAtNextSeq` is the ONE seq authority
+    // both components share (same `ctx.store` instance), so it never collides.
+    // The allocated seq is reconciled back into the mirror so later synchronous
+    // ladder reads agree with what actually persisted. Mint (seq 0 on a fresh
+    // nectar) stays correct: the allocator returns 0 when nothing precedes it.
+    const ladderSeq = row.seq;
+    const from = { seq: ladderSeq, path: row.path, contentHash: row.contentHash };
+    this.enqueue("appendVersion", row.nectar, async () => {
+      const allocate = this.durable.appendVersionAtNextSeq;
+      if (allocate === undefined) {
+        // An adapter without the allocator (in-memory recorder fakes): keep the
+        // pre-fix behavior and flush the caller-sequenced row as-is.
+        await this.durable.appendVersion(row);
+        return;
+      }
+      const allocated = await allocate.call(this.durable, row);
+      if (allocated !== ladderSeq) this.mirror.reseqVersion(row.nectar, from, allocated);
+    });
   }
 
   deleteNectar(tenancy: Tenancy, nectar: string): void {
@@ -233,5 +255,18 @@ export class StoreBridge implements HiveGraphStore {
 
   listVersionNectars(tenancy: Tenancy): string[] {
     return this.mirror.listVersionNectars(tenancy);
+  }
+
+  /**
+   * Full version history from the mirror, for the repair sweep's duplicate-seq
+   * detection (issue NEC). NOTE: the mirror is seeded latest-per-nectar at
+   * {@link hydrate}, so it does not itself carry a pre-existing DURABLE
+   * duplicate; a live pre-fix duplicate self-heals through normal ladder
+   * re-observation once the durable allocator is lag-immune (Parts 1-2), while
+   * this accessor lets the sweep collapse any duplicate a caller CAN see (e.g. a
+   * store seeded with full history in a test) to an unambiguous latest.
+   */
+  listAllVersions(tenancy: Tenancy): readonly HiveGraphVersionRow[] {
+    return this.mirror.listAllVersions(tenancy);
   }
 }
