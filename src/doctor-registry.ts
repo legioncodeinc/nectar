@@ -24,6 +24,11 @@
  * different (this writer refuses to clobber a broken install-time file; a
  * malformed registry read is doctor's own runtime concern, not this one).
  *
+ * **Known race (PRD-018j / NEC-032).** Concurrent installs of two products
+ * (for example nectar and hive) perform read-modify-write with no serialization;
+ * one entry can be lost. Writes are atomic (temp file plus rename) and preserve
+ * unknown top-level keys, but the read-modify-write window itself is not locked.
+ *
  * PRD-017a extends this entry with `telemetryDbPath`: the absolute path to
  * nectar's runtime telemetry SQLite database (`telemetry/db.ts`,
  * `~/.honeycomb/telemetry/nectar.sqlite` by default), per doctor's
@@ -37,14 +42,25 @@
  * Built-ins only: node:fs, node:os, node:path.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { RuntimeConfig } from "./config.js";
 import { TELEMETRY_DB_FILE_NAME, TELEMETRY_DIR_NAME } from "./telemetry/db.js";
 
 /** The daemon name nectar registers itself under. */
 export const NECTAR_DAEMON_NAME = "nectar" as const;
+
+/**
+ * Who restarts nectar. PRD-018a (NEC-030) decides the OS service unit is the
+ * single restart authority: doctor probes health and reports, but does not spawn
+ * or restart nectar when an OS unit is installed. `nectar install` installs an
+ * always-restart OS unit (`service/index.ts`), so the registry entry it writes
+ * marks restarts as externally owned. Two contending restart authorities would,
+ * via NEC-002, have each losing attempt destroy the winner's lock.
+ */
+export const NECTAR_RESTART_POLICY = "external" as const;
+export type RestartPolicy = typeof NECTAR_RESTART_POLICY;
 
 /**
  * One registry entry, matching the schema doctor's registry loader parses
@@ -58,6 +74,14 @@ export interface DoctorRegistryEntry {
   readonly startupGraceMs: number;
   readonly restartGiveUpThreshold: number;
   readonly restartCooldownMs: number;
+  /**
+   * Who owns restarting nectar (PRD-018a NEC-030). `"external"` marks the OS
+   * service unit as the single restart authority, so doctor observes health but
+   * does not spawn/restart nectar. Optional in the type only so a pre-PRD-018a
+   * entry a test constructs by hand still type-checks; `buildNectarRegistryEntry`
+   * always populates it.
+   */
+  readonly restartPolicy?: RestartPolicy;
   /**
    * The absolute path to nectar's runtime telemetry SQLite database
    * (PRD-017a), so doctor knows where to poll (read-only) for check-in
@@ -116,6 +140,8 @@ export function buildNectarRegistryEntry(
     startupGraceMs: overrides.startupGraceMs ?? DEFAULT_STARTUP_GRACE_MS,
     restartGiveUpThreshold: overrides.restartGiveUpThreshold ?? DEFAULT_RESTART_GIVE_UP_THRESHOLD,
     restartCooldownMs: overrides.restartCooldownMs ?? DEFAULT_RESTART_COOLDOWN_MS,
+    // PRD-018a NEC-030: the OS service unit is the single restart authority.
+    restartPolicy: NECTAR_RESTART_POLICY,
     telemetryDbPath: overrides.telemetryDbPath ?? join(runtimeDir, TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME),
   };
 }
@@ -128,6 +154,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 interface ExistingRegistry {
   /** False when the file was ABSENT (PRD-003c: the installer then creates it fresh). */
   readonly fileExisted: boolean;
+  /** The parsed root object (empty when the file was absent). */
+  readonly root: Record<string, unknown>;
   /** The parsed `daemons` array (empty when the file was absent or had none). */
   readonly daemons: unknown[];
 }
@@ -143,7 +171,9 @@ function readExistingRegistry(registryPath: string): ExistingRegistry {
   try {
     contents = readFileSync(registryPath, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { fileExisted: false, daemons: [] };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { fileExisted: false, root: {}, daemons: [] };
+    }
     throw new DoctorRegistryError(
       `could not read the doctor registry at ${registryPath}: ${error instanceof Error ? error.message : "unknown"}`,
     );
@@ -164,11 +194,28 @@ function readExistingRegistry(registryPath: string): ExistingRegistry {
     );
   }
   const daemons = parsed.daemons;
-  if (daemons === undefined) return { fileExisted: true, daemons: [] };
+  if (daemons === undefined) return { fileExisted: true, root: { ...parsed }, daemons: [] };
   if (!Array.isArray(daemons)) {
     throw new DoctorRegistryError(`the doctor registry at ${registryPath} has a non-array "daemons" field`);
   }
-  return { fileExisted: true, daemons };
+  return { fileExisted: true, root: { ...parsed }, daemons };
+}
+
+/**
+ * Serialize and write the registry atomically (temp + rename in the same
+ * directory), mirroring `projection/write.ts:56-73`.
+ */
+function writeRegistryAtomic(registryPath: string, root: Record<string, unknown>): void {
+  const dir = dirname(registryPath);
+  mkdirSync(dir, { recursive: true });
+
+  const baseName = basename(registryPath);
+  const tmpPath = join(dir, `.${baseName}.${process.pid}.${Date.now()}.tmp`);
+
+  // Known limitation (PRD-018j / NEC-032): concurrent installs of two products
+  // perform read-modify-write with no serialization; one entry can be lost.
+  writeFileSync(tmpPath, `${JSON.stringify(root, null, 2)}\n`, "utf8");
+  renameSync(tmpPath, registryPath);
 }
 
 /** True iff a raw (unvalidated) registry entry names nectar. */
@@ -213,13 +260,12 @@ export function registerWithDoctor(
   const registryPath = options.registryPath ?? defaultDoctorRegistryPath();
   const entry = buildNectarRegistryEntry(options.config, options.overrides);
 
-  const { fileExisted, daemons: existing } = readExistingRegistry(registryPath);
+  const { fileExisted, root, daemons: existing } = readExistingRegistry(registryPath);
   const replaced = existing.some(isNectarEntry);
   const kept = existing.filter((raw) => !isNectarEntry(raw));
-  const daemons = [...kept, entry];
+  const updatedRoot = { ...root, daemons: [...kept, entry] };
 
-  mkdirSync(dirname(registryPath), { recursive: true });
-  writeFileSync(registryPath, `${JSON.stringify({ daemons }, null, 2)}\n`, "utf8");
+  writeRegistryAtomic(registryPath, updatedRoot);
 
   return { registryPath, entry, created: !fileExisted, replaced };
 }

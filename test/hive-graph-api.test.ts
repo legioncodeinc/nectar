@@ -8,7 +8,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NectarRouter, type RouteContext, type RouteResponse } from "../dist/api/router.js";
-import { mountHiveGraphApi, NO_ORG_BODY, type MountHiveGraphOptions } from "../dist/api/hive-graph-api.js";
+import { mountHiveGraphApi, NO_ORG_BODY, FOREIGN_PROJECT_BODY, type MountHiveGraphOptions } from "../dist/api/hive-graph-api.js";
+import { createBroodGuard } from "../dist/brood-guard.js";
 import {
   readHiveGraphStatusOverStorage,
   buildDescribeStatusCountSql,
@@ -86,6 +87,36 @@ test("008b-AC-1.3 the limit is passed through to the engine", async () => {
   assert.equal(seenLimit, undefined, "an absent limit passes through as undefined (engine applies its default 20)");
 });
 
+test("AC-018l.19 search with limit 0, a float, or a negative returns 400 invalid_limit before the engine (NEC-042 item 12)", async () => {
+  let engineCalls = 0;
+  const router = mount({
+    defaultScope: SCOPE,
+    searchHiveGraph: async () => {
+      engineCalls++;
+      return { hits: [], sources: [], degraded: false };
+    },
+  });
+  const zero = await call(router, "POST", "/api/hive-graph/search", { body: { query: "x", limit: 0 } });
+  assert.equal(zero.status, 400);
+  assert.equal(zero.body.error, "invalid_limit");
+
+  const float = await call(router, "POST", "/api/hive-graph/search", { body: { query: "x", limit: 2.9 } });
+  assert.equal(float.status, 400, "a float limit is rejected");
+
+  const negative = await call(router, "POST", "/api/hive-graph/search", { body: { query: "x", limit: -1 } });
+  assert.equal(negative.status, 400, "a negative limit is rejected");
+
+  const getFloat = await call(router, "GET", "/api/hive-graph/search", { query: "q=x&limit=2.9" });
+  assert.equal(getFloat.status, 400, "a float limit on the GET query string is rejected too");
+
+  assert.equal(engineCalls, 0, "an invalid limit is rejected at the boundary, before the engine runs");
+
+  // A valid integer limit is unaffected.
+  const ok = await call(router, "POST", "/api/hive-graph/search", { body: { query: "x", limit: 7 } });
+  assert.equal(ok.status, 200);
+  assert.equal(engineCalls, 1, "the valid request reached the engine");
+});
+
 test("008b-AC-1.1 GET /search reads ?q= and ?limit= and delegates identically", async () => {
   let seen = { q: "", limit: undefined as number | undefined };
   const router = mount({
@@ -150,39 +181,57 @@ test("008b search is a degraded-passthrough: a degraded engine result flows thro
 
 // ── PRD-008c: /api/hive-graph/build ────────────────────────────────────────────
 
-test("008c-AC-1.1/1.3 build invokes runBrood with the resolved scope + flags and returns its result", async () => {
+test("008c-AC-1.1/1.3 build returns 202 and invokes runBrood in the background with the resolved scope + flags (async contract, AC-018a.7)", async () => {
   let seen: any = null;
-  const broodResult = { describedCount: 3, projectionPath: null };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const router = mount({
     defaultScope: SCOPE,
     runBrood: async (args) => {
       seen = args;
-      return broodResult;
+      await gate;
+      return { describedCount: 3, projectionPath: null };
     },
   });
   const res = await call(router, "POST", "/api/hive-graph/build", { body: { force: true, limit: 5, model: "gemini-x" } });
-  assert.equal(res.status, 200);
-  assert.deepEqual(res.body, broodResult);
+  assert.equal(res.status, 202, "the build is accepted immediately, not held until the brood finishes");
+  assert.equal(res.body.status, "accepted");
+  // The brood runs in the background; let the microtask start it, then assert it
+  // was invoked with the resolved scope + flags.
+  await new Promise((r) => setTimeout(r, 5));
   assert.deepEqual(seen.scope, SCOPE);
   assert.equal(seen.force, true, "AC-1.3 force flows through");
   assert.equal(seen.limit, 5);
   assert.equal(seen.model, "gemini-x");
+  release();
 });
 
-test("008c-AC-1.2 a pipeline failure returns { error: build_failed } 500", async () => {
+test("008c-AC-1.2 a background brood failure is forwarded to onBuildError (not swallowed); the request still returns 202", async () => {
+  let seenErr: unknown = null;
+  let resolveErr!: () => void;
+  const errDone = new Promise<void>((resolve) => {
+    resolveErr = resolve;
+  });
   const router = mount({
     defaultScope: SCOPE,
     runBrood: async () => {
       throw new Error("pipeline exploded");
     },
+    onBuildError: (err) => {
+      seenErr = err;
+      resolveErr();
+    },
   });
   const res = await call(router, "POST", "/api/hive-graph/build", { body: {} });
-  assert.equal(res.status, 500);
-  assert.equal(res.body.error, "build_failed");
-  assert.equal(res.body.reason, "pipeline exploded");
+  assert.equal(res.status, 202, "the async build is accepted even though the background brood fails");
+  await errDone;
+  assert.ok(seenErr instanceof Error);
+  assert.equal((seenErr as Error).message, "pipeline exploded");
 });
 
-test("008c build reports already-running (409) when a brood is in flight, without launching a second", async () => {
+test("008c build reports already-running (409) while a brood is in flight; after it settles a new build is accepted again", async () => {
   let starts = 0;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -196,16 +245,37 @@ test("008c build reports already-running (409) when a brood is in flight, withou
       return { describedCount: 0 };
     },
   });
-  const first = router.dispatch(makeCtx("POST", "/api/hive-graph/build", { body: {} }));
-  // Let the first handler enter runBrood before the second arrives.
+  const first = await call(router, "POST", "/api/hive-graph/build", { body: {} });
+  assert.equal(first.status, 202, "the first build is accepted");
+  // Let the background brood enter runBrood before the second arrives.
   await new Promise((r) => setTimeout(r, 5));
   const second = await call(router, "POST", "/api/hive-graph/build", { body: {} });
-  assert.equal(second.status, 409, "the second build reports already-running");
+  assert.equal(second.status, 409, "the second build reports already-running while the first runs");
   assert.equal(second.body.status, "already_running");
   release();
-  const firstRes = await first;
-  assert.equal(firstRes?.status, 200);
-  assert.equal(starts, 1, "only one brood ever started");
+  // Let the first brood settle and clear the in-flight guard.
+  await new Promise((r) => setTimeout(r, 10));
+  const third = await call(router, "POST", "/api/hive-graph/build", { body: {} });
+  assert.equal(third.status, 202, "once the in-flight brood settles a new build is accepted");
+  assert.equal(starts, 2, "each accepted build started exactly one brood");
+});
+
+test("018g.2 a /build during a guard-held boot auto-brood is refused (409), accepted after release", async () => {
+  const guard = createBroodGuard();
+  let broodRuns = 0;
+  const router = mount({ defaultScope: SCOPE, broodGuard: guard, runBrood: async () => { broodRuns += 1; } });
+
+  // Simulate the boot auto-brood holding the SHARED guard.
+  assert.equal(guard.tryAcquire(), true);
+  const refused = await call(router, "POST", "/api/hive-graph/build", { body: {} });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.status, "already_running");
+  assert.equal(broodRuns, 0, "no second brood launched while the boot auto-brood holds the guard (no double-mint)");
+
+  // The auto-brood finishes and releases the shared guard.
+  guard.release();
+  const accepted = await call(router, "POST", "/api/hive-graph/build", { body: {} });
+  assert.equal(accepted.status, 202);
 });
 
 test("008c build with no runBrood wired returns a structured 501 build_unavailable", async () => {
@@ -355,7 +425,7 @@ test("008c a projection rebuild failure returns { error: regenerate_failed } 500
   assert.equal(res.body.error, "regenerate_failed");
 });
 
-test("008c a ?project= override resolves a per-request scope on top of the default", async () => {
+test("018c a ?project= override is ignored on read endpoints (PRD-018j AC-018j.2)", async () => {
   let scopeSeen: QueryScope | null = null;
   const router = mount({
     defaultScope: SCOPE,
@@ -365,5 +435,34 @@ test("008c a ?project= override resolves a per-request scope on top of the defau
     },
   });
   await call(router, "GET", "/api/hive-graph/status", { query: "project=other-proj" });
-  assert.deepEqual(scopeSeen, { orgId: "org", workspaceId: "ws", projectId: "other-proj" });
+  assert.deepEqual(scopeSeen, SCOPE, "foreign ?project= must not resolve to another tenancy");
+});
+
+test("018j-AC-018j.1 POST /build?project=other rejects with 403 and never invokes runBrood under foreign scope", async () => {
+  let broodCalls = 0;
+  const router = mount({
+    defaultScope: SCOPE,
+    runBrood: async () => {
+      broodCalls++;
+      return { describedCount: 0 };
+    },
+  });
+  const res = await call(router, "POST", "/api/hive-graph/build", { query: "project=other-proj", body: {} });
+  assert.equal(res.status, 403);
+  assert.deepEqual(res.body, FOREIGN_PROJECT_BODY);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(broodCalls, 0, "the brood runner must not run under a caller-chosen tenancy");
+});
+
+test("018j-AC-018j.2 GET /search?project=other resolves the daemon default scope, not foreign tenancy", async () => {
+  let scopeSeen: QueryScope | null = null;
+  const router = mount({
+    defaultScope: SCOPE,
+    searchHiveGraph: async (_q, scope) => {
+      scopeSeen = scope;
+      return { hits: [], sources: [], degraded: false };
+    },
+  });
+  await call(router, "GET", "/api/hive-graph/search", { query: "q=x&project=other-proj" });
+  assert.deepEqual(scopeSeen, SCOPE);
 });

@@ -1,6 +1,6 @@
 # Nectar Overview
 
-> Category: Overview | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Overview | Version: 1.1 | Date: July 2026 | Status: Draft
 
 What Nectar is, the problem it solves that the structural CodeGraph cannot, how it differs from every code-indexing tool in the market today, and where to read next.
 
@@ -64,7 +64,7 @@ The rejected alternative — embedding a serial number in a first-line comment o
 
 ### 2. Lazy LLM description through a cheap long-context model
 
-Files are described on demand, not eagerly. A nectar can exist for hours or days with a null description; the enricher fills it the first time recall might surface it, or on a debounced watch trigger after a meaningful edit. The model is **Gemini 2.5 Flash** routed through the existing Portkey gateway: ~$0.30 per million input tokens for the ≤200K tier and a true 1M-token context window, which lets the brooder batch 30–50 small files per call instead of one-per-call. The cost math is documented in `ai/brooding-pipeline.md`; the full brooding pass on a 2000-file repository lands under $2.
+Files are described on demand, not eagerly. A nectar can exist for hours or days with a null description; the enricher fills it the first time recall might surface it, or on a debounced watch trigger after a meaningful edit. The model is **Gemini 2.5 Flash** routed through the existing Portkey gateway: ~$0.30 per million input tokens for the ≤200K tier and a true 1M-token context window, which lets the brooder batch 30-50 small files per call instead of one-per-call. The cost math is documented in `ai/brooding-pipeline.md`; the full brooding pass on a 2000-file repository lands at about $3.05.
 
 Long context is the load-bearing property here, not raw cheapness. A model with a 200K window (Haiku, Sonnet) can describe one large file or a few small ones per call; a model with a 1M window can describe an entire directory of small files in a single round-trip, collapsing the per-file cost by an order of magnitude. This is why Nectar specifies Gemini 2.5 Flash specifically, not "the cheapest available model."
 

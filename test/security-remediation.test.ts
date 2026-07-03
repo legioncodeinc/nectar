@@ -186,7 +186,9 @@ test("intake drops traversal/absolute observations before scheduling (CWE-22)", 
   intake.observe("/etc/passwd");
   assert.equal(jobs.size, 0, "unsafe observations schedule no debounce timer");
   intake.observe("src/ok.ts");
-  assert.equal(jobs.size, 1, "a safe observation schedules");
+  // A safe observation schedules its debounce timer plus its max-wait cap
+  // (AC-018l.16); the unsafe ones above still scheduled nothing.
+  assert.equal(jobs.size, 2, "a safe observation schedules a debounce timer and a max-wait cap");
 });
 
 test("service drops an unsafe resync path before any persist (CWE-22)", async () => {

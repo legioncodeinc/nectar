@@ -25,10 +25,11 @@ export {
   type BroodBucket,
 } from "./constants.js";
 
-// Stage 1: discovery (PRD-007a).
+// Stage 1: discovery (PRD-007a; NEC-007/NEC-039 loud-failure surfacing PRD-018c).
 export {
   discoverFiles,
   spawnGitLsFiles,
+  GitDiscoveryError,
   GIT_LS_FILES_MAX_BUFFER,
   GIT_LS_FILES_ARGS,
   type DiscoveredFile,
@@ -79,6 +80,7 @@ export {
   SOLO_SYSTEM_PROMPT,
   MAX_TITLE_CHARS,
   MAX_CONCEPTS,
+  MAX_DESCRIPTION_CHARS,
   buildBatchUserMessage,
   buildSoloUserMessage,
   extractJson,

@@ -1,6 +1,6 @@
 # Brooding Ecosystem Story Arc
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 How brooding composes with the rest of Nectar: a traced first brood from trigger through projection handoff, the content-hash fresh-clone shortcut that lets a teammate's clone skip the LLM cost entirely, and the points where brooding feeds the enricher's pending queue and writes the projection that subsequent clones inherit.
 
@@ -49,7 +49,7 @@ flowchart TD
 
 ### Trigger
 
-Brooding fires when the daemon boots against a project with no `hive_graph` rows and no valid projection. It also fires on explicit invocation (`honeycomb nectar brood`, with `--force`, `--limit`, or `--dry-run`). The automatic trigger is non-blocking: the daemon accepts requests before the brood completes, and recall during the brood returns whatever has been described so far.
+Brooding fires when the daemon boots against a project with no `hive_graph` rows and no valid projection. It also fires on explicit invocation (`nectar brood`, with `--force`, `--limit`, or `--dry-run`). The automatic trigger is non-blocking: the daemon accepts requests before the brood completes, and recall during the brood returns whatever has been described so far.
 
 ### Discovery, reusing the CodeGraph
 

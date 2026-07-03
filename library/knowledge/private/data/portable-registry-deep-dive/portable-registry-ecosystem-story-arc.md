@@ -1,6 +1,6 @@
 # Portable Registry: Ecosystem Story Arc
 
-> Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
 
 How the projection composes with the rest of Nectar: the fresh-clone journey from boot to live recall, the bidirectional relationship between Deep Lake and the projection (regeneration one-directional, inheritance only on fresh clone), and how brooding, the enricher, and `rebuild-projection` all feed it.
 
@@ -73,7 +73,7 @@ flowchart LR
 
 ### Deep Lake → projection (regeneration)
 
-This direction is **one-directional and scheduled**. The projection is regenerated from Deep Lake at three points: end of brooding, end of an enricher cycle that wrote new descriptions, and explicitly via `honeycomb nectar rebuild-projection`. The regeneration scans `hive_graph_versions` (latest described version per nectar, scoped to the project), denormalizes into the projection format, and writes atomically. This is the only way the projection is written during normal operation. Deep Lake is the source; the projection is the derived view.
+This direction is **one-directional and scheduled**. The projection is regenerated from Deep Lake at three points: end of brooding, end of an enricher cycle that wrote new descriptions, and explicitly via `nectar rebuild-projection`. The regeneration scans `hive_graph_versions` (latest described version per nectar, scoped to the project), denormalizes into the projection format, and writes atomically. This is the only way the projection is written during normal operation. Deep Lake is the source; the projection is the derived view.
 
 ### Projection → Deep Lake (inheritance, fresh clone only)
 
@@ -91,7 +91,7 @@ Three independent daemon activities all terminate by regenerating the projection
 flowchart TD
     brood["brooding - full scan"] -->|"end of brood"| regen["regenerate nectars.json - complete"]
     enrich["enricher cycle - new descriptions written"] -->|"end of cycle"| regen2["regenerate nectars.json - incremental"]
-    rebuild["honeycomb nectar rebuild-projection"] -->|"explicit"| regen3["regenerate nectars.json - full from Deep Lake"]
+    rebuild["nectar rebuild-projection"] -->|"explicit"| regen3["regenerate nectars.json - full from Deep Lake"]
     regen --> file[".honeycomb/nectars.json"]
     regen2 --> file
     regen3 --> file
@@ -108,7 +108,7 @@ After brooding, the daemon is in live-watch mode. The enricher (documented in th
 
 ### rebuild-projection feeds it
 
-The explicit command `honeycomb nectar rebuild-projection` performs a full regeneration from Deep Lake. It is the recovery path for a corrupt, lost, or suspected-stale projection, and it is the proof of Rule 3 of the projection invariant: the file is regenerable from Deep Lake alone, byte-identical modulo `generated_at`, with no other inputs. If rebuild could not reproduce the file, the projection would be a sidecar.
+The explicit command `nectar rebuild-projection` performs a full regeneration from Deep Lake. It is the recovery path for a corrupt, lost, or suspected-stale projection, and it is the proof of Rule 3 of the projection invariant: the file is regenerable from Deep Lake alone, byte-identical modulo `generated_at`, with no other inputs. If rebuild could not reproduce the file, the projection would be a sidecar.
 
 ---
 

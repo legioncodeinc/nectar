@@ -105,6 +105,13 @@ export interface HiveGraphVersionRow {
   fingerprint: string | null;
   describedAt: string;
   describeModel: string;
+  /**
+   * The embedding model that produced {@link embedding} (PRD-018i / NEC-018).
+   * Null when the row carries no embedding (`embedding === null`) or was written
+   * before this column existed (the catalog heal path backfills old rows as
+   * null). Additive nullable column; the ONLY schema change in PRD-018.
+   */
+  embedModel?: string | null;
   describeStatus: DescribeStatus;
   /** Timestamp the version row was appended (distinct from mtimeObserved). */
   observedAt: string;

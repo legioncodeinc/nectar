@@ -1,6 +1,6 @@
 # Brooding Technical Specification
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The pipeline contract for brooding: the discover→bucket→call→write→embed→projection→done flow, the four bucket criteria verbatim, the batch and solo call shapes with their system prompts, the embedding step, the resumability state machine, the cost-math table, the CLI surface, and the scaling notes. The authoritative reference for anyone implementing or auditing the brooder.
 
@@ -179,10 +179,10 @@ This is the same append-only, resumable pattern Honeycomb uses for the pollinati
 Brooding triggers automatically the first time hiveantennae runs against a project with no `hive_graph` rows (or no `.honeycomb/nectars.json`). It can also be triggered explicitly:
 
 ```bash
-honeycomb nectar brood                  # full brood, respects existing descriptions
-honeycomb nectar brood --force          # re-describe every file, ignore existing
-honeycomb nectar brood --limit 100      # brood at most 100 pending files (cost cap)
-honeycomb nectar brood --dry-run        # show buckets and cost estimate, no LLM calls
+nectar brood                  # full brood, respects existing descriptions
+nectar brood --force          # re-describe every file, ignore existing
+nectar brood --limit 100      # brood at most 100 pending files (cost cap)
+nectar brood --dry-run        # show buckets and cost estimate, no LLM calls
 ```
 
 The four flags compose: `--dry-run` runs discovery and bucketing, prints the estimated call count and cost, and exits without making any LLM calls. `--limit` caps the number of pending files processed, bounding the cost of an explicit invocation. `--force` resets already-described rows back to `pending` so every non-skipped file is re-described (used after a model swap, documented in [`../enricher-and-llm-model.md`](../enricher-and-llm-model.md)). `--dry-run` is the recommended first step on any new project to sanity-check the cost before committing to it.

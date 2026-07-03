@@ -29,6 +29,36 @@ function manualTimer() {
   };
 }
 
+test("whenIdle resolves only after an in-flight tick settles (drain seam for AC-018a.10)", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const loop = new PollLoop({
+    floorMs: 10,
+    tick: async () => {
+      await gate;
+      return true;
+    },
+  });
+
+  // Idle: whenIdle resolves immediately when nothing is running.
+  await loop.whenIdle();
+
+  const running = loop.runOnce(); // enters the tick and blocks on the gate
+  let drained = false;
+  const drain = loop.whenIdle().then(() => {
+    drained = true;
+  });
+  await Promise.resolve();
+  assert.equal(drained, false, "whenIdle is still pending while the tick is in flight");
+
+  release();
+  await running;
+  await drain;
+  assert.equal(drained, true, "whenIdle resolved once the in-flight tick settled");
+});
+
 test("runOnce returns the tick result and skips while in-flight", async () => {
   let release: (() => void) | null = null;
   const loop = new PollLoop({

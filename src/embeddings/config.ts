@@ -28,9 +28,11 @@ import {
   DEFAULT_LOCAL_EMBED_HOST,
   DEFAULT_LOCAL_EMBED_PORT,
   DEFAULT_LOCAL_EMBED_TIMEOUT_MS,
+  LOCAL_NOMIC_MODEL_ID,
   type LocalNomicConfig,
 } from "./local-nomic.js";
 import { PORTKEY_EMBEDDINGS_URL } from "../portkey/headers.js";
+import { EMBED_DIMS } from "../hive-graph/model.js";
 import { DEFAULT_EMBED_PROVIDER, type EmbedProviderSelector } from "./provider.js";
 
 /** The fully-resolved embeddings config the switch (`resolveEmbedProvider`) consumes. */
@@ -114,4 +116,60 @@ export function resolveEmbeddingsConfig(overrides: EmbeddingsConfigOverrides = {
   };
 
   return { selector, local, hosted };
+}
+
+/**
+ * The model id that produces embeddings under a resolved config, for stamping
+ * `embed_model` on persisted rows (PRD-018i / NEC-018 AC-018i.1):
+ *   - `off`    -> `null` (no embeddings are computed)
+ *   - `local`  -> the pinned {@link LOCAL_NOMIC_MODEL_ID}
+ *   - `hosted` -> the configured hosted model id
+ */
+export function activeEmbedModelId(config: ResolvedEmbeddingsConfig): string | null {
+  switch (config.selector) {
+    case "off":
+      return null;
+    case "local":
+      return LOCAL_NOMIC_MODEL_ID;
+    case "hosted":
+      return config.hosted.model;
+    default: {
+      const unreachable: never = config.selector;
+      return unreachable;
+    }
+  }
+}
+
+/** The outcome of validating the requested hosted output dimension (PRD-018i / NEC-028 AC-018i.7). */
+export interface EmbedDimensionValidation {
+  readonly ok: boolean;
+  readonly requested: number;
+  readonly expected: number;
+  readonly message?: string;
+}
+
+/**
+ * Validate that a hosted output dimension matches the fixed {@link EMBED_DIMS}
+ * contract (PRD-018i / NEC-028 AC-018i.7). Any other value is pointless: the
+ * `FLOAT4[768]` column and the dim guard reject it, silently nulling every
+ * hosted vector. The caller warns loudly or refuses to start on `ok === false`.
+ * `off`/`local` selectors do not carry a requested dimension and always pass.
+ */
+export function validateEmbedDimension(config: ResolvedEmbeddingsConfig): EmbedDimensionValidation {
+  if (config.selector !== "hosted") {
+    return { ok: true, requested: EMBED_DIMS, expected: EMBED_DIMS };
+  }
+  const requested = config.hosted.outputDimension;
+  if (requested === EMBED_DIMS) {
+    return { ok: true, requested, expected: EMBED_DIMS };
+  }
+  return {
+    ok: false,
+    requested,
+    expected: EMBED_DIMS,
+    message:
+      `NECTAR_EMBEDDINGS_OUTPUT_DIMENSION=${requested} does not match the fixed ${EMBED_DIMS}-dim ` +
+      `embedding contract (FLOAT4[${EMBED_DIMS}]); every hosted vector would be guard-discarded to null ` +
+      `and semantic recall would be permanently lexical-only. Set it to ${EMBED_DIMS} or unset it.`,
+  };
 }

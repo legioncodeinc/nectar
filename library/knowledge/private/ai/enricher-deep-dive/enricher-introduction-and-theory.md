@@ -1,6 +1,6 @@
 # Enricher Introduction and Theory
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The conceptual essay behind the enricher: why steady-state description maintenance is a distinct problem from one-time bootstrap, why Gemini 2.5 Flash is the canonical model rather than "the cheapest available," why long context is load-bearing in a way it is not for most LLM applications, and why the model is a configurable default rather than a hardcoded constant.
 
@@ -61,7 +61,7 @@ The `describe_model` column on every `hive_graph_versions` row is the mechanism 
 
 A model swap does not re-describe existing rows automatically. Existing descriptions are valid until proven otherwise: a description of "this file refreshes JWT claims on each authenticated request" does not become wrong because the operator switched the default model. Re-describing every row on every swap would burn LLM budget re-deriving descriptions that are already correct.
 
-The selective path exists for the case where quality demands it. An operator who swaps models and wants to re-describe everything runs `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`. The enricher then re-describes them on subsequent cycles using the new model, and the `describe_model` column records the transition. Between these two extremes — do nothing, and re-describe everything — the `describe_model` column supports a middle path: filter to rows described by the old model and re-describe only those, leaving inherited and already-swapped rows alone.
+The selective path exists for the case where quality demands it. An operator who swaps models and wants to re-describe everything runs `nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`. The enricher then re-describes them on subsequent cycles using the new model, and the `describe_model` column records the transition. Between these two extremes - do nothing, and re-describe everything - the `describe_model` column supports a middle path: filter to rows described by the old model and re-describe only those, leaving inherited and already-swapped rows alone.
 
 This is the auditability contract paying off. A system that hardcoded the model would have no way to tell old-model descriptions from new-model descriptions and would be forced into all-or-nothing re-description. A system that records the model per row can be surgical.
 

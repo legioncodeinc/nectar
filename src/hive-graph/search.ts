@@ -13,7 +13,10 @@ import { sLiteral, sqlFloat4Array, sqlIdent, sqlLike } from "./sql-guards.js";
 import type {
   EmbedClient,
   HiveGraphHit,
+  HiveGraphSearchArmName,
+  HiveGraphSearchArmStatus,
   HiveGraphSearchDeps,
+  HiveGraphSearchReason,
   HiveGraphSearchResult,
   QueryScope,
   StorageQuery,
@@ -35,11 +38,32 @@ export const DEFAULT_RECALL_LIMIT = 20;
 export const MAX_RECALL_LIMIT = 200;
 /** RRF constant `k` (mirrors honeycomb recall). */
 export const RRF_K = 60;
+/**
+ * Default recall RRF multiplier when `~/.honeycomb/nectar.json`'s
+ * `nectar_rrf_multiplier` knob is unset (PRD-018k / NEC-041). `1` is neutral:
+ * this standalone two-arm engine applies no cross-arm class weighting
+ * (PRD-012a), so the multiplier is a config surface for a future cross-table
+ * fusion arm, not a value that alters fusion today.
+ */
+export const DEFAULT_RRF_MULTIPLIER = 1;
 /** Vector arm over-fetch multiplier (mirrors honeycomb `vector.ts`). */
 export const DEFAULT_OVERFETCH_MULTIPLIER = 3;
 
 const HIVE_GRAPH_VERSIONS = sqlIdent(HIVE_GRAPH_VERSIONS_TABLE.name);
 const SOURCE_NECTAR = "nectar" as const;
+const SEMANTIC_ARM = "semantic" as const;
+const LEXICAL_ARM = "lexical" as const;
+
+/**
+ * Resolve the effective recall RRF multiplier from the search deps (PRD-018k /
+ * NEC-041 AC-018k.7): the loaded `nectar_rrf_multiplier` value when it is a
+ * finite positive number, else {@link DEFAULT_RRF_MULTIPLIER}. This is where the
+ * config knob plugs into the recall path; fusion does not yet weight by it.
+ */
+export function resolveRrfMultiplier(deps: Pick<HiveGraphSearchDeps, "rrfMultiplier">): number {
+  const m = deps.rrfMultiplier;
+  return typeof m === "number" && Number.isFinite(m) && m > 0 ? m : DEFAULT_RRF_MULTIPLIER;
+}
 
 /** Clamp a caller-supplied limit into `[1, MAX_RECALL_LIMIT]`, defaulting a missing/bad value. */
 export function resolveRecallLimit(limit: number | undefined): number {
@@ -93,13 +117,25 @@ export function buildHiveGraphLexicalArmSql(term: string, scope: QueryScope, per
   const descCol = sqlIdent("description");
   const conceptsCol = sqlIdent("concepts");
   const hashCol = sqlIdent("content_hash");
+  // NEC-042 item 5 / AC-018l.12: `sqlLike` emits backslash escapes for `%`/`_`/`\`
+  // inside a plain literal, but whether `\%` is honored as a literal is
+  // dialect-dependent WITHOUT an explicit ESCAPE clause. Declaring `ESCAPE '\'`
+  // on every ILIKE pins the backslash as the escape char, so an escaped
+  // metacharacter can never widen the match. Applied to every ILIKE (the WHERE
+  // arm and the ORDER BY ranking) so match and ranking agree.
+  const like = (col: string): string => `${col} ILIKE ${pattern} ESCAPE '\\'`;
   return (
     `SELECT ${sLiteral(SOURCE_NECTAR)} AS source, v.${nectarCol} AS id, v.${pathCol} AS path, ` +
     `v.${titleCol} AS title, v.${descCol} AS body, v.${conceptsCol} AS concepts, v.${hashCol} AS content_hash ` +
     `FROM "${HIVE_GRAPH_VERSIONS}" v ` +
     `INNER JOIN (${latest}) latest ON v.${nectarCol} = latest.${nectarCol} AND v.${seqCol} = latest.max_seq ` +
-    `WHERE (v.${titleCol} ILIKE ${pattern} OR v.${descCol} ILIKE ${pattern} OR v.${conceptsCol} ILIKE ${pattern}) ` +
+    `WHERE (${like(`v.${titleCol}`)} OR ${like(`v.${descCol}`)} OR ${like(`v.${conceptsCol}`)}) ` +
     `AND ${tenancyPredicate(scope, "v")} ` +
+    `ORDER BY CASE ` +
+    `WHEN ${like(`v.${titleCol}`)} THEN 0 ` +
+    `WHEN ${like(`v.${descCol}`)} THEN 1 ` +
+    `WHEN ${like(`v.${conceptsCol}`)} THEN 2 ` +
+    `ELSE 3 END ASC, v.${nectarCol} ASC ` +
     `LIMIT ${perArm}`
   );
 }
@@ -118,9 +154,17 @@ export function buildHiveGraphVectorSearchSql(
   const seqCol = sqlIdent("seq");
   const embCol = sqlIdent("embedding");
   const fetchLimit = Math.max(1, Math.trunc(perArmLimit)) * Math.max(1, Math.trunc(overFetchMultiplier));
+  // `<#>` between a FLOAT4[] column and a FLOAT4[] literal is cosine
+  // SIMILARITY on this backend, sorted DESC (official pg_deeplake SQL
+  // reference, docs.deeplake.ai "The <#> operator" table), and the live probe
+  // in test/hive-graph-search-live.test.ts confirms the near vector ranks
+  // first under this formula. The corpus's earlier "cosine distance, ascend"
+  // phrasing was wrong (NEC-005); the docs pass corrects it. Mapping
+  // similarity [-1, 1] to score [0, 1] preserves DESC = most similar first.
   const scoreSql = `((1 + (v.${embCol} <#> ${vecLit})) / 2)`;
+  const embedModelCol = sqlIdent("embed_model");
   return (
-    `SELECT v.${nectarCol} AS id, ${scoreSql} AS score ` +
+    `SELECT v.${nectarCol} AS id, ${scoreSql} AS score, v.${embedModelCol} AS embed_model ` +
     `FROM "${HIVE_GRAPH_VERSIONS}" v ` +
     `INNER JOIN (${latest}) latest ON v.${nectarCol} = latest.${nectarCol} AND v.${seqCol} = latest.max_seq ` +
     `WHERE ARRAY_LENGTH(v.${embCol}, 1) > 0 AND ${tenancyPredicate(scope, "v")} ` +
@@ -187,6 +231,16 @@ interface RankedArm {
   readonly entries: readonly RankedArmEntry[];
 }
 
+interface ArmQueryResult {
+  readonly rows: readonly StorageRow[];
+  readonly status: HiveGraphSearchArmStatus;
+}
+
+interface SemanticArmResult {
+  readonly entries: readonly RankedArmEntry[];
+  readonly status: HiveGraphSearchArmStatus;
+}
+
 function fusionKey(source: string, id: string): string {
   return `${source}\0${id}`;
 }
@@ -231,21 +285,64 @@ function rowsToRankedArm(rows: readonly StorageRow[]): RankedArm {
   return { entries };
 }
 
-/** Per-arm fail-soft: missing/failing table → empty rows, never throws. */
+function armOk(rows: readonly StorageRow[]): HiveGraphSearchArmStatus {
+  return { status: "ok", rows: rows.length };
+}
+
+function armNotRun(reason: string): HiveGraphSearchArmStatus {
+  return { status: "not-run", rows: 0, reason };
+}
+
+function errorReason(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function classifyArmFailure(err: unknown): HiveGraphSearchArmStatus {
+  const reason = errorReason(err);
+  if (err instanceof TransportError && isMissingTableError(err)) {
+    return { status: "missing-table", rows: 0, reason };
+  }
+  if (err instanceof Error && /table does not exist|no such table/i.test(err.message)) {
+    return { status: "missing-table", rows: 0, reason };
+  }
+  return { status: "error", rows: 0, reason };
+}
+
+function resultReason(
+  hits: readonly HiveGraphHit[],
+  semanticStatus: HiveGraphSearchArmStatus,
+  lexicalStatus: HiveGraphSearchArmStatus,
+): HiveGraphSearchReason {
+  if (semanticStatus.status === "error" || lexicalStatus.status === "error") return "backend-error";
+  if (hits.length > 0 && semanticStatus.status === "not-run") return "semantic-unavailable";
+  if (hits.length > 0) return "ok";
+  if (semanticStatus.status === "missing-table" || lexicalStatus.status === "missing-table") return "missing-table";
+  return "no-matches";
+}
+
+function errorSources(
+  semanticStatus: HiveGraphSearchArmStatus,
+  lexicalStatus: HiveGraphSearchArmStatus,
+): HiveGraphSearchArmName[] {
+  const sources: HiveGraphSearchArmName[] = [];
+  if (semanticStatus.status === "error") sources.push(SEMANTIC_ARM);
+  if (lexicalStatus.status === "error") sources.push(LEXICAL_ARM);
+  return sources;
+}
+
+/** Per-arm fail-soft: missing table or backend error returns a classified status. */
 async function runArmFailSoft(
   storage: StorageQuery,
   sql: string,
   scope: QueryScope,
   onSuccess?: () => void,
-): Promise<StorageRow[]> {
+): Promise<ArmQueryResult> {
   try {
     const rows = [...(await storage.query(sql, scope))];
     onSuccess?.();
-    return rows;
+    return { rows, status: armOk(rows) };
   } catch (err: unknown) {
-    if (err instanceof TransportError && isMissingTableError(err)) return [];
-    if (err instanceof Error && /table does not exist|no such table/i.test(err.message)) return [];
-    return [];
+    return { rows: [], status: classifyArmFailure(err) };
   }
 }
 
@@ -263,6 +360,7 @@ async function resolveQueryVector(query: string, embed: EmbedClient | undefined)
 interface ScoredId {
   readonly id: string;
   readonly score: number;
+  readonly embedModel: string | null;
 }
 
 function parseScoredIds(rows: readonly StorageRow[]): ScoredId[] {
@@ -272,9 +370,30 @@ function parseScoredIds(rows: readonly StorageRow[]): ScoredId[] {
     if (id === "") continue;
     const rawScore = typeof row.score === "number" ? row.score : Number(row.score);
     const score = Number.isFinite(rawScore) ? Math.min(1, Math.max(0, rawScore)) : 0;
-    out.push({ id, score });
+    const embedModel = typeof row.embed_model === "string" && row.embed_model !== "" ? row.embed_model : null;
+    out.push({ id, score, embedModel });
   }
   return out;
+}
+
+/**
+ * Partition scored rows into ones that may contribute to the vector arm and ones
+ * whose stored embedding model disagrees with the active provider (PRD-018i /
+ * NEC-018 AC-018i.3). A null `embed_model` (pre-provenance row) is treated as
+ * compatible; only a non-null model that differs is a cross-space mismatch.
+ */
+function partitionByEmbedModel(
+  scored: readonly ScoredId[],
+  activeEmbedModel: string | undefined,
+): { usable: ScoredId[]; mismatched: string[] } {
+  if (activeEmbedModel === undefined) return { usable: [...scored], mismatched: [] };
+  const usable: ScoredId[] = [];
+  const mismatched: string[] = [];
+  for (const s of scored) {
+    if (s.embedModel !== null && s.embedModel !== activeEmbedModel) mismatched.push(s.id);
+    else usable.push(s);
+  }
+  return { usable, mismatched };
 }
 
 /**
@@ -286,29 +405,38 @@ async function runSemanticArm(
   scope: QueryScope,
   queryVector: readonly number[],
   perArmLimit: number,
+  activeEmbedModel?: string,
+  onReembedNeeded?: (nectars: readonly string[]) => void,
   onSuccess?: () => void,
-): Promise<RankedArmEntry[]> {
-  let scored: ScoredId[];
-  try {
-    const scoreSql = buildHiveGraphVectorSearchSql(queryVector, scope, perArmLimit);
-    scored = parseScoredIds(await runArmFailSoft(storage, scoreSql, scope, onSuccess));
-  } catch {
-    return [];
+): Promise<SemanticArmResult> {
+  const scoreSql = buildHiveGraphVectorSearchSql(queryVector, scope, perArmLimit);
+  const scoreResult = await runArmFailSoft(storage, scoreSql, scope, onSuccess);
+  if (scoreResult.status.status !== "ok") {
+    return { entries: [], status: scoreResult.status };
   }
-  if (scored.length === 0) return [];
+  const allScored = parseScoredIds(scoreResult.rows);
+  // AC-018i.3: exclude rows whose stored embed_model disagrees with the active
+  // provider, and queue those nectars for re-embedding so the index converges.
+  const { usable: scored, mismatched } = partitionByEmbedModel(allScored, activeEmbedModel);
+  if (mismatched.length > 0 && onReembedNeeded !== undefined) {
+    try {
+      onReembedNeeded(mismatched);
+    } catch {
+      // fail-soft: a faulty re-embed sink never breaks the search path.
+    }
+  }
+  if (scored.length === 0) return { entries: [], status: armOk([]) };
 
   const ids = scored.map((s) => s.id).filter((id) => id !== "");
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { entries: [], status: armOk([]) };
 
-  let hydrated: StorageRow[];
-  try {
-    hydrated = await runArmFailSoft(storage, buildHiveGraphHydrateSql(ids, scope), scope, onSuccess);
-  } catch {
-    return [];
+  const hydrateResult = await runArmFailSoft(storage, buildHiveGraphHydrateSql(ids, scope), scope, onSuccess);
+  if (hydrateResult.status.status !== "ok") {
+    return { entries: [], status: hydrateResult.status };
   }
 
   const hitById = new Map<string, HiveGraphHit>();
-  for (const row of hydrated) {
+  for (const row of hydrateResult.rows) {
     const hit = rowToHit(row);
     if (hit !== null) hitById.set(hit.id, hit);
   }
@@ -322,7 +450,7 @@ async function runSemanticArm(
     seen.add(s.id);
     entries.push({ hit });
   }
-  return entries;
+  return { entries, status: { status: "ok", rows: entries.length } };
 }
 
 /**
@@ -347,33 +475,39 @@ export async function searchHiveGraph(
 
   const queryVector = await resolveQueryVector(term, deps.embed);
   const semanticRan = queryVector !== null;
-  let storageReachable = false;
 
-  const queryArm = async (sql: string): Promise<StorageRow[]> => {
-    const rows = await runArmFailSoft(deps.storage, sql, scope, () => {
-      storageReachable = true;
-    });
-    return rows;
+  const queryArm = async (sql: string): Promise<ArmQueryResult> => {
+    const result = await runArmFailSoft(deps.storage, sql, scope);
+    return result;
   };
 
-  const [semanticEntries, lexicalRows] = await Promise.all([
+  const [semanticResult, lexicalResult] = await Promise.all([
     semanticRan && queryVector !== null
-      ? runSemanticArm(deps.storage, scope, queryVector, resolvedLimit, () => {
-          storageReachable = true;
-        })
-      : Promise.resolve([] as RankedArmEntry[]),
+      ? runSemanticArm(deps.storage, scope, queryVector, resolvedLimit, deps.activeEmbedModel, deps.onReembedNeeded)
+      : Promise.resolve({ entries: [], status: armNotRun("query embedding unavailable") } as SemanticArmResult),
     queryArm(buildHiveGraphLexicalArmSql(term, scope, resolvedLimit)),
   ]);
 
   const arms: RankedArm[] = [];
-  if (semanticEntries.length > 0) {
-    arms.push({ entries: semanticEntries });
+  if (semanticResult.entries.length > 0) {
+    arms.push({ entries: semanticResult.entries });
   } else if (semanticRan) {
     arms.push({ entries: [] });
   }
-  arms.push(rowsToRankedArm(lexicalRows));
+  arms.push(rowsToRankedArm(lexicalResult.rows));
 
   const { hits, sources } = fuseHits(arms, resolvedLimit);
-  const degraded = !semanticRan || (hits.length === 0 && !storageReachable);
-  return { hits, sources, degraded };
+  const errors = errorSources(semanticResult.status, lexicalResult.status);
+  const degraded = !semanticRan || errors.length > 0;
+  return {
+    hits,
+    sources,
+    degraded,
+    reason: resultReason(hits, semanticResult.status, lexicalResult.status),
+    errorSources: errors,
+    arms: {
+      semantic: semanticResult.status,
+      lexical: lexicalResult.status,
+    },
+  };
 }

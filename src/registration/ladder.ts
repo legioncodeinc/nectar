@@ -84,6 +84,39 @@ export interface ReviewCandidate {
   readonly mintedNectar: string;
 }
 
+/**
+ * The fast-path stat cache (PRD-018c NEC-035 / AC-018c.9): a side structure
+ * (never a hive-graph column) recording each path's freshest observed
+ * mtime/size when step 2 finds the content UNCHANGED (a touch, a branch-switch
+ * mtime bump). `hive_graph_versions.mtimeObserved`/`sizeBytes` are documented
+ * as "not authoritative; a fast-path cache key only" (model.ts) - the version
+ * ROW is never rewritten (append-only stays append-only); this cache is the
+ * "cheap side column" the PRD's fix direction offers as the alternative to an
+ * in-place UPDATE, so it carries no PRD-018g NEC-017 precedent. Step 1 prefers
+ * a cache hit over the stored version row's stat so a touch is remembered
+ * without a new version row, keeping the step-1 fast path fast forever
+ * instead of degrading to a full re-hash on every future observation.
+ */
+export interface StatCache {
+  get(relPath: string): { readonly mtimeObserved: string; readonly sizeBytes: number } | undefined;
+  set(relPath: string, stat: { readonly mtimeObserved: string; readonly sizeBytes: number }): void;
+  delete(relPath: string): void;
+}
+
+/** A simple `Map`-backed {@link StatCache}. One instance persists for the lifetime of a `RegistrationService` (across cycles, not across a daemon restart - a restart re-warms via the store's own version-row stat, just without the touch optimization until the next touch). */
+export function createInMemoryStatCache(): StatCache {
+  const map = new Map<string, { mtimeObserved: string; sizeBytes: number }>();
+  return {
+    get: (relPath) => map.get(relPath),
+    set: (relPath, stat) => {
+      map.set(relPath, { mtimeObserved: stat.mtimeObserved, sizeBytes: stat.sizeBytes });
+    },
+    delete: (relPath) => {
+      map.delete(relPath);
+    },
+  };
+}
+
 export interface LadderDeps {
   readonly store: HiveGraphStore;
   readonly tenancy: Tenancy;
@@ -97,6 +130,28 @@ export interface LadderDeps {
   onReviewNeeded?(candidate: ReviewCandidate): void;
   /** Called when a version row is appended and warrants (re)description. */
   onEnrichQueued?(nectar: string): void;
+  /**
+   * PRD-018c NEC-035 / AC-018c.9: the fast-path stat cache. Omit to preserve
+   * pre-018c behavior (a step-2 touch is never remembered, so every future
+   * observation re-hashes).
+   */
+  readonly statCache?: StatCache;
+  /**
+   * PRD-018c NEC-034 / AC-018c.8: true when the workspace filesystem is
+   * case-insensitive (probed once per workspace, never guessed from
+   * `process.platform`). Enables the step-3 case-only-rename guard below.
+   * Omit/false preserves pre-018c case-sensitive behavior exactly.
+   */
+  readonly caseInsensitive?: boolean;
+  /**
+   * PRD-018c EX-4 (change-detection review M7): the set of KNOWN paths
+   * currently missing from disk, computed ONCE per resync/settle cycle
+   * (`service.ts`'s `runCycle`) and passed in here so step 4's candidate scan
+   * is an O(1) set lookup instead of an `existsOnDisk` stat per known path per
+   * new file. Omit to fall back to the pre-018c per-candidate `existsOnDisk`
+   * stat (unit tests calling `reassociate` directly need no change).
+   */
+  readonly missingPaths?: ReadonlySet<string>;
 }
 
 export type LadderStep = 1 | 2 | 3 | 4 | 5;
@@ -113,12 +168,14 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
   const { store, tenancy } = deps;
   const byPath = store.latestVersionByPath(tenancy, file.relPath);
 
-  // Step 1: (path, mtime, size) exact -> unchanged, no read, no hash.
-  if (
-    byPath !== undefined &&
-    byPath.version.mtimeObserved === file.mtimeObserved &&
-    byPath.version.sizeBytes === file.sizeBytes
-  ) {
+  // Step 1: (path, mtime, size) exact -> unchanged, no read, no hash. A
+  // fast-path cache hit (NEC-035 / AC-018c.9) takes precedence over the
+  // stored version row's own stat: it is the freshest stat the ladder has
+  // ever observed for this path since the content last actually changed.
+  const cachedStat = deps.statCache?.get(file.relPath);
+  const effectiveMtime = cachedStat?.mtimeObserved ?? byPath?.version.mtimeObserved;
+  const effectiveSize = cachedStat?.sizeBytes ?? byPath?.version.sizeBytes;
+  if (byPath !== undefined && effectiveMtime === file.mtimeObserved && effectiveSize === file.sizeBytes) {
     return { step: 1, action: "noop", nectar: byPath.identity.nectar };
   }
 
@@ -130,9 +187,15 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
   // Step 2: path is known; compare content.
   if (byPath !== undefined) {
     if (byPath.version.contentHash === hash) {
-      // Content identical (mtime/size changed, e.g. `touch`): still a no-op.
+      // Content identical (mtime/size changed, e.g. `touch`): still a no-op,
+      // but remember the fresh stat (NEC-035) so the NEXT observation of this
+      // unchanged file takes the step-1 fast path instead of re-hashing.
+      deps.statCache?.set(file.relPath, { mtimeObserved: file.mtimeObserved, sizeBytes: file.sizeBytes });
       return { step: 2, action: "noop", nectar: byPath.identity.nectar };
     }
+    // Real content change: the fresh version row already carries the correct
+    // stat, so any stale cache entry from a prior touch must not shadow it.
+    deps.statCache?.delete(file.relPath);
     appendEditVersion(deps, byPath, file, hash, fingerprint);
     deps.onEnrichQueued?.(byPath.identity.nectar);
     return { step: 2, action: "append-version", nectar: byPath.identity.nectar };
@@ -142,11 +205,26 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
   const byHash = store.latestVersionByHash(tenancy, hash);
   if (byHash !== undefined) {
     const sourcePath = byHash.version.path;
-    if (sourcePath !== file.relPath && !deps.existsOnDisk(sourcePath)) {
-      // Step 3: the source path is gone -> this is a move. Carry the nectar,
-      // inherit the description (content unchanged), enqueue no enrich. The
-      // carry is refused (falls through to mint) if the source is out of tenancy.
+    // NEC-034 / AC-018c.8: on a case-insensitive filesystem, a case-only
+    // rename (`Foo.ts` -> `foo.ts`) leaves `existsOnDisk(sourcePath)` true
+    // (the OS resolves either casing to the same file), which would
+    // misclassify the rename as a copy. `file.relPath` is the TRUE on-disk
+    // casing of the just-observed path (from `fs.watch`/`readdir`, never
+    // user-typed), so a source that case-folds equal but differs in exact
+    // casing is unambiguously the same file, renamed - no filesystem
+    // existence check needed for that specific determination.
+    const caseOnlyRename =
+      deps.caseInsensitive === true &&
+      sourcePath !== file.relPath &&
+      sourcePath.toLowerCase() === file.relPath.toLowerCase();
+    if (sourcePath !== file.relPath && (caseOnlyRename || !deps.existsOnDisk(sourcePath))) {
+      // Step 3: the source path is gone (or case-only renamed) -> this is a
+      // move. Carry the nectar, inherit the description (content unchanged),
+      // enqueue no enrich. The carry is refused (falls through to mint) if
+      // the source is out of tenancy. `file.relPath` (the fresh casing) is
+      // what gets written, so stored rows preserve on-disk casing.
       if (writeCarriedRow(store, tenancy, deps.now(), byHash, file, hash, null, fingerprint)) {
+        deps.statCache?.delete(sourcePath);
         return { step: 3, action: "carry-nectar", nectar: byHash.identity.nectar };
       }
     }
@@ -220,8 +298,23 @@ export function reassociate(file: ObservedFile, deps: LadderDeps): LadderResult 
   return result;
 }
 
-/** Missing candidates: known latest versions whose current path is gone from disk (and is not this file's path). */
+/**
+ * Missing candidates: known latest versions whose current path is gone from
+ * disk (and is not this file's path). PRD-018c EX-4 (change-detection review
+ * M7): when the caller supplies `deps.missingPaths` (computed ONCE per
+ * settle/resync cycle in `service.ts`'s `runCycle`), this is an O(1) set
+ * lookup per known version instead of an `existsOnDisk` stat - eliminating the
+ * O(known-files) stat-per-new-file cost the review flagged. Falls back to the
+ * pre-018c per-candidate `existsOnDisk` stat when `missingPaths` is omitted
+ * (unit tests calling `reassociate` directly need no change).
+ */
 function missingCandidates(deps: LadderDeps, selfPath: string): LatestVersion[] {
+  const missing = deps.missingPaths;
+  if (missing !== undefined) {
+    return deps.store
+      .listLatestVersions(deps.tenancy)
+      .filter((lv) => lv.version.path !== selfPath && missing.has(lv.version.path));
+  }
   return deps.store
     .listLatestVersions(deps.tenancy)
     .filter((lv) => lv.version.path !== selfPath && !deps.existsOnDisk(lv.version.path));
@@ -375,4 +468,92 @@ function mintOrCopy(deps: LadderDeps, file: ObservedFile, hash: string, fingerpr
   deps.onEnrichQueued?.(nectar);
 
   return { step: 5, action: decision.action === "copy" ? "copy" : "mint", nectar };
+}
+
+/**
+ * PRD-018d (NEC-036): the idempotent crash-repair sweep for the ladder's
+ * multi-write actions.
+ *
+ * Every ladder action that mutates the store is a SEQUENCE of two writes
+ * (mint = `insertIdentity` + `appendVersion`; edit/carry = `appendVersion` +
+ * `touchIdentity`; review-accept = carry + `deleteNectar` of the placeholder,
+ * `review-cli.ts`), with no atomicity across a crash between them (the
+ * sync/async store bridge that would let these be one transaction is
+ * PRD-018b's construction, a Non-Goal here). This sweep heals the three
+ * resulting invariant violations instead, and is idempotent: running it again
+ * on an already-healed store finds nothing to do.
+ *
+ *   1. An orphan identity (a mint that crashed after `insertIdentity`, before
+ *      `appendVersion`): zero version rows. There is no content to construct a
+ *      version from, so the only sound repair is deleting the orphan (the same
+ *      `deleteNectar` review-accept already uses to retire a placeholder -
+ *      this sweep is not a new deletion path, just a new caller of the
+ *      existing one). Requires the OPTIONAL `store.listIdentities` (skipped,
+ *      not guessed at, when the adapter omits it).
+ *   2. A stale `identity.lastUpdateDate` (an edit/carry that crashed after
+ *      `appendVersion`, before `touchIdentity`): the identity's timestamp
+ *      predates its own latest version's `lastUpdateDate`, which feeds prune
+ *      eligibility directly (`prune-cli.ts`). Healed by re-running
+ *      `touchIdentity` with the version's own timestamp.
+ *   3. Two identities both claiming one path as their latest version's `path`
+ *      (a review-accept that crashed after the carry landed, before the
+ *      placeholder delete ran): under normal ladder operation a carry only
+ *      ever targets a path with NO existing identity, so this can only be a
+ *      crash artifact. The carried identity's version always has a strictly
+ *      later `observedAt` than the placeholder's original mint, so the
+ *      survivor is the entry with the latest `observedAt`; every other
+ *      claimant is deleted.
+ */
+export function repairLadderState(store: HiveGraphStore, tenancy: Tenancy): RepairReport {
+  let healedOrphanIdentities = 0;
+  if (store.listIdentities !== undefined) {
+    for (const identity of store.listIdentities(tenancy)) {
+      if (store.latestVersion(identity.nectar) === undefined) {
+        store.deleteNectar(tenancy, identity.nectar);
+        healedOrphanIdentities += 1;
+      }
+    }
+  }
+
+  const latest = store.listLatestVersions(tenancy);
+
+  let healedStaleLastUpdate = 0;
+  for (const lv of latest) {
+    const identityMs = Date.parse(lv.identity.lastUpdateDate);
+    const versionMs = Date.parse(lv.version.lastUpdateDate);
+    if (Number.isNaN(versionMs)) continue; // nothing trustworthy to catch up to
+    if (Number.isNaN(identityMs) || identityMs < versionMs) {
+      store.touchIdentity(lv.identity.nectar, lv.version.lastUpdateDate);
+      healedStaleLastUpdate += 1;
+    }
+  }
+
+  let healedDuplicatePaths = 0;
+  const byPath = new Map<string, LatestVersion[]>();
+  for (const lv of latest) {
+    const group = byPath.get(lv.version.path) ?? [];
+    group.push(lv);
+    byPath.set(lv.version.path, group);
+  }
+  for (const group of byPath.values()) {
+    if (group.length <= 1) continue;
+    let survivor = group[0] as LatestVersion;
+    for (const lv of group) {
+      if (Date.parse(lv.version.observedAt) > Date.parse(survivor.version.observedAt)) survivor = lv;
+    }
+    for (const lv of group) {
+      if (lv.identity.nectar === survivor.identity.nectar) continue;
+      store.deleteNectar(tenancy, lv.identity.nectar);
+      healedDuplicatePaths += 1;
+    }
+  }
+
+  return { healedOrphanIdentities, healedStaleLastUpdate, healedDuplicatePaths };
+}
+
+/** What {@link repairLadderState} healed in one sweep pass. */
+export interface RepairReport {
+  readonly healedOrphanIdentities: number;
+  readonly healedStaleLastUpdate: number;
+  readonly healedDuplicatePaths: number;
 }

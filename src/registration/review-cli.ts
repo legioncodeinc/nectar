@@ -85,6 +85,26 @@ export async function runReviewMatches(deps: ReviewMatchesDeps): Promise<ReviewM
           staleDropped += 1;
           break;
         }
+        // Stale-content guard (PRD-018d NEC-036, AC-018d.8): the candidate's
+        // `contentHash` is a snapshot taken when the review was raised. If the
+        // placeholder mint (`mintedNectar`) has since seen a further edit at
+        // `newPath` (a step-2 append onto that SAME identity, keyed by path),
+        // its latest content hash no longer matches what was queued, so the
+        // recorded hash/size/mtime metadata this accept would carry onto the
+        // identity is outdated. Resolve as stale instead of carrying it.
+        // Checked against the mintedNectar's own version (not "whatever is
+        // currently at newPath") so it is precise even when mintedNectar is a
+        // synthetic id in a test fixture that was never actually minted (in
+        // which case there is nothing to compare and the accept proceeds).
+        const mintedVersion = deps.store.latestVersion(candidate.mintedNectar);
+        if (mintedVersion !== undefined && mintedVersion.contentHash !== candidate.contentHash) {
+          deps.pendingReviews.remove(candidate.id);
+          deps.out(
+            `candidate ${candidate.candidateNectar} is stale (content at ${candidate.newPath} changed since queued); dropped stale review`,
+          );
+          staleDropped += 1;
+          break;
+        }
         const carried = carryNectar(
           deps.store,
           deps.tenancy,

@@ -1,6 +1,6 @@
 # Re-association: User Stories
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 Engineering and operator user stories for the re-association ladder, scoped to the personas that exercise it: the daemon performing cold catch-up at boot, the `node:fs.watch` intake in live mode, the reviewer adjudicating low-confidence TLSH matches, the operator running prune, and the teammate whose copy-paste becomes a provenance edge. Each story carries acceptance criteria tied to the contract in [`reassociation-technical-specification.md`](reassociation-technical-specification.md).
 
@@ -22,7 +22,7 @@ These are engineering-scope user stories, not a PRD. They describe the behaviors
 - **The daemon** — the hiveantennae process performing cold catch-up at boot or re-associating on watcher events.
 - **The `node:fs.watch` intake** — the live-mode event source that reports path observations and triggers debounced re-association work.
 - **The reviewer** — a human adjudicating low-confidence TLSH matches surfaced by the review surface.
-- **The operator** — a human running `honeycomb nectar prune --confirm`.
+- **The operator** - a human running `nectar prune --confirm`.
 - **The teammate** — a developer whose copy-paste, edit, or fresh clone exercises the ladder.
 
 Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
@@ -80,13 +80,13 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 **Acceptance criteria:** (a) `confidence = 1 − normalizedTLSHDistance` falls above the configurable high band (default tuned during brooding — no concrete value is committed by the spec). (b) A new version row is appended for the carried nectar with the `confidence` field populated. (c) An enrich job is enqueued (the content changed). (d) No human review is required.
 
 **US-RA-013** — As the daemon, when a fuzzy match falls in the review band, I do not auto-claim the nectar; I surface the candidate for review and provisionally mint.
-**Acceptance criteria:** (a) `confidence` is between the low and high bounds. (b) The candidate is added to the `honeycomb nectar review-matches` queue. (c) The file on disk is associated to a provisional fresh nectar so recall keeps working pending adjudication. (d) The nectar is not carried until the reviewer accepts.
+**Acceptance criteria:** (a) `confidence` is between the low and high bounds. (b) The candidate is added to the `nectar review-matches` queue. (c) The file on disk is associated to a provisional fresh nectar so recall keeps working pending adjudication. (d) The nectar is not carried until the reviewer accepts.
 
 **US-RA-014** — As the daemon, when a fuzzy match falls below the low-confidence band, I do not surface it; I fall through to step 5 and mint.
 **Acceptance criteria:** (a) `confidence` falls at or below the low band (default tuned during brooding — no concrete value is committed by the spec). (b) No candidate is added to the review queue. (c) A fresh nectar is minted for the file. (d) No history corruption occurs — the would-be source nectar's chain is untouched.
 
 **US-RA-015** — As the reviewer, I can list, accept, or reject pending low-confidence candidates via the review surface.
-**Acceptance criteria:** (a) `honeycomb nectar review-matches` lists candidates with their `confidence`, the on-disk path, and the candidate source nectar. (b) The reviewer can accept a candidate, which rewrites the provisional nectar's rows to point at the carried nectar and records the decision. (c) The reviewer can reject a candidate, which leaves the provisional mint in place and removes it from the queue. (d) Review decisions are auditable on the version row. (The exact accept/reject flag syntax is an implementation detail the source spec does not pin.)
+**Acceptance criteria:** (a) `nectar review-matches` lists candidates with their `confidence`, the on-disk path, and the candidate source nectar. (b) The reviewer can accept a candidate, which rewrites the provisional nectar's rows to point at the carried nectar and records the decision. (c) The reviewer can reject a candidate, which leaves the provisional mint in place and removes it from the queue. (d) Review decisions are auditable on the version row. (The exact accept/reject flag syntax is an implementation detail the source spec does not pin.)
 
 **US-RA-016** — As the `node:fs.watch` intake in live mode, I rarely reach step 4 because ordinary moves resolve through step 3 exact-hash reconstruction.
 **Acceptance criteria:** (a) Step 4 fires in live mode only for move-and-edit cases or incomplete event evidence. (b) The review surface is not populated by normal live operation. (c) Cold catch-up after offline move-and-edit is the primary source of review-band candidates.
@@ -122,7 +122,7 @@ Story IDs are `US-RA-NNN`, grouped by ladder step and cross-cutting concern.
 **Acceptance criteria:** (a) Step 5 always mints a fresh nectar; it never scans for orphaned nectars and reassigns them. (b) Orphaned nectars (file deleted, not moved) remain in Deep Lake as history. (c) A nectar, once minted, is immutable in its identity; the re-association ladder only appends version rows or carries the nectar to a new path.
 
 **US-RA-023** — As the operator, deletion of nectar records is a separate, explicit, human-triggered operation with a grace period.
-**Acceptance criteria:** (a) `honeycomb nectar prune --confirm` is the only path that removes nectar records. (b) Only nectars whose *latest* version path has been missing longer than the grace period (default 30 days) are eligible. (c) `--confirm` is required; pruning never runs automatically. (d) A nectar with any version pointing at a live path is never pruned.
+**Acceptance criteria:** (a) `nectar prune --confirm` is the only path that removes nectar records. (b) Only nectars whose *latest* version path has been missing longer than the grace period (default 30 days) are eligible. (c) `--confirm` is required; pruning never runs automatically. (d) A nectar with any version pointing at a live path is never pruned.
 
 **US-RA-024** — As the operator, the grace period absorbs branch switches and unmerged feature work so I do not destroy history prematurely.
 **Acceptance criteria:** (a) A file absent because it lives on an unmerged branch is not pruned within the grace window. (b) The default 30-day window covers a typical branch lifecycle. (c) The grace period is configurable.

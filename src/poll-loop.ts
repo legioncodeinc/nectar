@@ -47,6 +47,8 @@ export class PollLoop {
 
   private running = false;
   private inFlight = false;
+  /** The currently-running tick, or null when idle. Exposed via {@link whenIdle} for bounded drain on shutdown. */
+  private inFlightPromise: Promise<boolean> | null = null;
   private handle: unknown = null;
   private currentDelayMs: number;
   /** Bumped on every start() and stop(); a pump/schedule from an older generation is ignored. */
@@ -98,14 +100,30 @@ export class PollLoop {
   async runOnce(): Promise<boolean> {
     if (this.inFlight) return false;
     this.inFlight = true;
-    try {
-      return await this.tick();
-    } catch (err) {
-      this.onError(err);
-      return false;
-    } finally {
-      this.inFlight = false;
-    }
+    const run = (async (): Promise<boolean> => {
+      try {
+        return await this.tick();
+      } catch (err) {
+        this.onError(err);
+        return false;
+      } finally {
+        this.inFlight = false;
+        this.inFlightPromise = null;
+      }
+    })();
+    this.inFlightPromise = run;
+    return run;
+  }
+
+  /**
+   * Resolve once any in-flight tick has settled. `shutdown()` awaits this (under
+   * a bounded timeout) so a tick is drained rather than killed mid-flight
+   * (PRD-018a NEC-033). The tracked promise never rejects (errors are routed to
+   * `onError` inside `runOnce`), so awaiting it is safe.
+   */
+  async whenIdle(): Promise<void> {
+    const inflight = this.inFlightPromise;
+    if (inflight !== null) await inflight;
   }
 
   private schedule(delayMs: number, gen: number): void {

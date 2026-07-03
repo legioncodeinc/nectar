@@ -37,7 +37,7 @@ import {
   type ServiceEnvironment,
   type ServicePlan,
 } from "./platform.js";
-import { renderUnit } from "./templates.js";
+import { renderUnit, launchdLogDir } from "./templates.js";
 
 /** A coarse, classified service status (what `nectar service-status` reports). */
 export type ServiceStatus = "running" | "not-running" | "unknown";
@@ -221,6 +221,11 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
           }
           fs.mkdirp(dirname(unitTarget));
           fs.writeFile(unitTarget, renderUnit(p));
+          // NEC-042 item 2 / AC-018l.9: launchd writes stdout/stderr into
+          // `<home>/.honeycomb/nectar`, but the plist lives under LaunchAgents,
+          // so mkdirp(dirname(unitTarget)) above only created LaunchAgents. Create
+          // the log directory too, or the daemon's macOS logs are silently lost.
+          if (p.manager === "launchd") fs.mkdirp(launchdLogDir(p.home));
         } catch (error) {
           return {
             ok: false,

@@ -17,6 +17,28 @@ test("a fresh HealthState is ok and carries the purpose-built subsystem fields",
   assert.equal(body.portkey.enabled, false);
 });
 
+test("AC-018k.3 a dormant brooding daemon carries a machine-readable reason; a ready one clears it", () => {
+  const h = new HealthState();
+  // Fresh default: inactive, no reason yet.
+  assert.equal(h.snapshot().brooding.active, false);
+  assert.equal(h.snapshot().brooding.reason, null);
+
+  // Dormant: the reason is surfaced on the existing brooding slice (not a new one).
+  h.setBroodingState({ active: false, reason: "credentials_missing" });
+  let body = h.snapshot();
+  assert.equal(body.brooding.active, false);
+  assert.equal(body.brooding.reason, "credentials_missing");
+
+  h.setBroodingState({ reason: "portkey_disabled" });
+  assert.equal(h.snapshot().brooding.reason, "portkey_disabled");
+
+  // Ready/active: the reason clears back to null while active flips true.
+  h.setBroodingState({ active: true, reason: null });
+  body = h.snapshot();
+  assert.equal(body.brooding.active, true);
+  assert.equal(body.brooding.reason, null);
+});
+
 test("degrade flips the coarse bit doctor classifies on", () => {
   const h = new HealthState();
   assert.equal(h.pipelineStatus, "ok");

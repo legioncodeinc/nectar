@@ -36,13 +36,19 @@ export { buildUpdateVersionSql } from "./sql-update.js";
 export { EnricherInMemoryStore, type EnricherStore, type EnricherWorkItem } from "./store.js";
 
 export {
+  clampUtf8Bytes,
   describeFilesBatch,
   embeddingText,
   isContextWindowError,
+  MAX_DESCRIBE_FILE_BYTES,
+  MAX_DESCRIPTION_CHARS,
+  MAX_TITLE_CHARS,
   parseDescribeResponse,
   type DescribeBatchResult,
   type DescribeFileInput,
 } from "./describe.js";
+
+export { createPriorContentCache, DEFAULT_PRIOR_CONTENT_CACHE_MAX, type PriorContentCache } from "./content-cache.js";
 
 export {
   acknowledgePersistentAlert,

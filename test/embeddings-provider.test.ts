@@ -113,3 +113,27 @@ test("014-AC-4 the real local HTTP transport fails soft on a dead daemon and a 5
   const vec = await warmTransport.embedOne("x");
   assert.equal(vec?.length, 768);
 });
+
+// ── PRD-018i / NEC-018 AC-018i.4: nomic task-prefix verification ──────────────
+
+test("018i.4 nectar sends raw text for BOTH document and query embeds; prefixing is delegated to the daemon", async () => {
+  const config = resolveEmbeddingsConfig({ selector: "local", env: {} });
+  const bodies: string[] = [];
+  const captureFetch = async (_url: string, init: { body: string }) => {
+    bodies.push(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ vector: new Array(768).fill(0.5) }) };
+  };
+  // Cast to the transport's FetchLike; the transport only reads url + init.body/signal.
+  const transport = createLocalNomicHttpTransport(config.local, { fetch: captureFetch as unknown as Parameters<typeof createLocalNomicHttpTransport>[1]["fetch"] });
+  // The enricher's DOCUMENT embed and the recall QUERY embed both funnel through
+  // the same `{ text }` request; nectar applies NO search_document:/search_query:
+  // task prefix itself. RECORDED FINDING (AC-018i.4): task-prefix distinction is
+  // delegated entirely to the external embed daemon, which owns the model contract.
+  await transport.embedOne("the document body of a described file");
+  await transport.embedOne("where is the login logic");
+  const parsed = bodies.map((b) => JSON.parse(b) as Record<string, unknown>);
+  assert.deepEqual(Object.keys(parsed[0] ?? {}), ["text"], "document embed sends only { text }, no task-type field");
+  assert.deepEqual(Object.keys(parsed[1] ?? {}), ["text"], "query embed sends only { text }, no task-type field");
+  assert.equal(parsed[0]?.text, "the document body of a described file");
+  assert.equal(parsed[1]?.text, "where is the login logic");
+});

@@ -64,7 +64,13 @@ export function installCommands(plan: ServicePlan, uid: number): readonly Servic
     }
     case "systemd": {
       const scopeArgs = plan.scope === "user" ? ["--user"] : [];
-      return [{ command: "systemctl", args: [...scopeArgs, "enable", "--now", SYSTEMD_UNIT_NAME] }];
+      // NEC-042 item 3 / AC-018l.10: `daemon-reload` BEFORE `enable --now`, so a
+      // reinstall over a changed unit file makes systemd re-read it instead of
+      // keeping the cached (stale) unit definition running.
+      return [
+        { command: "systemctl", args: [...scopeArgs, "daemon-reload"] },
+        { command: "systemctl", args: [...scopeArgs, "enable", "--now", SYSTEMD_UNIT_NAME] },
+      ];
     }
     case "schtasks": {
       return [

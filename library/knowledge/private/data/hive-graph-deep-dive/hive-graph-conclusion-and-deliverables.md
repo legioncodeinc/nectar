@@ -1,6 +1,6 @@
 # Hive Graph: Conclusion and Deliverables
 
-> Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
 
 What the two-table schema delivers, restated as concrete outcomes and hard contracts, with forward pointers into the rest of the corpus for the reader who needs the why, the algorithm, or the recall wiring.
 
@@ -100,7 +100,7 @@ The schema has succeeded when all of the following are simultaneously true:
 - "Current state" and "full history" are both single-table queries returning in milliseconds.
 - A daemon boot after a column addition converges via `withHeal` without manual intervention or data loss.
 - Recall returns the same set of files for a given query regardless of which agent in the project issues it (cross-agent visibility holds).
-- Deleting `.honeycomb/nectars.json` and running `honeycomb nectar rebuild-projection` reproduces a byte-identical file (modulo `generated_at`), proving the versions table is the sole source of truth.
+- Deleting `.honeycomb/nectars.json` and running `nectar rebuild-projection` reproduces a byte-identical file (modulo `generated_at`), proving the versions table is the sole source of truth.
 
 ---
 

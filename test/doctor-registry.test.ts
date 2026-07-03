@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   NECTAR_DAEMON_NAME,
   DEFAULT_PROBE_INTERVAL_MS,
@@ -30,6 +31,25 @@ test("buildNectarRegistryEntry resolves healthUrl/pidPath from config and doctor
   assert.equal(entry.startupGraceMs, DEFAULT_STARTUP_GRACE_MS);
   assert.equal(entry.restartGiveUpThreshold, DEFAULT_RESTART_GIVE_UP_THRESHOLD);
   assert.equal(entry.restartCooldownMs, DEFAULT_RESTART_COOLDOWN_MS);
+});
+
+test("AC-018a.9 buildNectarRegistryEntry marks restarts as owned by the OS unit (restartPolicy: external)", () => {
+  const entry = buildNectarRegistryEntry(config);
+  assert.equal(entry.restartPolicy, "external", "the OS service unit is the single restart authority (NEC-030)");
+});
+
+test("AC-018a.9 the registry entry nectar install writes marks the OS unit as restart owner", () => {
+  const dir = tmpDir();
+  try {
+    const registryPath = join(dir, "doctor.daemons.json");
+    const result = registerWithDoctor({ config, registryPath });
+    assert.equal(result.entry.restartPolicy, "external");
+
+    const parsed = JSON.parse(readFileSync(registryPath, "utf8"));
+    assert.equal(parsed.daemons[0].restartPolicy, "external", "the persisted entry marks restarts external");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("buildNectarRegistryEntry declares the absolute telemetry SQLite DB path, colocated with pidPath's runtime dir (AC-1 / AC-017a.1.1)", () => {
@@ -179,4 +199,43 @@ test("a registry file whose daemons field is not an array fails loudly", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("018j-AC-018j.5 registry rewrite uses temp file plus rename, not in-place write to the final path", () => {
+  const src = readFileSync(fileURLToPath(new URL("../dist/doctor-registry.js", import.meta.url)), "utf8");
+  assert.match(src, /renameSync/, "write lands via same-directory rename");
+  assert.match(src, /\.tmp/, "write uses a temp file in the registry directory");
+  assert.doesNotMatch(src, /writeFileSync\(registryPath/);
+});
+
+test("018j-AC-018j.6 unknown top-level keys survive a rewrite; only daemons is replaced", () => {
+  const dir = tmpDir();
+  try {
+    const registryPath = join(dir, "doctor.daemons.json");
+    writeFileSync(
+      registryPath,
+      JSON.stringify({ schemaHint: 1, daemons: [] }, null, 2) + "\n",
+      "utf8",
+    );
+
+    registerWithDoctor({ config, registryPath });
+
+    const parsed = JSON.parse(readFileSync(registryPath, "utf8"));
+    assert.equal(parsed.schemaHint, 1, "unknown top-level key survives");
+    assert.equal(parsed.daemons.length, 1);
+    assert.equal(parsed.daemons[0].name, "nectar");
+    assert.equal(
+      readdirSync(dir).filter((name) => name.endsWith(".tmp")).length,
+      0,
+      "no temp files left after atomic rename",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("018j-AC-018j.7 the concurrent-install read-modify-write race is documented in the module", () => {
+  const src = readFileSync(fileURLToPath(new URL("../dist/doctor-registry.js", import.meta.url)), "utf8");
+  assert.match(src, /read-modify-write/i);
+  assert.match(src, /concurrent installs/i);
 });

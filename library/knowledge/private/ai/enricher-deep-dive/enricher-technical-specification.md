@@ -1,6 +1,6 @@
 # Enricher Technical Specification
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The enricher contract: the polling loop over pending rows, the debounce plus meaningful-change heuristic, the rate-limit and cost-cap knobs, the model-comparison table, the capability tier a model must satisfy, the `describe_model` column contract, the failure-to-retry-solo path, and the embeddings layer.
 
@@ -177,4 +177,4 @@ If embeddings are off — the optional dependency was not installed, or the daem
 - **It does not describe symbols.** v1 is file-granular; symbol-level description would multiply row counts 10–100×.
 - **It does not run on files the CodeGraph is building.** The two workers write to different tables and may run concurrently without coordination.
 - **It does not block recall.** A query during enrichment sees whatever has been described so far. There is no read-lock, no "enrichment in progress" state.
-- **It does not re-describe on model swap automatically.** Existing descriptions are valid until proven otherwise; re-description requires an explicit `honeycomb nectar brood --force --model <new>`.
+- **It does not re-describe on model swap automatically.** Existing descriptions are valid until proven otherwise; re-description requires an explicit `nectar brood --force --model <new>`.

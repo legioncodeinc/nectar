@@ -1,6 +1,6 @@
 # Keeping Descriptions Accurate
 
-> Category: Guide | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Guide | Version: 1.1 | Date: July 2026 | Status: Draft
 
 Explains how Nectar keeps every file's description current as you edit, rename, move, and copy-paste — without re-describing on every keystroke, and without losing track of a file when it moves.
 
@@ -14,7 +14,7 @@ Explains how Nectar keeps every file's description current as you edit, rename, 
 
 After the [first scan](getting-started-with-nectar.md), your project has a description for every file. But code is not static. You edit files, rename them, move them between folders, copy blocks from one place to another, and delete things. If the descriptions stayed frozen at their first-scan wording, they would drift out of sync with reality within a day.
 
-Nectar's job in steady state is to keep descriptions accurate **without hovering over your shoulder**. It does this with four behaviors, each tuned to a specific kind of change. The guiding principle throughout: only re-describe when something has *meaningfully* changed, so cost stays low and your descriptions stay trustworthy.
+Nectar's job in steady state is to keep descriptions accurate **without hovering over your shoulder**. When the daemon is running with the [brood prerequisites](getting-started-with-nectar.md) configured, it does this with four behaviors, each tuned to a specific kind of change. The guiding principle throughout: only re-describe when something has *meaningfully* changed, so cost stays low and your descriptions stay trustworthy.
 
 ---
 
@@ -53,7 +53,7 @@ When you copy a file (or copy a chunk of code into a new file), something intere
 Nectar handles this by giving the copy a fresh identity **and a link back to the original**. The copy keeps a pointer that says "I came from here." This is useful in two ways:
 
 - **Seeing where code came from.** When you are reading a file that started life as a copy, the link lets you trace it back to its source. This is handy for understanding why a file looks the way it does, or for finding the canonical version of something that has been duplicated.
-- **Inheriting a head start.** The copy can carry over the original's description as a starting point, rather than being described from a blank slate. As the copy evolves and diverges, its description updates to reflect what it has become.
+- **A fresh start with a remembered origin.** The copy is described on its own from its current contents (it does not inherit the original's description), while the link back to the source is preserved so its lineage is never lost. As the copy evolves and diverges, its description reflects what it has become.
 
 So copy-paste is not a confused event (two files claiming to be the same thing) and not a lost event (the relationship forgotten). It is a tracked, recoverable event — the copy stands on its own, but never forgets its origin.
 
@@ -63,17 +63,19 @@ So copy-paste is not a confused event (two files claiming to be the same thing) 
 
 Descriptions are written by an AI model, and no model is perfect. Occasionally you will see a description that is vague, slightly off, or just unhelpful. This is expected, and there is a straightforward way to deal with it.
 
-Most of the time, **the problem fixes itself.** The next time you meaningfully edit that file, Nectar re-describes it from scratch, and the fresh description is often clearer than the original. Patience is a valid strategy.
-
-When a description seems consistently wrong — especially right after the first scan, or for a file whose purpose is genuinely ambiguous — you can ask Nectar to take a second look. The command for low-confidence or suspicious cases is:
+Most of the time, **the problem fixes itself.** The next time you meaningfully edit that file, Nectar re-describes it from scratch, and the fresh description is often clearer than the original. Patience is a valid strategy. If you want to force the issue, re-describe with a brood rather than waiting for the next edit:
 
 ```bash
-honeycomb nectar review-matches
+nectar brood --force
 ```
 
-This surfaces the files Nectar was least sure about — the ones where its tracking or description confidence was low — so you can see what it decided and, where needed, prompt it to reconsider. It is the right tool when something feels off and you want to nudge the system rather than wait for the next natural re-description.
+`review-matches` is a **different** tool, and it is worth being precise about what it does. It does not repair descriptions. It surfaces low-confidence **identity** matches: the cases where a file moved *and* changed enough that Nectar could not be certain the new file is the same one it tracked before. You confirm, reject, or skip each candidate so a mis-association never silently corrupts a file's history chain:
 
-For the vast majority of files, you will never need this. But it is there for the cases where a description is misleading enough to send your AI agent down the wrong path.
+```bash
+nectar review-matches
+```
+
+Reach for `review-matches` when you suspect a moved-and-edited file was tracked as a brand-new file (or the reverse), not when a description simply reads poorly.
 
 ---
 
@@ -95,8 +97,8 @@ On a typical workday, that filters down to a handful of files at most — often 
 
 - **Edits** update a description only after a pause and only when the change is meaningful — cosmetic changes and rapid saves cost nothing.
 - **Renames and moves** never lose the description, because files are tracked by stable identity, not by name or path.
-- **Copy-paste** gives the copy its own identity plus a link back to the original, so you can trace where code came from.
-- **Wrong descriptions** usually self-correct on the next meaningful edit; for stubborn low-confidence cases, use `honeycomb nectar review-matches`.
+- **Copy-paste** gives the copy its own identity plus a link back to the original, so you can trace where code came from; the copy starts with its own fresh description, not the original's.
+- **Wrong descriptions** usually self-correct on the next meaningful edit or a `nectar brood --force`. `nectar review-matches` is a separate tool for confirming low-confidence identity matches, not for repairing descriptions.
 - **Cost stays low** because re-description is rare and selective, not constant.
 
 The result is a project whose descriptions stay accurate as it evolves — quietly, cheaply, and without you having to think about it.

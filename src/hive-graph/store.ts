@@ -78,6 +78,19 @@ export interface HiveGraphStore {
    * is refused, never applied, per AC-20).
    */
   deleteNectar(tenancy: Tenancy, nectar: string): void;
+
+  /**
+   * Every `hive_graph` identity row, scoped to `tenancy` - INCLUDING an
+   * identity with zero `hive_graph_versions` rows (which
+   * {@link listLatestVersions} can never surface, since it joins through the
+   * latest version). OPTIONAL and ADDITIVE (PRD-018d): the ladder's crash-repair
+   * sweep (`repairLadderState`) uses this to find an orphan identity left by a
+   * mint crashing between `insertIdentity` and `appendVersion`. Omit on an
+   * adapter that has no cheap way to enumerate bare identities; the sweep skips
+   * orphan-identity healing (only) when this is undefined, and reports the gap
+   * rather than guessing.
+   */
+  listIdentities?(tenancy: Tenancy): HiveGraphRow[];
 }
 
 /**

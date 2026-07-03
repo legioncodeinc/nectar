@@ -29,9 +29,19 @@ export const PORTKEY_RETRY_BACKOFF_MS = 250 as const;
 /**
  * Per-attempt request timeout (ms), mirroring `hive-graph/deeplake-transport.ts`'s
  * `DEFAULT_TRANSPORT_TIMEOUT_MS` AbortController pattern: an unresponsive gateway
- * aborts rather than hanging the caller indefinitely.
+ * aborts rather than hanging the caller indefinitely. Solo describe calls use
+ * this default; batch calls request the raised {@link PORTKEY_BATCH_REQUEST_TIMEOUT_MS}.
  */
 export const PORTKEY_REQUEST_TIMEOUT_MS = 15_000 as const;
+
+/**
+ * Per-attempt timeout for a BATCH describe call (NEC-013 / AC-018f.4). A batch
+ * completion is roughly 20K input tokens and multi-K output tokens
+ * (`brooding-technical-specification.md`), for which the 15s solo timeout is
+ * tight enough to produce a systematic all-failed-then-solo-storm path; solo
+ * calls (one small-to-medium file) keep {@link PORTKEY_REQUEST_TIMEOUT_MS}.
+ */
+export const PORTKEY_BATCH_REQUEST_TIMEOUT_MS = 60_000 as const;
 
 export interface ChatMessage {
   readonly role: "system" | "user" | "assistant";
@@ -48,6 +58,13 @@ export interface DescribeViaPortkeyResult {
   readonly content: string;
   readonly model: string;
   readonly usage: PortkeyUsage;
+  /**
+   * The gateway's `choices[0].finish_reason` (e.g. `"stop"`, `"length"`), or
+   * `null` when absent/unparseable. `"length"` means the completion was
+   * truncated by the token cap (NEC-013 / AC-018f.3) - distinct from a
+   * malformed-but-complete response.
+   */
+  readonly finishReason: string | null;
 }
 
 export interface DescribeViaPortkeyRequest {
@@ -55,6 +72,8 @@ export interface DescribeViaPortkeyRequest {
   /** Explicit model wins over configured `activeModel` (AC-2). */
   readonly model?: string;
   readonly maxTokens?: number;
+  /** Per-attempt timeout override (ms); defaults to {@link PORTKEY_REQUEST_TIMEOUT_MS} when omitted. */
+  readonly timeoutMs?: number;
 }
 
 /** Injectable fetch seam (mirrors honeycomb's `FetchLike`). */
@@ -131,7 +150,16 @@ function joinChoiceContent(choices: unknown): string {
     .join("");
 }
 
-function parseChatResponse(raw: unknown): { content: string; usage: PortkeyUsage } {
+/** The first choice's `finish_reason` (e.g. `"stop"` / `"length"`), or `null` when absent. */
+function firstFinishReason(choices: unknown): string | null {
+  if (!Array.isArray(choices) || choices.length === 0) return null;
+  const first = choices[0];
+  if (typeof first !== "object" || first === null) return null;
+  const reason = (first as { finish_reason?: unknown }).finish_reason;
+  return typeof reason === "string" ? reason : null;
+}
+
+function parseChatResponse(raw: unknown): { content: string; usage: PortkeyUsage; finishReason: string | null } {
   if (typeof raw !== "object" || raw === null) {
     throw new PortkeyTransportError(502, "portkey transport: malformed gateway response");
   }
@@ -139,6 +167,7 @@ function parseChatResponse(raw: unknown): { content: string; usage: PortkeyUsage
   return {
     content: joinChoiceContent(body.choices),
     usage: parseUsage(body.usage),
+    finishReason: firstFinishReason(body.choices),
   };
 }
 
@@ -154,7 +183,9 @@ export async function describeViaPortkey(
   const url = deps.url ?? PORTKEY_CHAT_COMPLETIONS_URL;
   const maxAttempts = deps.maxAttempts ?? PORTKEY_MAX_ATTEMPTS;
   const retryBackoffMs = deps.retryBackoffMs ?? PORTKEY_RETRY_BACKOFF_MS;
-  const timeoutMs = deps.timeoutMs ?? PORTKEY_REQUEST_TIMEOUT_MS;
+  // Per-call request.timeoutMs (e.g. the raised batch-call value) wins over the
+  // deps-level override, which wins over the solo default (AC-018f.4).
+  const timeoutMs = request.timeoutMs ?? deps.timeoutMs ?? PORTKEY_REQUEST_TIMEOUT_MS;
   const sleep = deps.sleep ?? defaultSleep;
 
   const model = resolveModel(request.model, deps.portkey.activeModel);
@@ -207,7 +238,7 @@ export async function describeViaPortkey(
     }
 
     const parsed = parseChatResponse(raw);
-    return { content: parsed.content, model, usage: parsed.usage };
+    return { content: parsed.content, model, usage: parsed.usage, finishReason: parsed.finishReason };
   }
 
   throw new PortkeyTransportError(

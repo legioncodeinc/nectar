@@ -289,8 +289,63 @@ test("011-AC-6 hash match inherits nectar and description with zero LLM paths", 
   const row = summary.rows[0];
   assert.equal(row?.identity.nectar, n);
   assert.equal(row?.version.title, "Login handler");
-  assert.equal(row?.version.describeStatus, "described");
+  // PRD-018i / NEC-019 AC-018i.5: inherited rows land `pending` (selector-visible
+  // for re-embed) with title/description PRESERVED, not `described`.
+  assert.equal(row?.version.describeStatus, "pending");
+  assert.equal(row?.version.description, "Validates users.");
+  assert.equal(row?.version.embedding, null);
   assert.equal(row?.version.contentHash, h);
+});
+
+test("018i.9 duplicate-content files each consume a distinct nectar (no collapse to one)", () => {
+  const content = "export const dup = 1;";
+  const h = hashFor(content);
+  const n1 = mintNectar();
+  const n2 = mintNectar();
+  const n3 = mintNectar();
+  const doc = buildProjection(TEN, [
+    { identity: identityRow(n1), version: describedVersion(n1, 0, "a.ts", content, "T", "D") },
+    { identity: identityRow(n2), version: describedVersion(n2, 0, "b.ts", content, "T", "D") },
+    { identity: identityRow(n3), version: describedVersion(n3, 0, "c.ts", content, "T", "D") },
+  ]);
+  const disk = new Map([
+    ["a.ts", h],
+    ["b.ts", h],
+    ["c.ts", h],
+  ]);
+  const summary = inheritFromProjection(doc, disk, { tenancy: TEN });
+  assert.equal(summary.inherited, 3);
+  const nectars = summary.rows.map((r) => r.identity.nectar);
+  assert.equal(new Set(nectars).size, 3, "three distinct nectars consumed for the three duplicate paths");
+  assert.deepEqual(new Set(nectars), new Set([n1, n2, n3]), "each original nectar is used exactly once");
+  assert.ok(summary.rows.every((r) => r.version.seq === 0), "no nectar receives two seq-0 rows");
+});
+
+test("018i.10 surplus duplicate paths mint fresh nectars and never orphan the originals", () => {
+  const content = "export const dup = 2;";
+  const h = hashFor(content);
+  const n1 = mintNectar();
+  const n2 = mintNectar();
+  const n3 = mintNectar();
+  const doc = buildProjection(TEN, [
+    { identity: identityRow(n1), version: describedVersion(n1, 0, "a.ts", content, "T", "D") },
+    { identity: identityRow(n2), version: describedVersion(n2, 0, "b.ts", content, "T", "D") },
+    { identity: identityRow(n3), version: describedVersion(n3, 0, "c.ts", content, "T", "D") },
+  ]);
+  const disk = new Map([
+    ["a.ts", h],
+    ["b.ts", h],
+    ["c.ts", h],
+    ["d.ts", h],
+  ]);
+  const summary = inheritFromProjection(doc, disk, { tenancy: TEN });
+  assert.equal(summary.inherited, 4);
+  const nectars = summary.rows.map((r) => r.identity.nectar);
+  assert.equal(new Set(nectars).size, 4, "three originals + one freshly minted, all distinct");
+  const originals = new Set([n1, n2, n3]);
+  const used = nectars.filter((n) => originals.has(n));
+  assert.equal(new Set(used).size, 3, "all three original nectars are present (none orphaned by reuse)");
+  assert.equal(nectars.filter((n) => !originals.has(n)).length, 1, "exactly one surplus path minted a fresh nectar");
 });
 
 test("011-AC-6 existing local nectars are never overwritten", () => {

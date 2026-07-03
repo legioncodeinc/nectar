@@ -24,6 +24,8 @@ import {
   describeViaPortkey,
   PortkeyTransportError,
   PORTKEY_MAX_ATTEMPTS,
+  PORTKEY_REQUEST_TIMEOUT_MS,
+  PORTKEY_BATCH_REQUEST_TIMEOUT_MS,
 } from "../dist/portkey/transport.js";
 import type { PortkeyFetch } from "../dist/portkey/transport.js";
 
@@ -246,6 +248,78 @@ test("010 transport error message never contains the api key", async () => {
       return true;
     },
   );
+});
+
+// ── NEC-013 / AC-018f.2-4: finish_reason surfacing, maxTokens passthrough, batch timeout ──
+
+test("018f-AC-3 finish_reason is surfaced from the gateway response (length = truncated)", async () => {
+  const fetch: PortkeyFetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      JSON.stringify({
+        choices: [{ message: { content: "partial" }, finish_reason: "length" }],
+        usage: { prompt_tokens: 5, completion_tokens: 2 },
+      }),
+  });
+  const result = await describeViaPortkey({ messages: [{ role: "user", content: "x" }] }, { portkey: ENABLED, fetch });
+  assert.equal(result.finishReason, "length");
+});
+
+test("018f-AC-3 finish_reason is null when the gateway omits it", async () => {
+  const fetch: PortkeyFetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      JSON.stringify({
+        choices: [{ message: { content: "ok" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+  });
+  const result = await describeViaPortkey({ messages: [{ role: "user", content: "x" }] }, { portkey: ENABLED, fetch });
+  assert.equal(result.finishReason, null);
+});
+
+test("018f-AC-2 an explicit maxTokens is sent as max_tokens on the wire", async () => {
+  let body = "";
+  const fetch: PortkeyFetch = async (_url, init) => {
+    body = init.body;
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }),
+    };
+  };
+  await describeViaPortkey(
+    { messages: [{ role: "user", content: "x" }], maxTokens: 9000 },
+    { portkey: ENABLED, fetch },
+  );
+  assert.equal(JSON.parse(body).max_tokens, 9000);
+});
+
+test("018f-AC-4 the batch timeout is raised above the solo default, and a per-request timeoutMs overrides it", async () => {
+  assert.ok(
+    PORTKEY_BATCH_REQUEST_TIMEOUT_MS > PORTKEY_REQUEST_TIMEOUT_MS,
+    "the batch call timeout is raised above the solo default",
+  );
+
+  let aborted = false;
+  const fetch: PortkeyFetch = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => {
+        aborted = true;
+        reject(new DOMException("aborted", "AbortError"));
+      });
+    });
+
+  await assert.rejects(() =>
+    describeViaPortkey(
+      { messages: [{ role: "user", content: "x" }], timeoutMs: 20 },
+      { portkey: ENABLED, fetch, maxAttempts: 1 },
+    ),
+  );
+  assert.ok(aborted, "the request-level timeoutMs value (not the solo default) aborted the attempt");
 });
 
 test("010 transport exhausts bounded retries on persistent 503", async () => {

@@ -14,6 +14,7 @@ import { DEFAULT_PROJECTION_REL_PATH } from "../projection/format.js";
 import { projectionFinalPath } from "../projection/write.js";
 import type { BroodRunOptions } from "./pipeline.js";
 import type { BroodCostEstimate } from "./cost.js";
+import type { DiscoverySource } from "./discovery.js";
 
 /** The parsed `brood` flags plus any parse errors. */
 export interface ParsedBroodArgs {
@@ -144,6 +145,18 @@ export interface DryRunPreviewInput {
   readonly batchCalls: number;
   readonly soloCalls: number;
   readonly estimate: BroodCostEstimate;
+  /**
+   * PRD-018c AC-018c.11: how discovery produced the candidate set ("git" or
+   * "walk"). Optional so existing callers that predate this field keep
+   * compiling; `formatDryRunReport` simply omits the line when absent.
+   */
+  readonly source?: DiscoverySource;
+  /**
+   * PRD-018c NEC-039 / AC-018c.10/11: set when `source` is "walk" because git
+   * was PRESENT but ERRORED - the loud counterpart to the silent walk that
+   * runs when git is simply absent (which leaves this undefined).
+   */
+  readonly degraded?: { readonly reason: string };
 }
 
 function usd(n: number): string {
@@ -154,11 +167,20 @@ function usd(n: number): string {
  * Format the `--dry-run` cost preview (PRD-007d). Prints the bucket counts, the
  * estimated call count, and the estimated cost for THIS project, derived from
  * the 007b per-bucket economics applied to the actual discovery.
+ *
+ * PRD-018c AC-018c.11: also prints the discovery source (git or walk) and,
+ * when discovery degraded to the walk because git errored (never when git is
+ * simply absent), the reason - so a user can tell the degradation happened
+ * instead of only noticing an inflated brood cost.
  */
 export function formatDryRunReport(input: DryRunPreviewInput): string {
   const e = input.estimate;
   const lines = [
     "brood --dry-run (no LLM calls made)",
+    ...(input.source !== undefined ? [`  discovery source:  ${input.source}`] : []),
+    ...(input.degraded !== undefined
+      ? [`  discovery DEGRADED: git ls-files failed, fell back to a manual walk (${input.degraded.reason})`]
+      : []),
     `  discovered:        ${input.discoveredCount}`,
     `  inherited ($0):    ${input.inheritedCount}`,
     "  buckets:",

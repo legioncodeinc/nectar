@@ -111,3 +111,25 @@ export function estimateBroodCost(
     totalUsd: inputUsd + outputUsd,
   };
 }
+
+export interface UsageCostOptions {
+  readonly inputPricePerM?: number;
+  readonly outputPricePerM?: number;
+}
+
+/**
+ * Convert REAL per-call token usage (summed from describe results) into a USD
+ * figure, using the same <=200K-tier pricing {@link estimateBroodCost} assumes
+ * (brooding review M4 / EX-3): the pipeline sums actual `usage` from every
+ * describe call into `BroodResult`, and the daemon's health cost accounting
+ * uses this instead of the pre-run estimate.
+ */
+export function usageCostUsd(
+  inputTokens: number,
+  outputTokens: number,
+  opts: UsageCostOptions = {},
+): number {
+  const inputPricePerM = opts.inputPricePerM ?? GEMINI_INPUT_PRICE_PER_M_LE_200K;
+  const outputPricePerM = opts.outputPricePerM ?? GEMINI_OUTPUT_PRICE_PER_M_LE_200K;
+  return (inputTokens / 1_000_000) * inputPricePerM + (outputTokens / 1_000_000) * outputPricePerM;
+}

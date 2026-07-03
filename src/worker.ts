@@ -115,6 +115,15 @@ export class HiveantennaeWorker {
   stop(): void {
     this.loop.stop();
   }
+
+  /**
+   * Resolve once any in-flight job tick has settled. `shutdown()` awaits this
+   * (under a bounded timeout) after `stop()` so an in-flight store/describe write
+   * is drained rather than killed mid-flight (PRD-018a NEC-033).
+   */
+  async whenIdle(): Promise<void> {
+    await this.loop.whenIdle();
+  }
 }
 
 /** A no-op job source: leases nothing. The daemon boots with this until the Deep Lake queue (PRD-005/006) lands. */

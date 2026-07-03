@@ -7,7 +7,7 @@
  * `assembleDaemon` is the programmatic one.
  */
 export { assembleDaemon } from "./daemon.js";
-export type { AssembleOptions, AssembledDaemon } from "./daemon.js";
+export type { AssembleOptions, AssembledDaemon, RegistrationPipeline } from "./daemon.js";
 export {
   resolveConfig,
   DEFAULT_HOST,
@@ -162,6 +162,8 @@ export {
 export type { FuzzyConfig } from "./registration/tlsh.js";
 export { RegistrationService } from "./registration/service.js";
 export type { RegistrationServiceOptions, RegistrationFs, StatResult } from "./registration/service.js";
+export { StoreBridge } from "./registration/store-bridge.js";
+export type { StoreBridgeOptions, DurableWriteOp } from "./registration/store-bridge.js";
 export { createDiskRegistrationFs } from "./registration/disk-fs.js";
 export { isSafeRelPath, containedPath, realpathContained } from "./registration/paths-safe.js";
 export {

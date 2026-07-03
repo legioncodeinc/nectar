@@ -135,11 +135,23 @@ interface UsageLedger {
 }
 
 /**
+ * The falsy family a boolean-style opt-out accepts: `0`, `false`, `off`
+ * (case-insensitive), plus `no`. NEC-042 item 4 / AC-018l.11: `NECTAR_TELEMETRY`
+ * honored only the literal `"0"` before, so `NECTAR_TELEMETRY=false`/`off` were
+ * silently IGNORED (telemetry stayed on). Now the whole falsy family opts out.
+ */
+function isFalsyFlag(raw: string | undefined): boolean {
+  if (raw === undefined) return false;
+  const v = raw.trim().toLowerCase();
+  return v === "0" || v === "false" || v === "off" || v === "no";
+}
+
+/**
  * True when the user opted out via nectar's own env var, the detected
  * honeycomb family opt-out, or DO_NOT_TRACK (consoledonottrack.com convention).
  */
 export function isOptedOut(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env[ENV_TELEMETRY] === "0") return true;
+  if (isFalsyFlag(env[ENV_TELEMETRY])) return true;
   if (env[DETECTED_FAMILY_TELEMETRY] === "0") return true;
   const dnt = env[ENV_DO_NOT_TRACK];
   return dnt !== undefined && dnt !== "" && dnt !== "0";

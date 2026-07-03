@@ -15,11 +15,17 @@
  * The search endpoint (008b) and the `nectar search` CLI (012b) are two clients
  * of the ONE engine (012a `searchHiveGraph`) and return the identical result
  * shape, so the dashboard and the terminal render identically.
+ *
+ * **Tenancy scope (PRD-018j / NEC-029).** The per-request `?project=` override
+ * was dropped: every endpoint resolves the daemon's configured default scope
+ * only. A foreign `?project=` on `POST /build` is rejected with 403; on read
+ * endpoints it is ignored so a caller cannot reach another project's tenancy.
  */
 import type { RouteContext, RouteGroup, RouteResponse } from "./router.js";
-import { HIVE_GRAPH_GROUP } from "./router.js";
+import { HIVE_GRAPH_GROUP, MalformedJsonError } from "./router.js";
 import { emptyDescribeStatusCounts, type HiveGraphStatus } from "./status-query.js";
 import type { HiveGraphSearchResult, QueryScope } from "../hive-graph/search-types.js";
+import { createBroodGuard, type BroodGuard } from "../brood-guard.js";
 
 /** The `group()` accessor surface `mountHiveGraphApi` needs (a subset of `AssembledDaemon`). */
 export interface RouteGroupProvider {
@@ -30,6 +36,12 @@ export interface RouteGroupProvider {
 export const NO_ORG_BODY = {
   error: "no_org",
   message: "No resolvable tenant scope for this request.",
+} as const;
+
+/** The 403 body when `POST /build` carries a foreign `?project=` override (PRD-018j). */
+export const FOREIGN_PROJECT_BODY = {
+  error: "foreign_project",
+  message: "The ?project= tenancy override is not permitted on POST /build.",
 } as const;
 
 /** Args passed to the injected brood runner by the `/build` handler. */
@@ -64,8 +76,8 @@ export interface MountHiveGraphOptions {
   /**
    * Override per-request scope resolution (mirrors `mountGraphApi`'s
    * `resolveScope`, `honeycomb/src/daemon/runtime/codebase/api.ts:309-310`).
-   * The default resolves the daemon's `defaultScope`, honoring an optional
-   * `?project=<id>` per-request project override on top of it.
+   * The default resolves the daemon's `defaultScope` only; the `?project=`
+   * override was dropped (PRD-018j / NEC-029).
    */
   readonly resolveScope?: (ctx: RouteContext) => QueryScope | null;
 
@@ -75,8 +87,23 @@ export interface MountHiveGraphOptions {
     scope: QueryScope,
     limit: number | undefined,
   ) => Promise<HiveGraphSearchResult>;
-  /** PRD-007 brood pipeline trigger. */
+  /** PRD-007 brood pipeline trigger. Runs in the background behind the 202 `/build` contract (AC-018a.7). */
   readonly runBrood?: (args: BuildArgs) => Promise<unknown>;
+  /**
+   * Observe a background build failure (AC-018a.7). Because `/build` now returns
+   * 202 and runs the brood in the background, a brood rejection can no longer
+   * surface in the HTTP response; it is forwarded here instead of being
+   * swallowed. Absent -> the failure is dropped after the guard clears (the
+   * durable `/status` surface still reflects the brood's effect on Deep Lake).
+   */
+  readonly onBuildError?: (err: unknown) => void;
+  /**
+   * The SHARED brood guard (PRD-018g / NEC-011 AC-018g.2). When supplied, the
+   * `/build` handler acquires/releases this guard so the API and the daemon's
+   * boot auto-brood cannot run two broods at once. Absent (tests) -> a private
+   * guard is created so the endpoint's own single-flight contract still holds.
+   */
+  readonly broodGuard?: BroodGuard;
   /** PRD-008c/016 status read (queue depth + describe_status counts + cost). */
   readonly readStatus?: (scope: QueryScope) => Promise<HiveGraphStatus>;
   /** PRD-011 projection read (`.honeycomb/nectars.json`). */
@@ -89,11 +116,30 @@ function errorReason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Parse an optional positive-integer `limit` from a raw value; undefined when absent/blank. */
+/**
+ * Raised by {@link parseSearchRequest} / {@link parseBuildRequest} when a
+ * `limit` is present but not a positive integer (NEC-042 item 12 / AC-018l.19):
+ * `0`, a negative, a float (`2.9`), or a non-numeric string. A distinct type so
+ * the handler answers 400 at the boundary instead of silently clamping. The
+ * engine's own `resolveRecallLimit` clamp stays as a backstop for internal
+ * callers that bypass this parser.
+ */
+export class InvalidLimitError extends Error {
+  constructor(raw: unknown) {
+    super(`limit must be a positive integer, got ${JSON.stringify(raw)}`);
+    this.name = "InvalidLimitError";
+  }
+}
+
+/**
+ * Parse an optional `limit`. Absent/blank -> undefined (the engine applies its
+ * default). Present but not a positive integer -> throws {@link InvalidLimitError}
+ * so the handler returns 400 (AC-018l.19); the engine clamp remains a backstop.
+ */
 function parseLimit(raw: unknown): number | undefined {
   if (raw === undefined || raw === null || raw === "") return undefined;
   const n = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(n)) return undefined;
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) throw new InvalidLimitError(raw);
   return n;
 }
 
@@ -130,16 +176,19 @@ export function parseBuildRequest(ctx: RouteContext): { force: boolean; limit: n
   };
 }
 
-/** Build the default per-request scope resolver from the daemon's default scope + `?project=` override. */
+/** Build the default per-request scope resolver from the daemon's default scope (no `?project=` override). */
 function defaultScopeResolver(defaultScope: QueryScope | null | undefined): (ctx: RouteContext) => QueryScope | null {
-  return (ctx) => {
+  return (_ctx) => {
     if (defaultScope === null || defaultScope === undefined) return null;
-    const override = ctx.query.get("project");
-    if (override !== null && override.trim() !== "") {
-      return { orgId: defaultScope.orgId, workspaceId: defaultScope.workspaceId, projectId: override.trim() };
-    }
     return defaultScope;
   };
+}
+
+/** Trimmed `?project=` query value, or null when absent/blank. */
+function projectQueryOverride(ctx: RouteContext): string | null {
+  const raw = ctx.query.get("project");
+  if (raw === null || raw.trim() === "") return null;
+  return raw.trim();
 }
 
 /**
@@ -157,7 +206,10 @@ export function mountHiveGraphApi(daemon: RouteGroupProvider, options: MountHive
 
   // In-flight guard so a second /build while one is running reports already-running
   // rather than launching a concurrent brood (the resumability contract, PRD-007c).
-  let broodInFlight = false;
+  // PRD-018g / NEC-011 AC-018g.2: when the daemon supplies its shared guard, the
+  // boot auto-brood participates in the SAME single-flight, so a `/build` during
+  // the boot brood is refused and no two broods (or double-mints) ever overlap.
+  const broodGuard: BroodGuard = options.broodGuard ?? createBroodGuard();
 
   // ── 008b + 012b: POST/GET /api/hive-graph/search ────────────────────────────
   const searchHandler = async (ctx: RouteContext): Promise<RouteResponse> => {
@@ -171,20 +223,39 @@ export function mountHiveGraphApi(daemon: RouteGroupProvider, options: MountHive
       const result = await options.searchHiveGraph(query, scope, limit);
       return ctx.json(result);
     } catch (err: unknown) {
+      // Client errors at the request boundary are 400, not the generic 500.
+      if (err instanceof MalformedJsonError) return ctx.json({ error: "invalid_json", reason: errorReason(err) }, 400);
+      if (err instanceof InvalidLimitError) return ctx.json({ error: "invalid_limit", reason: errorReason(err) }, 400);
       return ctx.json({ error: "search_failed", reason: errorReason(err) }, 500);
     }
   };
   group.post("/search", searchHandler);
   group.get("/search", searchHandler);
 
-  // ── 008c: POST /api/hive-graph/build ────────────────────────────────────────
+  // ── 008c: POST /api/hive-graph/build (async, PRD-018a AC-018a.7) ─────────────
+  // A brood on a real repo takes minutes; awaiting it inside the handler let a
+  // shutdown during a brood hang until the supervisor SIGKILLed the process
+  // (NEC-021). The endpoint now accepts the build (202) and runs the brood in the
+  // BACKGROUND; the existing `broodInFlight` guard keeps a second build at 409
+  // until this one settles, and GET /api/hive-graph/status is the poll surface.
   group.post("/build", async (ctx): Promise<RouteResponse> => {
+    const foreignProject = projectQueryOverride(ctx);
+    if (
+      foreignProject !== null &&
+      options.defaultScope !== null &&
+      options.defaultScope !== undefined &&
+      foreignProject !== options.defaultScope.projectId
+    ) {
+      return ctx.json(FOREIGN_PROJECT_BODY, 403);
+    }
     const scope = resolveScope(ctx);
     if (scope === null) return ctx.json(NO_ORG_BODY, 400);
     if (options.runBrood === undefined) {
       return ctx.json({ error: "build_unavailable", reason: "the brood pipeline is not wired on this daemon" }, 501);
     }
-    if (broodInFlight) {
+    // AC-018g.2: acquire the shared guard. A brood already in flight (from this
+    // endpoint OR the boot auto-brood) is refused with 409.
+    if (!broodGuard.tryAcquire()) {
       return ctx.json({ status: "already_running", message: "a brood is already in progress" }, 409);
     }
     let args: BuildArgs;
@@ -192,17 +263,28 @@ export function mountHiveGraphApi(daemon: RouteGroupProvider, options: MountHive
       const parsed = parseBuildRequest(ctx);
       args = { scope, force: parsed.force, limit: parsed.limit, model: parsed.model };
     } catch (err: unknown) {
+      broodGuard.release();
+      if (err instanceof MalformedJsonError) return ctx.json({ error: "invalid_json", reason: errorReason(err) }, 400);
+      if (err instanceof InvalidLimitError) return ctx.json({ error: "invalid_limit", reason: errorReason(err) }, 400);
       return ctx.json({ error: "build_failed", reason: errorReason(err) }, 500);
     }
-    broodInFlight = true;
-    try {
-      const result = await options.runBrood(args);
-      return ctx.json(result);
-    } catch (err: unknown) {
-      return ctx.json({ error: "build_failed", reason: errorReason(err) }, 500);
-    } finally {
-      broodInFlight = false;
-    }
+    const runBrood = options.runBrood;
+    // Run in the background; the request returns 202 immediately below. The catch
+    // forwards the failure to the optional observer (not swallowed): the request
+    // already returned, so it cannot surface here.
+    void (async () => {
+      try {
+        await runBrood(args);
+      } catch (err: unknown) {
+        options.onBuildError?.(err);
+      } finally {
+        broodGuard.release();
+      }
+    })();
+    return ctx.json(
+      { status: "accepted", message: "brood accepted; poll GET /api/hive-graph/status for progress" },
+      202,
+    );
   });
 
   // ── 008c: GET /api/hive-graph/status ────────────────────────────────────────

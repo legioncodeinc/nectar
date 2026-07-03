@@ -22,7 +22,7 @@
  * `redactToken` (`src/daemon/runtime/auth/credentials-store.ts:254-257`, its
  * `defaultCredentialProvider` variant).
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -53,6 +53,17 @@ export interface DeepLakeCredentials {
 export interface LoadCredentialsOptions {
   /** Override the credentials directory (tests). Defaults to `~/.deeplake`. */
   readonly dir?: string;
+  /**
+   * Warning sink for the group/other-readable advisory (NEC-042 item 13 /
+   * AC-018l.20). Defaults to stderr. A no-op on Windows, where POSIX mode bits
+   * do not map to a meaningful readability check.
+   */
+  readonly warn?: (message: string) => void;
+  /**
+   * The platform whose permission model applies (default: `process.platform`).
+   * Injectable so a test can exercise the POSIX advisory path deterministically.
+   */
+  readonly platform?: NodeJS.Platform;
 }
 
 /**
@@ -94,6 +105,8 @@ export function loadDeepLakeCredentials(options: LoadCredentialsOptions = {}): D
     throw new DeepLakeCredentialsError([`credentials file not found at ${path}`]);
   }
 
+  warnIfWorldReadable(path, options);
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
@@ -122,6 +135,31 @@ export function loadDeepLakeCredentials(options: LoadCredentialsOptions = {}): D
     orgId: record.orgId as string,
     workspaceId: record.workspaceId as string,
   };
+}
+
+/**
+ * Advisory (NEC-042 item 13 / AC-018l.20): warn when the token file is
+ * group- or other-readable on a POSIX platform, naming the octal mode, mirroring
+ * ssh's posture toward a loose private key. nectar is not the file's writer, so
+ * this never throws or blocks the load; it is a no-op on Windows (mode bits do
+ * not map) and when the stat itself fails.
+ */
+function warnIfWorldReadable(path: string, options: LoadCredentialsOptions): void {
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") return;
+  let mode: number;
+  try {
+    mode = statSync(path).mode & 0o777;
+  } catch {
+    return; // cannot stat; skip the advisory rather than failing the load
+  }
+  if ((mode & 0o077) === 0) return; // owner-only (0600/0400): silent
+  const octal = `0${mode.toString(8).padStart(3, "0")}`;
+  const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
+  warn(
+    `nectar: ${path} is group/other-readable (mode ${octal}); this token file should be owner-only. ` +
+      `Tighten it with: chmod 600 ${path}`,
+  );
 }
 
 /**

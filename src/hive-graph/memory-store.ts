@@ -113,4 +113,13 @@ export class InMemoryHiveGraphStore implements HiveGraphStore {
     this.identities.delete(nectar);
     this.versions.delete(nectar);
   }
+
+  /** Every identity row in scope, including one with zero version rows (PRD-018d repair sweep). */
+  listIdentities(tenancy: Tenancy): HiveGraphRow[] {
+    const out: HiveGraphRow[] = [];
+    for (const identity of this.identities.values()) {
+      if (inTenancy(identity, tenancy)) out.push({ ...identity });
+    }
+    return out;
+  }
 }

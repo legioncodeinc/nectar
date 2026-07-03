@@ -1,6 +1,8 @@
 /**
- * One enricher cycle: pending-work selection, describe, inherit, failure handling
- * (PRD-016 index AC-1..AC-7).
+ * One enricher cycle: working-set refresh, brood coordination, pending-work
+ * selection, cosmetic-inherit gate, re-embed, describe, durable version-bump
+ * write-back, failure handling, and the projection regeneration trigger
+ * (PRD-016 index AC-1..AC-7, hardened by PRD-018g + PRD-018i).
  */
 import type { Tenancy } from "../hive-graph/model.js";
 import type { HiveGraphVersionRow } from "../hive-graph/model.js";
@@ -10,9 +12,15 @@ import type { DescribeViaPortkeyDeps, PortkeyFetch } from "../portkey/transport.
 import type { EmbedProvider } from "../embeddings/provider.js";
 import type { ProjectionWriter } from "../projection/write.js";
 import { buildProjectionFromStore } from "../projection/generate.js";
+import type { PortableProjection } from "../projection/format.js";
 import type { PipelineMetricsSink } from "../telemetry/metrics.js";
 import type { EnricherConfig } from "./config.js";
 import { resolveEnricherConfig } from "./config.js";
+import type { PriorContentCache } from "./content-cache.js";
+import {
+  applyCosmeticInheritance,
+  classifyMeaningfulChange,
+} from "./meaningful-change.js";
 import {
   describeFilesBatch,
   embeddingText,
@@ -20,11 +28,9 @@ import {
   type DescribeFileInput,
 } from "./describe.js";
 import {
-  acknowledgePersistentAlert,
   advancePersistentFailureState,
   createPersistentFailureState,
   enrichmentHalted,
-  splitBatch,
   type PersistentFailureState,
 } from "./failure.js";
 import {
@@ -50,18 +56,40 @@ export interface EnricherCycleDeps {
   readonly config?: Partial<EnricherConfig>;
   readonly projectionWriter?: ProjectionWriter;
   readonly projectionStore?: Parameters<typeof buildProjectionFromStore>[0];
+  /** Preferred projection-doc source for trigger #2 (PRD-018g / NEC-031); wins over `projectionStore`. */
+  readonly projectionDoc?: () => PortableProjection | undefined;
   readonly metrics?: PipelineMetricsSink;
   readonly logSink?: EnricherCycleLogSink;
   readonly nowIso?: () => string;
   /** Test seam: inject Portkey fetch for deterministic describe calls. */
   readonly portkeyFetch?: PortkeyFetch;
   readonly portkeyMaxAttempts?: number;
+  /**
+   * True while a brood is in flight (PRD-018g / NEC-011 AC-018g.1): the enricher
+   * pauses so it never describes rows a brood is mid-describe on.
+   */
+  readonly broodActive?: () => boolean;
+  /**
+   * Re-seed the working set from the durable store before selection (PRD-018g /
+   * NEC-016 AC-018g.6) so post-boot pending rows are picked up without a restart.
+   */
+  readonly refreshWorkingSet?: () => Promise<void>;
+  /** Prior-content cache for the cosmetic-change gate (PRD-018g / NEC-026 AC-018g.9). */
+  readonly priorContentCache?: PriorContentCache;
+  /** Active embedding model id stamped on rows carrying an embedding (PRD-018i / NEC-018 AC-018i.1). */
+  readonly embedModel?: string | null;
 }
 
 export interface EnricherCycleResult {
   readonly stats: EnricherCycleStats;
   readonly failureState: PersistentFailureState;
   readonly wroteNewDescriptions: boolean;
+}
+
+/** A pending item paired with the content read for it exactly once this cycle (AC-018g.5). */
+interface WorkPair {
+  readonly item: EnricherWorkItem;
+  readonly content: string;
 }
 
 function portkeyDeps(portkey: PortkeyEnabled, deps: EnricherCycleDeps): DescribeViaPortkeyDeps {
@@ -99,56 +127,62 @@ function markFailed(row: HiveGraphVersionRow, now: string): HiveGraphVersionRow 
   return { ...row, describeStatus: "failed", lastUpdateDate: now };
 }
 
-async function describeWorkBatch(
-  items: readonly EnricherWorkItem[],
+/** A row carrying a preserved description but no embedding is a re-embed candidate (AC-018i.5/.6). */
+function isReembedCandidate(row: HiveGraphVersionRow): boolean {
+  return row.embedding === null && (row.title !== "" || row.description !== "");
+}
+
+function splitPairs(pairs: readonly WorkPair[]): [WorkPair[], WorkPair[]] {
+  const mid = Math.ceil(pairs.length / 2);
+  return [pairs.slice(0, mid), pairs.slice(mid)];
+}
+
+/**
+ * Describe a batch of already-read pairs and durably commit each result
+ * (PRD-018g AC-018g.4/.5/.7/.8). `files[i]` and `included[i]` share the ONE
+ * content read per item, so a file deleted after this point cannot shift
+ * attribution: `descriptions[i]` is zipped with `included[i]` positionally and
+ * `parseDescribeResponse` guarantees equal lengths.
+ */
+async function describeAndCommitBatch(
+  pairs: readonly WorkPair[],
   deps: EnricherCycleDeps,
   strict: boolean,
   now: string,
-): Promise<{ stats: EnricherCycleStats; rows: HiveGraphVersionRow[]; ok: boolean }> {
-  if (deps.portkey === null) {
+): Promise<{ stats: EnricherCycleStats; wroteNew: boolean; ok: boolean }> {
+  if (deps.portkey === null || pairs.length === 0) {
     return {
-      stats: mergeCycleStats(emptyCycleStats(), { filesFailed: items.length }),
-      rows: items.map((i) => markFailed(i.row, now)),
-      ok: false,
+      stats: mergeCycleStats(emptyCycleStats(), { filesFailed: pairs.length }),
+      wroteNew: false,
+      ok: pairs.length === 0,
     };
   }
 
-  const files: DescribeFileInput[] = [];
-  for (const item of items) {
-    const content = deps.readContent.read(item.row.path);
-    if (content === null) continue;
-    files.push({ path: item.row.path, content });
-  }
-
-  if (files.length === 0) {
-    return { stats: emptyCycleStats(), rows: [], ok: true };
-  }
+  const files: DescribeFileInput[] = pairs.map((p) => ({ path: p.item.row.path, content: p.content }));
+  const included: readonly EnricherWorkItem[] = pairs.map((p) => p.item);
 
   try {
     const batch = await describeFilesBatch(files, portkeyDeps(deps.portkey, deps), strict);
-    const rows: HiveGraphVersionRow[] = [];
-    let stats = emptyCycleStats();
-    stats = mergeCycleStats(stats, {
+    let stats = mergeCycleStats(emptyCycleStats(), {
       inputTokens: batch.inputTokens,
       outputTokens: batch.outputTokens,
-      filesDescribed: batch.descriptions.length,
     });
+    let wroteNew = false;
 
-    let fileIdx = 0;
-    for (const item of items) {
-      const content = deps.readContent.read(item.row.path);
-      if (content === null) continue;
-      const payload = batch.descriptions[fileIdx];
-      fileIdx += 1;
+    for (let i = 0; i < included.length; i++) {
+      const item = included[i] as EnricherWorkItem;
+      const payload = batch.descriptions[i];
+      // Cache the content we just described so a future cosmetic edit can inherit.
+      deps.priorContentCache?.set(item.nectar, item.row.contentHash, files[i]?.content ?? "");
       if (payload === undefined) {
-        rows.push(markFailed(item.row, now));
-        stats = mergeCycleStats(stats, { filesDescribed: -1, filesFailed: 1 });
+        deps.store.updateVersion(markFailed(item.row, now));
+        stats = mergeCycleStats(stats, { filesFailed: 1 });
         continue;
       }
       const stamp = buildDescribeModelStamp(payload, batch.model, now);
       const embedding = await embedDescription(deps.embedProvider, stamp.title, stamp.description);
       if (embedding !== null) deps.metrics?.incrementEmbeddingsComputed();
-      rows.push({
+      const row: HiveGraphVersionRow = {
         ...item.row,
         title: stamp.title,
         description: stamp.description,
@@ -157,40 +191,124 @@ async function describeWorkBatch(
         describeStatus: stamp.describeStatus,
         describedAt: stamp.describedAt,
         embedding,
+        embedModel: embedding !== null ? (deps.embedModel ?? null) : null,
         lastUpdateDate: now,
-      });
-      deps.metrics?.incrementDescriptionsGenerated();
+      };
+      const committed = await deps.store.commitVersion(row);
+      if (committed) {
+        stats = mergeCycleStats(stats, { filesDescribed: 1 });
+        deps.metrics?.incrementDescriptionsGenerated();
+        wroteNew = true;
+      } else {
+        // Durable write not confirmed (AC-018g.7): do NOT count described; the
+        // nectar's latest stays pending and is re-selected next cycle.
+        stats = mergeCycleStats(stats, { filesFailed: 1 });
+      }
     }
-    return { stats, rows, ok: true };
+    return { stats, wroteNew, ok: true };
   } catch (err) {
-    if (isContextWindowError(err) && items.length > 1) {
-      const [first, second] = splitBatch(items);
-      const r1 = await describeWorkBatch(first, deps, strict, now);
-      const r2 = second.length > 0 ? await describeWorkBatch(second, deps, strict, now) : { stats: emptyCycleStats(), rows: [], ok: true };
+    if (isContextWindowError(err) && pairs.length > 1) {
+      const [first, second] = splitPairs(pairs);
+      const r1 = await describeAndCommitBatch(first, deps, strict, now);
+      const r2 =
+        second.length > 0
+          ? await describeAndCommitBatch(second, deps, strict, now)
+          : { stats: emptyCycleStats(), wroteNew: false, ok: true };
       return {
         stats: mergeCycleStats(r1.stats, r2.stats),
-        rows: [...r1.rows, ...r2.rows],
+        wroteNew: r1.wroteNew || r2.wroteNew,
         ok: r1.ok && r2.ok,
       };
     }
+    for (const p of pairs) deps.store.updateVersion(markFailed(p.item.row, now));
     return {
-      stats: mergeCycleStats(emptyCycleStats(), { filesFailed: items.length }),
-      rows: items.map((i) => markFailed(i.row, now)),
+      stats: mergeCycleStats(emptyCycleStats(), { filesFailed: pairs.length }),
+      wroteNew: false,
       ok: false,
     };
   }
 }
 
-async function processBatchWithRetry(
-  items: readonly EnricherWorkItem[],
+async function processDescribeBatch(
+  pairs: readonly WorkPair[],
   deps: EnricherCycleDeps,
   now: string,
-): Promise<{ stats: EnricherCycleStats; rows: HiveGraphVersionRow[]; batchFailed: boolean }> {
-  let attempt = await describeWorkBatch(items, deps, false, now);
+): Promise<{ stats: EnricherCycleStats; wroteNew: boolean; batchFailed: boolean }> {
+  let attempt = await describeAndCommitBatch(pairs, deps, false, now);
   if (!attempt.ok) {
-    attempt = await describeWorkBatch(items, deps, true, now);
+    attempt = await describeAndCommitBatch(pairs, deps, true, now);
   }
-  return { stats: attempt.stats, rows: attempt.rows, batchFailed: !attempt.ok };
+  return { stats: attempt.stats, wroteNew: attempt.wroteNew, batchFailed: !attempt.ok };
+}
+
+/**
+ * Re-embed an inherited/requeued row over its preserved `title + description`
+ * with NO LLM describe call (PRD-018i AC-018i.6). On a computed embedding it is
+ * durably committed with `embed_model`; if the provider yields no vector the row
+ * is left pending so a later cycle (with a provider available) can complete it.
+ */
+async function reembedRow(
+  item: EnricherWorkItem,
+  deps: EnricherCycleDeps,
+  now: string,
+): Promise<{ stats: EnricherCycleStats; wroteNew: boolean }> {
+  const embedding = await embedDescription(deps.embedProvider, item.row.title, item.row.description);
+  if (embedding === null) {
+    return { stats: emptyCycleStats(), wroteNew: false };
+  }
+  deps.metrics?.incrementEmbeddingsComputed();
+  const row: HiveGraphVersionRow = {
+    ...item.row,
+    embedding,
+    embedModel: deps.embedModel ?? null,
+    describeStatus: "described",
+    lastUpdateDate: now,
+  };
+  const committed = await deps.store.commitVersion(row);
+  if (!committed) return { stats: emptyCycleStats(), wroteNew: false };
+  return { stats: mergeCycleStats(emptyCycleStats(), { filesInherited: 1 }), wroteNew: true };
+}
+
+/**
+ * Try the cosmetic-inherit gate for one item (PRD-018g AC-018g.9): when the
+ * prior described version's cached content is present and the new content's token
+ * Jaccard similarity is at/above the threshold, inherit the prior description +
+ * embedding with no LLM call. Returns undefined when the gate does not apply so
+ * the caller falls through to the full describe path.
+ */
+async function tryCosmeticInherit(
+  item: EnricherWorkItem,
+  content: string,
+  deps: EnricherCycleDeps,
+  threshold: number,
+  now: string,
+): Promise<{ stats: EnricherCycleStats; wroteNew: boolean } | undefined> {
+  const cache = deps.priorContentCache;
+  if (cache === undefined) return undefined;
+  const prior = deps.store.priorDescribedVersion(item.nectar, item.seq);
+  if (prior === undefined) return undefined;
+  const cached = cache.get(item.nectar);
+  if (cached === undefined || cached.contentHash !== prior.contentHash) return undefined;
+
+  const verdict = classifyMeaningfulChange({
+    newContent: content,
+    priorContent: cached.content,
+    priorDescribed: prior,
+    threshold,
+  });
+  if (verdict !== "cosmetic") return undefined;
+
+  const inherited = applyCosmeticInheritance(item.row, prior, now);
+  const row: HiveGraphVersionRow = {
+    ...inherited,
+    embedModel: prior.embedModel ?? null,
+    lastUpdateDate: now,
+  };
+  const committed = await deps.store.commitVersion(row);
+  if (!committed) return undefined;
+  // The inherited content becomes the new prior for the next observation.
+  cache.set(item.nectar, item.row.contentHash, content);
+  return { stats: mergeCycleStats(emptyCycleStats(), { filesInherited: 1 }), wroteNew: true };
 }
 
 /** Run exactly one enricher cycle. Fail-soft: never throws. */
@@ -201,10 +319,28 @@ export async function runEnricherCycle(
   const config = resolveEnricherConfig(deps.config);
   const now = deps.nowIso?.() ?? new Date().toISOString();
   const logSink = deps.logSink ?? consoleCycleLogSink;
+
+  // Working-set freshness (AC-018g.6): re-seed from the durable store first.
+  if (deps.refreshWorkingSet !== undefined) {
+    try {
+      await deps.refreshWorkingSet();
+    } catch {
+      // fail-soft: a refresh failure never aborts the cycle.
+    }
+  }
+
   const queueDepth = deps.store.countPending(deps.tenancy);
 
+  // Brood coordination (AC-018g.1): pause while a brood is in flight so the
+  // enricher never describes rows the brood is mid-describe on.
+  if (deps.broodActive?.() === true) {
+    const stats = emptyCycleStats(queueDepth);
+    logSink.logCycle(stats);
+    return { stats, failureState, wroteNewDescriptions: false };
+  }
+
   if (enrichmentHalted(failureState)) {
-    const stats = mergeCycleStats(emptyCycleStats(queueDepth), {});
+    const stats = emptyCycleStats(queueDepth);
     logSink.logCycle(stats);
     return { stats, failureState, wroteNewDescriptions: false };
   }
@@ -215,44 +351,61 @@ export async function runEnricherCycle(
 
   try {
     const work = deps.store.listPendingWork(deps.tenancy, config.batchSize);
-    const hadWork = work.length > 0;
-
-    if (!hadWork) {
+    if (work.length === 0) {
       logSink.logCycle(stats);
       return { stats, failureState, wroteNewDescriptions: false };
     }
 
-    // Deleted-while-pending (PRD-016c AC-3)
-    const remaining: EnricherWorkItem[] = [];
+    const describePairs: WorkPair[] = [];
+    let hadWork = false;
+
     for (const item of work) {
-      if (deps.readContent.read(item.row.path) === null) {
-        const updated = markSkippedDeleted(item.row, now);
-        deps.store.updateVersion(updated);
+      hadWork = true;
+      const content = deps.readContent.read(item.row.path);
+      if (content === null) {
+        // Deleted-while-pending (PRD-016c AC-3): mirror-only skip, stays deleted.
+        deps.store.updateVersion(markSkippedDeleted(item.row, now));
         stats = mergeCycleStats(stats, { filesSkippedDeleted: 1 });
-      } else {
-        remaining.push(item);
+        continue;
       }
+
+      // Re-embed path (AC-018i.6): inherited/requeued rows carry a preserved
+      // description and a null embedding - embed only, no LLM describe.
+      if (isReembedCandidate(item.row)) {
+        const r = await reembedRow(item, deps, now);
+        stats = mergeCycleStats(stats, r.stats);
+        if (r.wroteNew) wroteNew = true;
+        deps.priorContentCache?.set(item.nectar, item.row.contentHash, content);
+        continue;
+      }
+
+      // Cosmetic-inherit gate (AC-018g.9): similarity >= threshold inherits with
+      // no LLM call; otherwise fall through to the full describe path (AC-018g.10).
+      const cosmetic = await tryCosmeticInherit(item, content, deps, config.redescribeThreshold, now);
+      if (cosmetic !== undefined) {
+        stats = mergeCycleStats(stats, cosmetic.stats);
+        if (cosmetic.wroteNew) wroteNew = true;
+        continue;
+      }
+
+      describePairs.push({ item, content });
     }
 
-    // Solo failed rows run one at a time; pending rows may batch together
-    const solo = remaining.filter((w) => w.solo);
-    const batchable = remaining.filter((w) => !w.solo);
-
-    const batches: EnricherWorkItem[][] = solo.map((s) => [s]);
+    // Solo failed rows run one at a time; pending rows may batch together.
+    const solo = describePairs.filter((p) => p.item.solo);
+    const batchable = describePairs.filter((p) => !p.item.solo);
+    const batches: WorkPair[][] = solo.map((s) => [s]);
     if (batchable.length > 0) batches.push(batchable);
 
     for (const batch of batches) {
-      const result = await processBatchWithRetry(batch, deps, now);
+      const result = await processDescribeBatch(batch, deps, now);
       stats = mergeCycleStats(stats, result.stats);
-      for (const row of result.rows) {
-        deps.store.updateVersion(row);
-        if (row.describeStatus === "described") wroteNew = true;
-      }
+      if (result.wroteNew) wroteNew = true;
       if (result.batchFailed) cycleFailed = true;
     }
 
     const nextFailure = advancePersistentFailureState(failureState, {
-      hadWork: remaining.length > 0,
+      hadWork,
       cycleFailed,
       threshold: config.persistentFailureThreshold,
     });
@@ -260,10 +413,14 @@ export async function runEnricherCycle(
     stats = mergeCycleStats(stats, { queueDepth: deps.store.countPending(deps.tenancy) });
     logSink.logCycle(stats);
 
-    if (wroteNew && deps.projectionWriter !== undefined && deps.projectionStore !== undefined) {
+    if (wroteNew && deps.projectionWriter !== undefined) {
       try {
-        const doc = buildProjectionFromStore(deps.projectionStore, deps.tenancy, {});
-        deps.projectionWriter.scheduleWrite(doc);
+        const doc =
+          deps.projectionDoc?.() ??
+          (deps.projectionStore !== undefined
+            ? buildProjectionFromStore(deps.projectionStore, deps.tenancy, {})
+            : undefined);
+        if (doc !== undefined) deps.projectionWriter.scheduleWrite(doc);
       } catch {
         // fail-soft
       }
@@ -280,4 +437,3 @@ export async function runEnricherCycle(
     return { stats, failureState: nextFailure, wroteNewDescriptions: false };
   }
 }
-

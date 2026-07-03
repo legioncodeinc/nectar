@@ -19,7 +19,24 @@ export interface EnricherStore {
   getVersion(nectar: string, seq: number): HiveGraphVersionRow | undefined;
   listVersions(nectar: string): readonly HiveGraphVersionRow[];
   priorDescribedVersion(nectar: string, beforeSeq: number): HiveGraphVersionRow | undefined;
+  /**
+   * Mirror-only, synchronous status patch for a `failed` or `skipped-deleted`
+   * outcome (PRD-018g / NEC-017): updates the in-memory working set in place so
+   * the running cycle sees the new status, WITHOUT a durable write. A failed row
+   * stays `pending` in the durable store so it is re-selected after a restart
+   * (the fire-and-forget in-place durable UPDATE is retired).
+   */
   updateVersion(row: HiveGraphVersionRow): void;
+  /**
+   * Durable version-bump append for a `described` (or cosmetic-inherited /
+   * re-embedded) row (PRD-018g / NEC-017 AC-018g.7/.8). Appends a NEW row at
+   * `seq+1` carrying the description; `row.seq` is ignored (the store owns seq
+   * allocation, collision-safe). Resolves `true` only when the durable write is
+   * CONFIRMED; on a durable failure it resolves `false`, the working set is left
+   * unchanged (the nectar stays selectable), and the caller must NOT count the
+   * file described.
+   */
+  commitVersion(row: HiveGraphVersionRow): Promise<boolean>;
 }
 
 /** In-memory enricher store for tests and local dev. */
@@ -76,11 +93,18 @@ export class EnricherInMemoryStore implements EnricherStore {
   }
 
   countPending(tenancy: Tenancy): number {
+    // Count nectars whose LATEST row is pending/failed, matching the
+    // latest-is-pending selection (PRD-018g / NEC-017) so the depth cannot count
+    // a superseded lower-seq pending row a version-bump append left behind.
     let count = 0;
     for (const rows of this.versions.values()) {
+      let latest: HiveGraphVersionRow | undefined;
       for (const row of rows) {
         if (!inTenancy(row, tenancy)) continue;
-        if (row.describeStatus === "pending" || row.describeStatus === "failed") count += 1;
+        if (latest === undefined || row.seq > latest.seq) latest = row;
+      }
+      if (latest !== undefined && (latest.describeStatus === "pending" || latest.describeStatus === "failed")) {
+        count += 1;
       }
     }
     return count;
@@ -96,6 +120,11 @@ export class EnricherInMemoryStore implements EnricherStore {
   listVersions(nectar: string): readonly HiveGraphVersionRow[] {
     const list = this.versions.get(nectar);
     return list !== undefined ? list.map((v) => ({ ...v })) : [];
+  }
+
+  /** Every nectar with at least one version row in the mirror (projection scan). */
+  nectars(): readonly string[] {
+    return [...this.versions.keys()];
   }
 
   priorDescribedVersion(nectar: string, beforeSeq: number): HiveGraphVersionRow | undefined {
@@ -116,5 +145,18 @@ export class EnricherInMemoryStore implements EnricherStore {
     const idx = list.findIndex((v) => v.seq === row.seq);
     if (idx < 0) return;
     list[idx] = { ...row };
+  }
+
+  /**
+   * Version-bump append: allocate `MAX(seq)+1` for the nectar and append `row`
+   * there (PRD-018g / NEC-017). The in-memory store never fails a durable write,
+   * so this always resolves `true`.
+   */
+  commitVersion(row: HiveGraphVersionRow): Promise<boolean> {
+    const list = this.versions.get(row.nectar) ?? [];
+    let max = -1;
+    for (const v of list) if (v.seq > max) max = v.seq;
+    this.seedVersion({ ...row, seq: max + 1 });
+    return Promise.resolve(true);
   }
 }

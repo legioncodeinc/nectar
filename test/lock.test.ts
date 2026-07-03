@@ -8,6 +8,7 @@ import {
   releaseSingleInstanceLock,
   isPidAlive,
   readPidFile,
+  readLockIdentity,
   isLockHeldByLiveDaemon,
 } from "../dist/lock.js";
 import { DaemonAlreadyRunningError } from "../dist/errors.js";
@@ -21,20 +22,26 @@ function tmpPaths() {
   };
 }
 
-test("acquire writes pid + lock files with this process's pid", () => {
+test("acquire records a JSON identity in the lock file and a bare pid in the pid file", () => {
   const p = tmpPaths();
   try {
-    acquireSingleInstanceLock(p);
+    const identity = acquireSingleInstanceLock(p);
     assert.ok(existsSync(p.lockFilePath), "lock file exists");
     assert.ok(existsSync(p.pidFilePath), "pid file exists");
-    assert.equal(readFileSync(p.lockFilePath, "utf8"), String(process.pid));
+    // The lock file carries the full identity (pid + boot + token).
+    const recorded = readLockIdentity(p.lockFilePath);
+    assert.equal(recorded?.pid, process.pid);
+    assert.equal(recorded?.token, identity.token, "the lock records the identity acquire returned");
+    assert.ok(typeof recorded?.boot === "number", "the lock records a boot time");
+    // The pid file stays a bare pid for operator/doctor consumption.
+    assert.equal(readFileSync(p.pidFilePath, "utf8"), String(process.pid));
     assert.equal(readPidFile(p.pidFilePath), process.pid);
   } finally {
     rmSync(p.dir, { recursive: true, force: true });
   }
 });
 
-test("second acquire with a live recorded pid throws DaemonAlreadyRunningError", () => {
+test("second acquire with a live recorded identity throws DaemonAlreadyRunningError", () => {
   const p = tmpPaths();
   try {
     acquireSingleInstanceLock(p);
@@ -54,13 +61,59 @@ test("second acquire with a live recorded pid throws DaemonAlreadyRunningError",
 test("a stale lock (dead pid) is reclaimed", () => {
   const p = tmpPaths();
   try {
-    // Stamp a PID that is almost certainly dead.
+    // Stamp a PID that is almost certainly dead (legacy bare-pid lock form).
     const deadPid = 2_147_483_600;
     assert.equal(isPidAlive(deadPid), false);
-    // Write the stale lock manually, then acquire should reclaim it.
     writeFileSync(p.lockFilePath, String(deadPid), "utf8");
-    acquireSingleInstanceLock(p);
-    assert.equal(readPidFile(p.lockFilePath), process.pid, "lock reclaimed by us");
+    const identity = acquireSingleInstanceLock(p);
+    assert.equal(readLockIdentity(p.lockFilePath)?.pid, process.pid, "lock reclaimed by us");
+    assert.equal(readLockIdentity(p.lockFilePath)?.token, identity.token);
+  } finally {
+    rmSync(p.dir, { recursive: true, force: true });
+  }
+});
+
+// ── AC-018a.5: PID reuse (live-but-foreign identity) is reclaimed, not wedged ──
+
+test("AC-018a.5 a lock recording a live pid from a prior boot is reclaimed instead of wedging startup", () => {
+  const p = tmpPaths();
+  try {
+    // A live pid (this process) but a boot time from the distant past (epoch 1s):
+    // a reused pid after a crash/reboot. It must read as stale, not "already running".
+    writeFileSync(
+      p.lockFilePath,
+      JSON.stringify({ pid: process.pid, boot: 1, token: "pre-reboot" }),
+      "utf8",
+    );
+    assert.equal(isPidAlive(process.pid), true, "the recorded pid is genuinely alive");
+    const identity = acquireSingleInstanceLock(p);
+    assert.equal(readLockIdentity(p.lockFilePath)?.token, identity.token, "the stale lock was reclaimed");
+  } finally {
+    rmSync(p.dir, { recursive: true, force: true });
+  }
+});
+
+// ── AC-018a.4: reclaim is atomic; the loser never removes the winner's lock ────
+
+test("AC-018a.4 after one process reclaims a stale lock, a second attempt fails without removing the winner's lock", () => {
+  const p = tmpPaths();
+  try {
+    // A stale lock two racers both observe. The first reclaims and wins.
+    writeFileSync(
+      p.lockFilePath,
+      JSON.stringify({ pid: 2_147_483_600, boot: 1, token: "stale" }),
+      "utf8",
+    );
+    const winner = acquireSingleInstanceLock(p);
+    assert.equal(readLockIdentity(p.lockFilePath)?.token, winner.token, "winner holds the lock");
+
+    // The loser reacts to the same stale lock but now sees the live winner.
+    assert.throws(() => acquireSingleInstanceLock(p), DaemonAlreadyRunningError);
+    assert.equal(
+      readLockIdentity(p.lockFilePath)?.token,
+      winner.token,
+      "the loser's failed reclaim did NOT delete the winner's fresh lock",
+    );
   } finally {
     rmSync(p.dir, { recursive: true, force: true });
   }
@@ -69,12 +122,36 @@ test("a stale lock (dead pid) is reclaimed", () => {
 test("release removes both files and never throws when absent", () => {
   const p = tmpPaths();
   try {
-    acquireSingleInstanceLock(p);
-    releaseSingleInstanceLock(p);
+    const identity = acquireSingleInstanceLock(p);
+    releaseSingleInstanceLock(p, identity);
     assert.equal(existsSync(p.lockFilePath), false);
     assert.equal(existsSync(p.pidFilePath), false);
     // Second release is a no-op, not a throw.
-    releaseSingleInstanceLock(p);
+    releaseSingleInstanceLock(p, identity);
+  } finally {
+    rmSync(p.dir, { recursive: true, force: true });
+  }
+});
+
+// ── AC-018a.3: release by a non-owner is a no-op ──────────────────────────────
+
+test("AC-018a.3 releasing a lock owned by a different identity removes neither the lock nor the pid file", () => {
+  const p = tmpPaths();
+  try {
+    // A lock + pid owned by some other live identity (a different token).
+    writeFileSync(
+      p.lockFilePath,
+      JSON.stringify({ pid: process.pid, boot: 1, token: "not-ours" }),
+      "utf8",
+    );
+    writeFileSync(p.pidFilePath, String(process.pid), "utf8");
+
+    // A process that does NOT own the lock (a different token) calls release.
+    releaseSingleInstanceLock(p, { pid: process.pid, boot: 1, token: "mine" });
+
+    assert.ok(existsSync(p.lockFilePath), "the foreign lock is untouched");
+    assert.ok(existsSync(p.pidFilePath), "the foreign pid file is untouched");
+    assert.equal(readLockIdentity(p.lockFilePath)?.token, "not-ours");
   } finally {
     rmSync(p.dir, { recursive: true, force: true });
   }
@@ -90,9 +167,9 @@ test("isLockHeldByLiveDaemon reflects a live holder", () => {
   const p = tmpPaths();
   try {
     assert.equal(isLockHeldByLiveDaemon(p.lockFilePath), false, "no lock yet");
-    acquireSingleInstanceLock(p);
+    const identity = acquireSingleInstanceLock(p);
     assert.equal(isLockHeldByLiveDaemon(p.lockFilePath), true, "held by us (live)");
-    releaseSingleInstanceLock(p);
+    releaseSingleInstanceLock(p, identity);
     assert.equal(isLockHeldByLiveDaemon(p.lockFilePath), false, "released");
   } finally {
     rmSync(p.dir, { recursive: true, force: true });

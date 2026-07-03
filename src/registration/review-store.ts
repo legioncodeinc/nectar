@@ -16,7 +16,7 @@
  *     the Deep-Lake-is-the-only-durable-store rule (FR-8): the durable nectar
  *     rows live in Deep Lake; this file only tracks unreviewed candidates.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -48,7 +48,22 @@ export interface PendingReviewStore {
 export class InMemoryPendingReviewStore implements PendingReviewStore {
   private readonly items = new Map<string, PendingReviewCandidate>();
 
+  /**
+   * Dedupe/replace by `(candidateNectar, newPath)` (PRD-018d NEC-036/AC-18d.7):
+   * a re-observation of the same target while a candidate for it is already
+   * pending refreshes that candidate in place instead of appending a sibling,
+   * so the queue never grows per re-observation of one path.
+   */
   add(candidate: PendingReviewCandidate): void {
+    for (const [id, existing] of this.items) {
+      if (
+        id !== candidate.id &&
+        existing.candidateNectar === candidate.candidateNectar &&
+        existing.newPath === candidate.newPath
+      ) {
+        this.items.delete(id);
+      }
+    }
     this.items.set(candidate.id, { ...candidate });
   }
 
@@ -78,9 +93,63 @@ function isCandidate(value: unknown): value is PendingReviewCandidate {
   );
 }
 
+/** How long an `add()`/`remove()` waits for the advisory lock before giving up. */
+const LOCK_MAX_WAIT_MS = 5000;
+/** Poll interval while waiting for the advisory lock. */
+const LOCK_RETRY_DELAY_MS = 5;
+
+/** A synchronous, event-loop-blocking sleep (Node allows `Atomics.wait` on the main thread; browsers do not). */
+function sleepSyncMs(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Acquire an advisory, exclusive-create file lock at `lockPath`, blocking
+ * (synchronously) until it is free or `LOCK_MAX_WAIT_MS` elapses. Mirrors the
+ * daemon's single-instance lock's exclusive-create-is-the-atomic-winner-picker
+ * idiom (`lock.ts` `acquireSingleInstanceLock`), scaled down to a short-lived
+ * critical section instead of a whole-process-lifetime lock: unlike the daemon
+ * lock, this one carries no owner identity and is never force-reclaimed, so
+ * two racing holders can never both believe they hold it (PRD-018d NEC-036 /
+ * AC-018d.6 - this is what turns the read-modify-write in {@link
+ * FilePendingReviewStore.add}/{@link FilePendingReviewStore.remove} into a
+ * SERIALIZED critical section across the daemon and the `review-matches` CLI,
+ * the store's stated two-writer use case).
+ */
+function acquireFileLock(lockPath: string): void {
+  mkdirSync(dirname(lockPath), { recursive: true });
+  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
+  for (;;) {
+    try {
+      closeSync(openSync(lockPath, "wx"));
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for the pending-review lock at ${lockPath}`);
+      }
+      sleepSyncMs(LOCK_RETRY_DELAY_MS);
+    }
+  }
+}
+
+/** Release the advisory lock. Never throws (a missing lock on release is fine; the goal already holds). */
+function releaseFileLock(lockPath: string): void {
+  try {
+    rmSync(lockPath, { force: true });
+  } catch {
+    // best-effort; nothing more to do if removal itself fails
+  }
+}
+
 /** A JSON-file-backed pending-review queue in the daemon runtime dir. Fail-open on a malformed/missing file. */
 export class FilePendingReviewStore implements PendingReviewStore {
   constructor(private readonly filePath: string) {}
+
+  /** Sibling lock file guarding the read-modify-write critical section in `add`/`remove`. */
+  private lockPath(): string {
+    return `${this.filePath}.lock`;
+  }
 
   private read(): PendingReviewCandidate[] {
     let raw: string;
@@ -104,9 +173,11 @@ export class FilePendingReviewStore implements PendingReviewStore {
    * `renameSync` it over the target (atomic on the same filesystem). A reader
    * therefore never sees a torn/partial file, and two concurrent writers cannot
    * interleave bytes (last rename wins). This queue is ephemeral, last-write-wins
-   * operational state (not durable domain state, which lives in Deep Lake, FR-8);
-   * the guarantee provided here is atomicity (no torn file), not serialization of
-   * concurrent read-modify-write cycles. The temp file is cleaned up on failure.
+   * operational state (not durable domain state, which lives in Deep Lake, FR-8).
+   * `write()` on its own only guarantees atomicity (no torn file); it is the
+   * callers `add`/`remove` that additionally guarantee no LOST update, by
+   * holding {@link acquireFileLock} across their whole read-then-write
+   * (PRD-018d AC-018d.6). The temp file is cleaned up on failure.
    */
   private write(items: readonly PendingReviewCandidate[]): void {
     const dir = dirname(this.filePath);
@@ -125,17 +196,45 @@ export class FilePendingReviewStore implements PendingReviewStore {
     }
   }
 
+  /**
+   * Serialized (PRD-018d AC-018d.6) read-modify-write: the advisory lock makes
+   * this critical section mutually exclusive with any other `add`/`remove`
+   * call on the same file, from this process or another, so a daemon `add()`
+   * racing a CLI `remove()` can no longer resurrect a resolved candidate or
+   * silently drop a fresh one (M5) - whichever call wins the lock re-reads
+   * AFTER acquiring it, so it always sees the other's already-applied write.
+   *
+   * Also dedupes/replaces by `(candidateNectar, newPath)` (AC-018d.7): a
+   * re-observation of the same target refreshes the existing candidate in
+   * place rather than appending a sibling, so the queue does not grow per
+   * re-observation of one path (M6).
+   */
   add(candidate: PendingReviewCandidate): void {
-    const items = this.read().filter((c) => c.id !== candidate.id);
-    items.push({ ...candidate });
-    this.write(items);
+    const lockPath = this.lockPath();
+    acquireFileLock(lockPath);
+    try {
+      const items = this.read().filter(
+        (c) => c.id !== candidate.id && !(c.candidateNectar === candidate.candidateNectar && c.newPath === candidate.newPath),
+      );
+      items.push({ ...candidate });
+      this.write(items);
+    } finally {
+      releaseFileLock(lockPath);
+    }
   }
 
   list(): PendingReviewCandidate[] {
     return this.read();
   }
 
+  /** Serialized (PRD-018d AC-018d.6) the same way as {@link add}. */
   remove(id: string): void {
-    this.write(this.read().filter((c) => c.id !== id));
+    const lockPath = this.lockPath();
+    acquireFileLock(lockPath);
+    try {
+      this.write(this.read().filter((c) => c.id !== id));
+    } finally {
+      releaseFileLock(lockPath);
+    }
   }
 }

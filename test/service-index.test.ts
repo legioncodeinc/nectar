@@ -5,13 +5,17 @@ import type { CommandResult, CommandRunner } from "../dist/service/command-runne
 import type { ServiceFs } from "../dist/service/index.js";
 import type { ServiceEnvironment } from "../dist/service/platform.js";
 
-function fakeFs(): ServiceFs & { written: Map<string, string>; removed: string[] } {
+function fakeFs(): ServiceFs & { written: Map<string, string>; removed: string[]; dirs: string[] } {
   const written = new Map<string, string>();
   const removed: string[] = [];
+  const dirs: string[] = [];
   return {
     written,
     removed,
-    mkdirp() {},
+    dirs,
+    mkdirp(dir: string) {
+      dirs.push(dir);
+    },
     writeFile(path: string, content: string) {
       written.set(path, content);
     },
@@ -64,7 +68,9 @@ test("install writes the unit file then runs the manager's install argv", async 
   // Decision #32 migration: the legacy unit is deregistered (and its file removed) FIRST.
   assert.deepEqual(calls[0]?.args, ["--user", "disable", "--now", "hivenectar.service"]);
   assert.deepEqual(fs.removed, ["/home/op/.config/systemd/user/hivenectar.service"]);
-  assert.deepEqual(calls[1]?.args, ["--user", "enable", "--now", "nectar.service"]);
+  // AC-018l.10: daemon-reload precedes enable --now on reinstall.
+  assert.deepEqual(calls[1]?.args, ["--user", "daemon-reload"]);
+  assert.deepEqual(calls[2]?.args, ["--user", "enable", "--now", "nectar.service"]);
 });
 
 test("install reports ok:false when a manager command fails, but the unit file is still written", async () => {
@@ -175,6 +181,23 @@ test("install on darwin writes the launchd plist to ~/Library/LaunchAgents and b
   assert.deepEqual(fs.removed, ["/Users/op/Library/LaunchAgents/com.hivenectar.daemon.plist"]);
   assert.equal(calls[1]?.args[0], "bootstrap");
   assert.equal(calls[2]?.args[0], "kickstart");
+});
+
+test("AC-018l.9 the macOS (launchd) install creates the log directory the plist writes to (NEC-042 item 2)", async () => {
+  const fs = fakeFs();
+  const svc = createServiceModule({
+    execPath: "/usr/local/bin/nectar",
+    fs,
+    runner: okRunner(),
+    environment: linuxEnv({ platform: "darwin", home: "/Users/op" }),
+  });
+  const result = await svc.install();
+  assert.equal(result.ok, true);
+  // The plist writes stdout/stderr to <home>/.honeycomb/nectar; that dir must exist.
+  assert.ok(
+    fs.dirs.includes("/Users/op/.honeycomb/nectar"),
+    `the launchd log directory was mkdirp'd (saw: ${JSON.stringify(fs.dirs)})`,
+  );
 });
 
 test("uninstall on darwin bootouts the launchd target and removes the plist", async () => {

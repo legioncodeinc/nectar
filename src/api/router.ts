@@ -221,6 +221,10 @@ export class NectarRouter {
     try {
       return await handler(ctx);
     } catch (err: unknown) {
+      // A malformed JSON body is a client error (400), not a server fault (500).
+      if (err instanceof MalformedJsonError) {
+        return jsonResponse({ error: "invalid_json", reason: err.message }, 400);
+      }
       const reason = err instanceof Error ? err.message : String(err);
       return jsonResponse({ error: "handler_error", reason }, 500);
     }
@@ -232,6 +236,21 @@ export class BodyTooLargeError extends Error {
   constructor() {
     super("request body exceeds the maximum allowed size");
     this.name = "BodyTooLargeError";
+  }
+}
+
+/**
+ * Raised by {@link RouteContext.body} when the request body is present but not
+ * valid JSON (NEC-042 item 1 / AC-018l.8). A distinct type so a handler (or the
+ * dispatcher backstop) maps it to a 400 client error rather than the generic 500
+ * `handler_error`. Thrown CONSISTENTLY: once the parse fails, every later
+ * `body()` call rethrows this same error rather than silently returning
+ * `undefined` from a poisoned cache.
+ */
+export class MalformedJsonError extends Error {
+  constructor() {
+    super("request body is not valid JSON");
+    this.name = "MalformedJsonError";
   }
 }
 
@@ -269,6 +288,11 @@ export function buildRouteContext(req: IncomingMessage, path: string, rawUrl: st
       const raw = Buffer.concat(chunks).toString("utf8");
       let parsed: unknown;
       let parsedOnce = false;
+      // Cache the thrown state too, so a malformed body rethrows CONSISTENTLY
+      // instead of poisoning the cache: the pre-fix code set `parsedOnce` BEFORE
+      // parsing, so after one throw every later `body()` returned `undefined`
+      // silently (NEC-042 item 1 / AC-018l.8).
+      let parseError: MalformedJsonError | undefined;
       const queryString = rawUrl.includes("?") ? rawUrl.slice(rawUrl.indexOf("?") + 1) : "";
       resolve({
         method: (req.method ?? "GET").toUpperCase(),
@@ -277,10 +301,16 @@ export function buildRouteContext(req: IncomingMessage, path: string, rawUrl: st
         query: new URLSearchParams(queryString),
         headers: req.headers,
         body() {
+          if (parseError !== undefined) throw parseError;
           if (parsedOnce) return parsed;
-          parsedOnce = true;
           const trimmed = raw.trim();
-          parsed = trimmed === "" ? undefined : JSON.parse(trimmed);
+          try {
+            parsed = trimmed === "" ? undefined : JSON.parse(trimmed);
+          } catch {
+            parseError = new MalformedJsonError();
+            throw parseError;
+          }
+          parsedOnce = true; // set only AFTER a successful parse
           return parsed;
         },
         json: jsonResponse,

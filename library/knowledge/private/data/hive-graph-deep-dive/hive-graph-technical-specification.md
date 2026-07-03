@@ -1,6 +1,6 @@
 # Hive Graph: Technical Specification
 
-> Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The column-level reference for the two Nectar Deep Lake tables: full DDL carried verbatim, a column-by-column mutability table for each table, the indexing strategy, the tenancy/isolation contract, the lazy-schema-heal rule, the projection contract, and the v1 non-goals.
 
@@ -171,7 +171,7 @@ Heals are additive only. The heal pass adds columns that are missing; it never d
 The contract has three parts, each enforceable:
 
 1. **Deep Lake writes happen first.** Every nectar mint, version append, and description write goes to Deep Lake before the projection is regenerated. The projection is never the target of a write; it is always derived.
-2. **The projection is regenerable from Deep Lake alone.** `honeycomb nectar project --rebuild-projection` regenerates it from a single scan of `hive_graph_versions`, with no other inputs. If it did not, the projection would be carrying state Deep Lake does not have, which would make it a sidecar — and sidecars are forbidden by FR-8.
+2. **The projection is regenerable from Deep Lake alone.** `nectar project --rebuild-projection` regenerates it from a single scan of `hive_graph_versions`, with no other inputs. If it did not, the projection would be carrying state Deep Lake does not have, which would make it a sidecar - and sidecars are forbidden by FR-8.
 3. **The projection is never edited by hand.** A hand-edit is overwritten on the next regeneration. The file is read-only from the system's perspective except for the regeneration write.
 
 If `nectars.json` is deleted, lost, or corrupted, the rebuild command regenerates it from Deep Lake in a single scan. The projection is committed for portability across fresh clones (so a new checkout inherits descriptions without re-paying the brooding cost), never because Deep Lake is insufficient. The distinction between a projection and a sidecar, and the enforcement rules, are documented in full in [`../portable-registry.md`](../portable-registry.md).
