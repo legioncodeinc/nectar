@@ -941,6 +941,15 @@ async function runDaemon(): Promise<void> {
             // cycle that wrote descriptions, sourced from the enricher mirror.
             projectionWriter: new ProjectionWriter({ projectRoot: ctx.projectRoot }),
             projectionDoc: () => live.enricher.buildProjectionDoc(ctx.tenancy),
+            // Surface the underlying describe-batch error; without this the
+            // persistent-failure alert can trip with nothing in the logs to
+            // diagnose (2026-07-03 production soak stall).
+            onDescribeError: (err: unknown, paths: readonly string[]) => {
+              process.stderr.write(
+                `nectar enricher: describe batch failed (${paths.length} file(s), first: ${paths[0] ?? "?"}): ` +
+                  `${err instanceof Error ? err.message : String(err)}\n`,
+              );
+            },
           },
         }
       : {}),

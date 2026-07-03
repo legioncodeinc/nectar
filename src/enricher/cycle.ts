@@ -60,6 +60,14 @@ export interface EnricherCycleDeps {
   readonly projectionDoc?: () => PortableProjection | undefined;
   readonly metrics?: PipelineMetricsSink;
   readonly logSink?: EnricherCycleLogSink;
+  /**
+   * Called with the underlying error when a describe batch fails (transport,
+   * parse, or unexpected throw). Without this seam a failing batch is only
+   * visible as a silent `filesFailed` count, which made a 5-consecutive-cycle
+   * production stall undiagnosable (2026-07-03 soak). Optional and fail-soft:
+   * a throwing sink is ignored.
+   */
+  readonly onDescribeError?: (err: unknown, paths: readonly string[]) => void;
   readonly nowIso?: () => string;
   /** Test seam: inject Portkey fetch for deterministic describe calls. */
   readonly portkeyFetch?: PortkeyFetch;
@@ -219,6 +227,14 @@ async function describeAndCommitBatch(
         wroteNew: r1.wroteNew || r2.wroteNew,
         ok: r1.ok && r2.ok,
       };
+    }
+    try {
+      deps.onDescribeError?.(
+        err,
+        pairs.map((p) => p.item.row.path),
+      );
+    } catch {
+      // A throwing error sink must never mask the failure handling itself.
     }
     for (const p of pairs) deps.store.updateVersion(markFailed(p.item.row, now));
     return {
