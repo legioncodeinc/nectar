@@ -260,7 +260,7 @@ Nectar's file identity and descriptions reach every harness through Honeycomb's 
 
 <h2 align="center"><a href="https://ideas.theapiary.sh">📍 Status & Roadmap</a></h2>
 
-Nectar is **v0.0.1** with a PRD program in flight. Shipped: the daemon, health, single-instance lock, OS service install, Doctor supervision, the Deeplake catalog tables, and the file registration protocol (PRD-001 through 006). In work: the Portkey gateway, the portable projection, embeddings provider switching, and service check-in telemetry. Spec stage: brooding, the API endpoints, the recall arm, and the dashboard page. We document what's real and flag what isn't; the spec came before the code on purpose.
+Nectar is **v0.1.x and production stable**: the PRD program is fully built and tested in production. Shipped: the daemon, health, single-instance lock, OS service install, Doctor supervision, the Deeplake catalog tables, the file registration protocol, brooding, the enricher steady-state loop, the Portkey gateway, the portable projection, embeddings provider switching, service check-in telemetry, the API endpoints, and the recall arm that surfaces nectars through Honeycomb's hybrid recall, rendered in the Hive portal's Hive Graph page. The roadmap and idea board live at [ideas.theapiary.sh](https://ideas.theapiary.sh).
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
