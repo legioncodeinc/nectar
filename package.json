@@ -4,6 +4,10 @@
   "description": "Nectar: a semantic memory layer over a source tree. The hiveantennae daemon mints a stable identity (a nectar) and an LLM-minted description for every file, served through the hybrid recall Honeycomb already uses.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/legioncodeinc/nectar.git"
+  },
   "//publishConfig": "PRD-001c: minimum fix needed for a valid scoped-package publish, mirroring honeycomb/doctor. `access: public` is required because scoped packages default to restricted; `provenance` pairs with release.yaml's `id-token: write` OIDC identity.",
   "publishConfig": {
     "access": "public",
