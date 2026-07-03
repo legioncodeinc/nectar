@@ -38,6 +38,8 @@ import {
   clampUtf8Bytes,
   MAX_TITLE_CHARS,
   MAX_DESCRIBE_FILE_BYTES,
+  computeEnricherBatchMaxTokens,
+  DescribeTruncatedError,
   type EnricherCycleDeps,
 } from "../dist/enricher/index.js";
 import { DeepLakeEnricherStore } from "../dist/enricher/store-adapter.js";
@@ -779,4 +781,82 @@ test("EX-5 clampUtf8Bytes bounds a huge body and caps the response title", () =>
   const longTitle = "T".repeat(200);
   const parsed = parseDescribeResponse(JSON.stringify([{ title: longTitle, description: "d", concepts: "[]" }]), 1);
   assert.equal(parsed?.[0]?.title.length, MAX_TITLE_CHARS, "response title capped to the schema contract");
+});
+
+// ── 2026-07-03 production stall: output-token truncation must split, not loop ──
+
+test("stall-fix: batch maxTokens is derived from the file count, not the 4096 default", async () => {
+  let body = "";
+  const fetch: PortkeyFetch = async (_u, init) => {
+    body = init.body;
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify([{ title: "T", description: "D.", concepts: "[]" }]) } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+    };
+  };
+  await describeFilesBatch([{ path: "x.ts", content: "c" }], { portkey: ENABLED, fetch, maxAttempts: 1 }, false);
+  const parsed = JSON.parse(body) as { max_tokens?: number };
+  assert.equal(
+    parsed.max_tokens,
+    computeEnricherBatchMaxTokens(1),
+    "request carries the count-derived output budget",
+  );
+});
+
+test("stall-fix: finish_reason length raises DescribeTruncatedError instead of a malformed-JSON error", async () => {
+  const fetch: PortkeyFetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      JSON.stringify({
+        choices: [{ message: { content: '[{"title":"T","description":"cut off' }, finish_reason: "length" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+  });
+  await assert.rejects(
+    () => describeFilesBatch([{ path: "x.ts", content: "c" }], { portkey: ENABLED, fetch, maxAttempts: 1 }, false),
+    (err: unknown) => err instanceof DescribeTruncatedError,
+  );
+});
+
+test("stall-fix: a truncated batch splits in half and both halves describe (no repeated identical failure)", async () => {
+  const store = new EnricherInMemoryStore();
+  store.seedVersion(versionRow("n1", 0, "a.ts"));
+  store.seedVersion(versionRow("n2", 0, "b.ts"));
+  let calls = 0;
+  const fetch: PortkeyFetch = async (_u, init) => {
+    calls += 1;
+    const req = JSON.parse(init.body) as { messages: { content: string }[] };
+    const fileCount = (req.messages[1]?.content.match(/BEGIN/g) ?? []).length;
+    if (fileCount > 1) {
+      // The full 2-file batch is "truncated by the cap"; halves succeed.
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            choices: [{ message: { content: "[" }, finish_reason: "length" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify([{ title: "T", description: "D.", concepts: "[]" }]) } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+    };
+  };
+  const result = await runEnricherCycle(cycleDeps(store, "export const x = 1;", fetch));
+  assert.equal(result.stats.filesDescribed, 2, "both halves described after the split");
+  assert.equal(result.stats.filesFailed, 0, "no files marked failed by the truncation");
+  assert.ok(calls >= 3, "one truncated full-batch call plus one call per half");
 });

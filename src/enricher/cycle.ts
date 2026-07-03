@@ -23,6 +23,7 @@ import {
 } from "./meaningful-change.js";
 import {
   describeFilesBatch,
+  DescribeTruncatedError,
   embeddingText,
   isContextWindowError,
   type DescribeFileInput,
@@ -215,7 +216,7 @@ async function describeAndCommitBatch(
     }
     return { stats, wroteNew, ok: true };
   } catch (err) {
-    if (isContextWindowError(err) && pairs.length > 1) {
+    if ((isContextWindowError(err) || err instanceof DescribeTruncatedError) && pairs.length > 1) {
       const [first, second] = splitPairs(pairs);
       const r1 = await describeAndCommitBatch(first, deps, strict, now);
       const r2 =

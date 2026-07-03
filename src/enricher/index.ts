@@ -37,8 +37,12 @@ export { EnricherInMemoryStore, type EnricherStore, type EnricherWorkItem } from
 
 export {
   clampUtf8Bytes,
+  computeEnricherBatchMaxTokens,
   describeFilesBatch,
+  DescribeTruncatedError,
   embeddingText,
+  ENRICHER_OUTPUT_TOKEN_HEADROOM,
+  ENRICHER_OUTPUT_TOKENS_PER_FILE,
   isContextWindowError,
   MAX_DESCRIBE_FILE_BYTES,
   MAX_DESCRIPTION_CHARS,

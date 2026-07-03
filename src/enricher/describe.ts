@@ -118,6 +118,31 @@ export function isContextWindowError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * The model's response was cut off by the output-token cap (`finish_reason:
+ * "length"`). The enricher cycle treats this like a context-window failure:
+ * split the batch in half and retry, instead of marking every file failed and
+ * re-issuing the identical oversized call forever (the 2026-07-03 production
+ * stall: 10 dense markdown files x verbose JSON blew the 4096 default cap on
+ * every cycle). Mirrors the brood path's NEC-013 / PRD-018f handling.
+ */
+export class DescribeTruncatedError extends Error {
+  constructor(fileCount: number) {
+    super(`describe response truncated by the output-token cap (batch of ${fileCount})`);
+    this.name = "DescribeTruncatedError";
+  }
+}
+
+/** Per-file output-token allowance for a batch response (mirrors the brood path's sizing). */
+export const ENRICHER_OUTPUT_TOKENS_PER_FILE = 700;
+/** Fixed headroom on top of the per-file allowance (JSON envelope, long concept lists). */
+export const ENRICHER_OUTPUT_TOKEN_HEADROOM = 512;
+
+/** Count-derived output budget so a full batch's JSON never hits the 4096 default cap (NEC-013). */
+export function computeEnricherBatchMaxTokens(fileCount: number): number {
+  return fileCount * ENRICHER_OUTPUT_TOKENS_PER_FILE + ENRICHER_OUTPUT_TOKEN_HEADROOM;
+}
+
 export async function describeFilesBatch(
   files: readonly DescribeFileInput[],
   deps: DescribeViaPortkeyDeps,
@@ -129,9 +154,13 @@ export async function describeFilesBatch(
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildUserPrompt(files, strict) },
       ],
+      maxTokens: computeEnricherBatchMaxTokens(files.length),
     },
     deps,
   );
+  if (result.finishReason === "length") {
+    throw new DescribeTruncatedError(files.length);
+  }
   const descriptions = parseDescribeResponse(result.content, files.length);
   if (descriptions === null) {
     throw new Error("describe validator: malformed JSON or wrong description count");
