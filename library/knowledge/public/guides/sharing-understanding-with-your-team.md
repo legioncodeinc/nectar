@@ -1,6 +1,6 @@
 # Sharing Understanding With Your Team
 
-> Category: Guide | Version: 1.1 | Date: July 2026 | Status: Draft
+> Category: Guide | Version: 1.2 | Date: July 2026 | Status: Active
 
 Explains what happens when you commit Nectar's shared map to version control: a teammate who clones the repo gets the same file descriptions instantly, for free, with no re-scan - so everyone shares one understanding of the codebase.
 
@@ -55,7 +55,7 @@ A current shared map typically produces **zero re-scan work and zero cost** on a
 
 ### Step 4 - Everyone shares one understanding of the codebase
 
-Once inheritance finishes, your teammate's project is in the same state yours was right after the first scan: every file carries its title and description. They can run `nectar search "where is the login logic"` and get lexical (name and description) matches straight away. Full vector-based semantic recall for the inherited files follows once their daemon (running with the [brood prerequisites](getting-started-with-nectar.md) configured) re-embeds those inherited entries. Surfacing this recall directly through an AI coding assistant is future work. There is one shared understanding of the codebase, and you are all working from it.
+Once inheritance finishes, your teammate's project is in the same state yours was right after the first scan: every file carries its title and description. They can run `nectar search "where is the login logic"` and get lexical (name and description) matches straight away. Full vector-based semantic recall for the inherited files follows once their daemon (running with the [brood prerequisites](getting-started-with-nectar.md) configured) re-embeds those inherited entries. That recall surfaces both through `nectar search` and directly through an AI coding assistant via Honeycomb's shared memory. There is one shared understanding of the codebase, and you are all working from it.
 
 ---
 

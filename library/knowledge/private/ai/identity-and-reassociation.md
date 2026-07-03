@@ -1,6 +1,6 @@
 # Identity and Re-association
 
-> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
+> Category: AI | Version: 1.2 | Date: July 2026 | Status: Active
 
 The core algorithm of Nectar: how a ULID nectar is minted, how it survives edits and renames and moves, how the daemon re-associates a nectar to a file on disk after offline changes, and how copy-paste becomes a first-class provenance edge instead of a history-loss event.
 
@@ -214,6 +214,14 @@ A nectar, once minted, is never deleted by the re-association ladder. If a file 
 Deletion of nectar records is a separate, explicit operation: `nectar prune --confirm` removes nectars whose latest version's path has been missing for longer than a configurable grace period (default 30 days). The grace period exists because a file that is "missing" might be on a branch that is currently checked out elsewhere, or might come back after a merge. Pruning is conservative and human-triggered.
 
 This append-only-ish behavior (nectars are minted freely, pruned rarely, never reused) is what makes the history chain trustworthy. A nectar's version chain is a complete record of every observed state of the logical file it represents, from minting to (eventually) archival.
+
+---
+
+## Concurrent writes and seq collisions
+
+The ladder appends version rows (steps 2, 3, 4, 5), and the enricher independently appends a durable describe row when it fills a description. Both write to `hive_graph_versions` for the same nectar, and each new row takes the next `seq`, the per-nectar counter whose maximum defines "latest version." A live incident showed those two writers can collide: renaming a watched file while its describe append was still in flight produced a duplicate `(nectar, seq)` pair, because the enricher and the registration bridge allocated the seq from independent views of the store. The enricher read the backend `MAX(seq)` while Deeplake's read-after-write lag still hid a row the bridge had just written, and the bridge computed its seq from a private in-memory mirror that could not see the enricher's durable append. Both landed on the same seq. Latest-version resolution then became ambiguous, and the renamed path was left undescribed while recall kept serving the old path.
+
+The fix makes seq allocation immune to that lag. Both writers now route every append through one shared allocator that keeps a per-nectar in-process high-water mark and allocates `max(highWater, backendMax) + 1`, so a just-written seq is never re-handed-out even before the backend read catches up. The bridge re-allocates its seq at flush time through that same authority and reconciles the result back into its mirror. The mechanics live in [`../data/hive-graph-schema.md`](../data/hive-graph-schema.md) (the seq allocation and latest-version resolution section). Any duplicate that already exists is self-healing: the crash-repair sweep appends a corrected copy of the newest-observed tied row one seq above the tie, restoring an unambiguous latest without an in-place rewrite, and the incident resolves on the next resync.
 
 ---
 

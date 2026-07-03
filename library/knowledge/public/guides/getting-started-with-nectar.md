@@ -1,6 +1,6 @@
 # Getting Started With Nectar
 
-> Category: Guide | Version: 1.1 | Date: July 2026 | Status: Draft
+> Category: Guide | Version: 1.2 | Date: July 2026 | Status: Active
 
 Walks you through your project's very first scan (what Nectar does on first run, what it costs, and how to know it worked), so you can run `nectar search "where is the login logic"` and get the right files back.
 
@@ -14,7 +14,7 @@ Walks you through your project's very first scan (what Nectar does on first run,
 
 The first time Nectar meets your project, it does not know anything yet. Every file is just a name on disk. To turn that pile of names into something your AI agent can reason about, Nectar reads through your files and writes a short, plain-language description for each one. We call this first pass **the first scan** — internally it is called "brooding," but what it amounts to is: read your files, understand them, and write down what each one is for.
 
-Once the first scan finishes, you can search your codebase in a new way. Instead of only finding files whose names match a search word, `nectar search` understands what each file *does*. Run `nectar search "where is the login logic"` and it can return a file like `src/middleware/session-refresh.ts` (even though that file has no "login" in its name) because Nectar described it as part of the login session lifecycle. Surfacing that recall directly through your AI coding assistant is future work; today the working surfaces are the `nectar search` command and the daemon's HTTP endpoint.
+Once the first scan finishes, you can search your codebase in a new way. Instead of only finding files whose names match a search word, `nectar search` understands what each file *does*. Run `nectar search "where is the login logic"` and it can return a file like `src/middleware/session-refresh.ts` (even though that file has no "login" in its name) because Nectar described it as part of the login session lifecycle. The same recall also surfaces directly through your AI coding assistant via Honeycomb's shared memory, so you get the benefit whether you run the `nectar search` command, hit the daemon's HTTP endpoint, or just ask your agent.
 
 The understanding Nectar builds is saved as a small shared file at the root of your project: `.honeycomb/nectars.json`. Think of it as a shared map of your codebase. You do not need to open it or edit it. Nectar maintains it for you, and you commit it to your repo just like any other project file. (For what that shared map makes possible across your team, see the [team-share guide](sharing-understanding-with-your-team.md).)
 
@@ -88,7 +88,7 @@ The simplest test is a `nectar search` query the old name-based search would get
 - `nectar search "everything related to sending email"`
 - `nectar search "what handles retry on failed payments"`
 
-If the results include files that do the thing you asked about, regardless of what those files are named, the first scan worked. Semantic recall is live. Surfacing this recall directly through your AI coding assistant is future work.
+If the results include files that do the thing you asked about, regardless of what those files are named, the first scan worked. Semantic recall is live, and it surfaces both through `nectar search` and directly through your AI coding assistant via Honeycomb's shared memory.
 
 You can also check the shared map directly. After a successful first scan, `.honeycomb/nectars.json` exists at your project root and contains one entry per described file, each with a title and a short description. You never need to read it by hand, but it is there, and it is human-readable if you are curious.
 

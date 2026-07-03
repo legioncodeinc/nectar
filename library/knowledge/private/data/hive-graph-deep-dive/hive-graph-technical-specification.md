@@ -1,6 +1,6 @@
 # Hive Graph: Technical Specification
 
-> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
+> Category: Data | Version: 1.2 | Date: July 2026 | Status: Active
 
 The column-level reference for the two Nectar Deep Lake tables: full DDL carried verbatim, a column-by-column mutability table for each table, the indexing strategy, the tenancy/isolation contract, the lazy-schema-heal rule, the projection contract, and the v1 non-goals.
 
@@ -124,6 +124,19 @@ Recall filters to `describe_status = 'described'`, so rows in any other state do
 ### The composite key invariant
 
 The composite key `(nectar, content_hash)` has a useful property that the re-association and copy-detection logic both rely on. The same content under the same nectar is a no-op — an idempotent re-observation after a no-change save produces no new row because the key already exists. The same content under a *different* nectar is the copy-paste signal: the daemon mints a fresh nectar for the new path and sets `derived_from_nectar` on the newer nectar pointing at the source. The composite key is how the schema distinguishes "nothing changed" from "this is a fork."
+
+### The `seq` uniqueness contract
+
+`seq` is the counter that makes "latest version" resolvable: the latest version of a nectar is its `MAX(seq)` row, so `seq` must be unique per nectar for that to be unambiguous. Deeplake has no transaction and no enforced unique constraint, so the daemon maintains `seq` uniqueness in code rather than leaning on the backend. `DeepLakeHiveGraphStore` uses two mechanisms together:
+
+| Mechanism | What it prevents | Source |
+|---|---|---|
+| Per-nectar append serialization | Two callers sharing the store both reading one `MAX(seq)` and both writing `seq+1` | `src/hive-graph/deeplake-store.ts:272-281` |
+| In-process seq high-water mark | A just-appended row being invisible to the next `SELECT seq` under Deeplake read-after-write lag | `src/hive-graph/deeplake-store.ts:282-298`, `src/hive-graph/deeplake-store.ts:459-478` |
+
+The high-water mark was added after a live incident: renaming a watched file while its describe append was in flight let the enricher's durable append and the registration bridge's carry flush allocate seqs from independent, lag-affected views, producing a duplicate `(nectar, seq)` that left latest-version resolution ambiguous and the renamed path undescribed. The store now allocates `max(inProcessHighWater, backendMax) + 1`, seeding the running maximum from the highest seq this process has written so the read is never trusted to reflect an append that already happened here. Both components route every version append through one shared allocator, `appendVersionAtNextSeq` (`src/hive-graph/store.ts:159-170`); the bridge re-allocates the seq at flush time and reconciles the allocated value back into its synchronous mirror (`src/registration/store-bridge.ts:190-215`).
+
+An existing duplicate is healed idempotently by the crash-repair sweep. Because the table is append-only, the repair appends a corrected copy of the newest-`observed_at` tied row one seq above the tie, making it the sole latest while the stale rows remain history; once the max seq is unique a later pass does nothing (`src/registration/ladder.ts:551-591`).
 
 ---
 

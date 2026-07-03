@@ -1,6 +1,6 @@
 # Recall Integration
 
-> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
+> Category: Data | Version: 1.2 | Date: July 2026 | Status: Active
 
 How Nectar's `hive_graph_versions` table plugs into the existing Honeycomb hybrid recall pipeline: the guarded hive-graph arm, the latest-per-nectar subquery, the weighting and dedup strategy against session/memory/skill hits, and the structural-vs-semantic complementarity that makes recall stronger with both layers than with either alone.
 
@@ -110,7 +110,7 @@ Operators who find Nectar hits dominating recall at the expense of session memor
 }
 ```
 
-Resolution precedence is **environment variable > config file > code default**: `NECTAR_RECALL_MULTIPLIER` overrides the file, the file's `nectar_rrf_multiplier` overrides the built-in `1.0`, and a malformed file or unknown key is logged as a warning and ignored. The loader exposes the resolved value to the recall configuration surface (the search engine's dependencies). Note that the standalone hive-graph search engine that ships in this repo (`nectar search` and `POST /api/hive-graph/search`) applies **no cross-arm class weighting yet** (it is a per-arm guarded query per PRD-012a), so the multiplier is the documented wiring point a future cross-table fusion arm reads, not a value that alters fusion today. This is the same `~/.honeycomb/nectar.json` loader that serves the enricher's `redescribe_threshold` (see `ai/enricher-and-llm-model.md`).
+Resolution precedence is **environment variable > config file > code default**: `NECTAR_RECALL_MULTIPLIER` overrides the file, the file's `nectar_rrf_multiplier` overrides the built-in `1.0`, and a malformed file or unknown key is logged as a warning and ignored. The loader exposes the resolved value to the recall configuration surface (the search engine's dependencies). Note that the standalone hive-graph search engine that ships in this repo (`nectar search` and `POST /api/hive-graph/search`) applies **no cross-arm class weighting** (it is a per-arm guarded query per PRD-012a), so the multiplier is the wiring point the shipped cross-memory fusion arm (PRD-013) reads inside Honeycomb, not a value that alters the in-repo search engine's own fusion. This is the same `~/.honeycomb/nectar.json` loader that serves the enricher's `redescribe_threshold` (see `ai/enricher-and-llm-model.md`).
 
 The reverse (raising the multiplier) is also supported but rarely useful — if Nectar is the dominant signal, the operator probably wants to investigate why session memory is thin, not amplify code descriptions to compensate.
 

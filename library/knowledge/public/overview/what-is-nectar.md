@@ -1,6 +1,6 @@
 # What is Nectar?
 
-> Category: Overview | Version: 1.1 | Date: July 2026 | Status: Draft
+> Category: Overview | Version: 1.2 | Date: July 2026 | Status: Active
 
 A 60-second introduction for anyone new to Nectar — what it is, the problem it solves, how it works in plain terms, and what it is not.
 
@@ -51,7 +51,7 @@ A good analogy: Nectar is like the index at the back of a book, but one that has
 
 It helps to know the boundaries.
 
-- **It is a memory layer, not a full-text code search engine.** Today the working recall surface is the `nectar search` command (and the daemon's HTTP endpoint), so you *can* query it yourself. Surfacing that recall automatically through your AI coding assistant, with no search box at all, is future work.
+- **It is a memory layer, not a full-text code search engine.** You *can* query it yourself with the `nectar search` command (and the daemon's HTTP endpoint), and the same recall also surfaces automatically through your AI coding assistant via Honeycomb's shared memory, with no search box at all.
 - **It is not a replacement for your editor or your AI agent.** It does not write code, and it does not replace the assistant you already use. It makes the assistant you already use smarter about your project.
 - **It is not a way to read every line of your code.** Nectar reads enough of each file to describe it accurately. It does not memorize your source code line by line.
 

@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@legioncodeinc/nectar"><img src="https://img.shields.io/npm/v/@legioncodeinc/nectar?style=flat-square&color=FFD048&label=version" alt="npm version"></a>
-  <img src="https://img.shields.io/badge/harnesses-6-FFD048?style=flat-square" alt="6 harnesses">
+  <img src="https://img.shields.io/badge/harnesses-3%20supported%20%7C%203%20in%20progress-FFD048?style=flat-square" alt="3 harnesses supported, 3 in progress">
   <img src="https://img.shields.io/badge/OS-windows%20%7C%20macos%20%7C%20linux-6E6A62?style=flat-square" alt="Windows, macOS, Linux">
 </p>
 
@@ -86,20 +86,20 @@ Provenance-tracked file identity across repos and teams. Every file's history ch
 - **The re-association ladder.** Five steps, first match wins: path/mtime/size fast path, path match with changed content, exact content-hash match for clean moves, TLSH fuzzy match for move-and-edit, mint fresh. Low-confidence fuzzy matches go to human review, never auto-claimed, because a mis-association corrupts the history chain.
 - **Copy-paste as provenance, not ambiguity.** Copy a file and the copy gets a fresh nectar with a `derived_from_nectar` edge back to the original. The fork relationship survives forever, even after the copy diverges.
 - **A committed lockfile, not a sidecar.** `.honeycomb/nectars.json` is a regenerable projection of Deeplake state. A fresh clone re-derives identity from it with zero LLM calls and zero network.
-- **Hybrid recall you can run today.** `nectar search` runs a per-arm guarded lexical + vector query over described files, fused by Reciprocal Rank Fusion. Folding those hits into Honeycomb's cross-memory recall as a 4th arm alongside sessions, memories, and skills is future work (PRD-013, out of repo).
+- **Hybrid recall, live in production.** `nectar search` runs a per-arm guarded lexical + vector query over described files, fused by Reciprocal Rank Fusion. Those hits also fold into Honeycomb's cross-memory recall as a 4th arm alongside sessions, memories, and skills, so nectars surface in the same recall your agents already use.
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
 ## 🍯 Features
 
 - 🪪 **Stable file identity.** 26-char ULID per file, minted by the daemon, never reused, never deleted by the ladder. *(registration protocol shipped, PRD-006)*
-- 🪜 **5-step re-association ladder.** Survives renames, moves, offline edits, and cold catch-up after your laptop was closed. TLSH fuzzy matching with a confidence-scored review surface. *(mechanics implemented and tested; durable-store wiring lands with daemon integration)*
+- 🪜 **5-step re-association ladder.** Survives renames, moves, offline edits, and cold catch-up after your laptop was closed. TLSH fuzzy matching with a confidence-scored review surface. *(shipped, PRD-006)*
 - 🧬 **Copy-paste provenance.** `derived_from_nectar` + `fork_content_hash` record every fork as a first-class edge.
 - 🗄️ **Two Deeplake tables.** `hive_graph` (one row per logical file) + append-only `hive_graph_versions` (one row per observed state, carrying 768-dim embeddings). *(shipped, PRD-005)*
 - 🛡️ **Supervised daemon.** `nectar daemon` binds `127.0.0.1:3854`, serves `/health`, registers with Doctor, and installs as an OS service on launchd, systemd, and Windows. *(shipped, PRD-002/003/004)*
 - ✍️ **LLM-minted descriptions.** Lazy, batched, cheap: a long-context model describes files on demand, not eagerly, so a full pass on a 2000-file repo lands at about $3.05 and a committed projection makes every subsequent clone free. *(shipped, PRD-007/010/016)*
 - 🔒 **Portable projection.** `.honeycomb/nectars.json`, regenerated from Deeplake after every brood and enrich. *(shipped, PRD-011)*
-- 🔀 **Hybrid recall.** `nectar search` (and `POST /api/hive-graph/search`) run a per-arm guarded lexical + vector query over described files, fused by Reciprocal Rank Fusion, with a silent BM25 fallback when embeddings are off. Folding these hits into Honeycomb's cross-memory recall as a 4th arm is future work (PRD-013, out of repo). *(search shipped, PRD-012)*
+- 🔀 **Hybrid recall.** `nectar search` (and `POST /api/hive-graph/search`) run a per-arm guarded lexical + vector query over described files, fused by Reciprocal Rank Fusion, with a silent BM25 fallback when embeddings are off. These hits also surface as a 4th arm inside Honeycomb's cross-memory recall alongside sessions, memories, and skills. *(shipped, PRD-012/013)*
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
@@ -143,7 +143,7 @@ Requires Node ≥ 22. `npm run typecheck` and `npm test` are the local gates.
 <!-- screenshot pending: drop nectar dashboard capture into assets/screenshots/dashboard.png -->
 <img src="assets/screenshots/dashboard.png" alt="Nectar dashboard" width="100%">
 
-Straight talk: Nectar does not ship its own dashboard, and that is by design. The always-on **hive portal** owns the unified dashboard for the whole Apiary and aggregates from each daemon's API, fail-soft per daemon ([ADR-0004](library/knowledge/private/architecture/ADR-0004-hive-portal-daemon-role-and-boundaries.md)). The **Hive Graph page** (PRD-015, spec stage) renders your file graph, identity search, and brood status by fetching Nectar's `/api/hive-graph/*` endpoints through the portal. If the Nectar daemon is down, that page degrades gracefully instead of taking the whole dashboard with it.
+Straight talk: Nectar does not ship its own dashboard, and that is by design. The always-on **hive portal** owns the unified dashboard for the whole Apiary and aggregates from each daemon's API, fail-soft per daemon ([ADR-0004](library/knowledge/private/architecture/ADR-0004-hive-portal-daemon-role-and-boundaries.md)). The **Hive Graph page** (PRD-015, shipped) renders your file graph, identity search, and brood status by fetching Nectar's `/api/hive-graph/*` endpoints through the portal. If the Nectar daemon is down, that page degrades gracefully instead of taking the whole dashboard with it.
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
@@ -196,7 +196,7 @@ nectar search "where do we refresh login sessions"
 #    part of the login session lifecycle"
 ```
 
-Same nectar, same description, new path. The identity followed the file, so the memory never went stale. `nectar search` runs the recall over described files today; folding it into your agent's cross-memory recall as a 4th arm is future work (PRD-013).
+Same nectar, same description, new path. The identity followed the file, so the memory never went stale. `nectar search` runs the recall over described files, and the same hits fold into your agent's cross-memory recall as a 4th arm (PRD-013), so the answer surfaces wherever your agent already asks.
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
@@ -241,20 +241,24 @@ Most code-indexing tools bolt onto a vector-only store, which forces every acces
 
 ## 🔌 Supported harnesses
 
-Nectar's file identity and descriptions reach every harness through Honeycomb's recall integration: same daemon boundary, same shared memory, no per-harness wiring of its own.
+Nectar's file identity and descriptions reach your harness through Honeycomb's recall integration: same daemon boundary, same shared memory, no per-harness wiring of its own. Three harnesses are supported through that integration; three more are in progress on the same boundary, so they inherit Nectar the moment their Honeycomb recall lands.
 
-| | | |
-|---|---|---|
-| **Claude Code** | **Cursor** | **Codex** |
-| **Hermes** | **pi** | **OpenClaw** |
+| Harness | Status |
+|---|---|
+| **Claude Code** | Supported |
+| **Cursor** | Supported |
+| **Codex** | Supported |
+| **Hermes** | In progress |
+| **pi** | In progress |
+| **OpenClaw** | In progress |
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
 ## 🎛️ Other interfaces
 
-- **Dashboard.** The hive portal's Hive Graph page (PRD-015, spec stage), fed by Nectar's `/api/hive-graph/*` endpoints (PRD-008). Nectar deliberately owns no dashboard of its own.
-- **MCP server.** Nectar does not ship a separate MCP server; its results surface through Honeycomb's existing MCP recall tools once the recall arm (PRD-013) lands. One boundary, not two.
-- **TypeScript SDK.** `@legioncodeinc/nectar` ships a typed `dist/index` entry today. It is early: the daemon and service lifecycle are the real surface right now, and the SDK grows as the API endpoints (PRD-008) land.
+- **Dashboard.** The hive portal's Hive Graph page (PRD-015, shipped), fed by Nectar's `/api/hive-graph/*` endpoints (PRD-008). Nectar deliberately owns no dashboard of its own.
+- **MCP server.** Nectar does not ship a separate MCP server; its results surface through Honeycomb's existing MCP recall tools via the shipped recall arm (PRD-013). One boundary, not two.
+- **TypeScript SDK.** `@legioncodeinc/nectar` ships a typed `dist/index` entry. The daemon and service lifecycle are the primary surface, and the API endpoints (PRD-008) that back the Hive Graph page are live.
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
@@ -305,3 +309,4 @@ Use it commercially or privately, free of charge. In return: keep the copyright 
 <p align="center"><strong>I am Legion. We are Legion.</strong></p>
 
 <p align="center">#vibewithlegion</p>
+

@@ -1,6 +1,6 @@
 # Hive Graph Schema
 
-> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
+> Category: Data | Version: 1.2 | Date: July 2026 | Status: Active
 
 The canonical Deep Lake table catalog for Nectar: two tables (`hive_graph` for logical identity, `hive_graph_versions` for the append-only content+description chain), the column-by-column rationale, indexing strategy, tenancy model, and the lazy-schema-heal contract.
 
@@ -112,6 +112,22 @@ CREATE TABLE IF NOT EXISTS "hive_graph_versions" (
 | `last_update_date` | TEXT | Standard Honeycomb UPDATE-coalescing workaround column. |
 
 The composite key `(nectar, content_hash)` has a useful invariant: the same content under the same nectar is a no-op (idempotent re-observation after a no-change save). The same content under a *different* nectar is the copy-paste signal that sets `derived_from_nectar` on the newer nectar.
+
+---
+
+## Sequence allocation and latest-version resolution
+
+"Latest version of a nectar" means the row with the highest `seq`, and `seq` must therefore be unique per nectar for that phrase to resolve unambiguously. Deeplake offers no transactions and no enforced unique constraint, so `seq` uniqueness is a property the daemon maintains in code, not one the backend guarantees. Two mechanisms in `DeepLakeHiveGraphStore` together keep it monotonic and collision-free.
+
+The first is **per-nectar append serialization**: every seq-allocating append for a nectar is chained through one promise, so the allocate-and-append pair is atomic within the store instance and two callers sharing the store cannot both read the same `MAX(seq)` and both write `seq+1` (`src/hive-graph/deeplake-store.ts:272-281`).
+
+The second is a **lag-immune in-process high-water mark**, added after a live incident. Renaming a watched file while its describe append was still in flight produced a duplicate `(nectar, seq)` pair: the enricher's durable describe append and the registration bridge's carry flush allocated seqs from independent views of the store (a backend `SELECT MAX(seq)` under read-after-write lag versus a private in-memory mirror), and Deeplake's read lag meant a just-appended row was invisible to the very next `SELECT seq`. The store now records the highest seq this process has written per nectar and allocates `max(inProcessHighWater, backendMax) + 1`, so the read is no longer trusted to reflect an append that already happened here (`src/hive-graph/deeplake-store.ts:282-298`, `src/hive-graph/deeplake-store.ts:459-478`). Every durable append funnels the written seq back into the high-water mark (`src/hive-graph/deeplake-store.ts:399-414`).
+
+Both components now route every version append through one shared allocator, `appendVersionAtNextSeq`, the single seq authority the live daemon wires into the enricher commit and the registration bridge flush (`src/hive-graph/store.ts:159-170`). The bridge re-allocates the seq at flush time rather than trusting the seq its synchronous mirror computed, then reconciles the allocated value back into the mirror so later synchronous reads agree with what persisted (`src/registration/store-bridge.ts:190-215`).
+
+### Healing an existing duplicate
+
+The allocator prevents new duplicates; an idempotent repair heals any that already exist. Because the table is append-only (no in-place `UPDATE`, no unique constraint), the least-invasive correct repair for two rows tied at a nectar's `MAX(seq)` is to append a corrected copy of the winner one seq above the tie, making it the sole latest while the stale tied rows stay in history. The winner is the row with the newest `observed_at` (the most recently observed path or content, which is the renamed path after the incident), and its fields are copied verbatim so a pending carry stays pending and the enricher describes the newest path. The heal is idempotent: once the max seq is unique, a later pass finds nothing tied and does nothing (`src/registration/ladder.ts:551-591`). It runs from the crash-repair sweep and self-heals a live pre-fix duplicate on the next resync.
 
 ---
 

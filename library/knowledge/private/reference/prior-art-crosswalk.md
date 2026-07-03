@@ -36,6 +36,7 @@ This doc maps each prior system to the pillars it covers, notes what Nectar borr
 | Codebase Cortex | none (FAISS row id) | per-chunk embedding | FAISS + `.cortex/` | watcher | no |
 | Context+ | none | per-symbol embedding | `.mcp_data/` cache | realtime tracker | no |
 | NeuralMind | none | per-node learned weights | synapse graph | learned | no |
+| OpenWiki | none | per-wiki-page (not per-file) | committed markdown (no index) | scheduled (GH Action) | no |
 
 Read the matrix as: Nectar's pillars are each individually present in some prior system, but **no single prior system combines all five**. The closest are Smith (LLM description + committed cache, but no minted identity, no watcher, sidecar storage) and CodeRAG (LLM description + watcher, but no stable identity, LanceDB storage, no per-file description granularity).
 
@@ -137,6 +138,22 @@ codeindex (https://github.com/dreamlx/codeindex) uses a two-phase pipeline: stru
 
 ---
 
+## Documentation-generation systems (the committed-wiki school)
+
+A separate school does not try to index or identify files at all. It generates a human-readable and agent-readable markdown wiki, commits it into the repo, and delegates retrieval to the coding agent reading those files. DeepWiki (Cognition), AutoWiki (Factory.ai), and OpenWiki (LangChain) are the notable members. This school overlaps Nectar on the job-to-be-done, give a coding agent durable repo context, but takes the opposite architecture.
+
+### OpenWiki (LangChain)
+
+OpenWiki (https://github.com/langchain-ai/openwiki, MIT, released July 2026) is a stateless CLI built on LangChain DeepAgents. It collects git evidence (`git status`, `git log`, `git diff --name-status` since the last run), runs an LLM agent that writes markdown into an `openwiki/` directory, and appends a reference to that wiki into `AGENTS.md` and `CLAUDE.md` so the coding agent knows to consult it. A GitHub Action runs `openwiki --update` on a schedule and opens a PR with the changes; a SHA-256 snapshot of `openwiki/` prevents no-op churn. Config lives in `~/.openwiki/.env` and a local SQLite checkpointer holds chat threads (not a search index).
+
+OpenWiki scores near zero on the five pillars, and that is the honest read: no file identity, no embeddings, no vector store, no watcher, no daemon. It is not a weaker Nectar, it is a different category. OpenWiki keeps a readable doc set fresh and trusts the agent to grep it; Nectar recalls the right context at query time whether or not anyone documented it. Ask "where is the login logic" when the file is `session-refresh.ts`: OpenWiki helps only if its generated prose happened to connect that file to login and the agent grepped the right page, while Nectar returns it because its description embeds near "login" in vector space.
+
+The reason OpenWiki matters is not technical overlap, it is distribution. It is free, MIT, needs no infrastructure, rides the instruction files every coding agent already reads, and carries LangChain's brand plus the DeepAgents and LangSmith ecosystem. It validates the category while anchoring the market's expectation to "a free committed markdown wiki." The full read, including threat vectors, where Nectar wins, and the recommended positioning, is in [`./competitive-analysis-openwiki.md`](./competitive-analysis-openwiki.md).
+
+Nectar's relationship to this school is potential interop, not just rivalry: a committed OpenWiki wiki is markdown Nectar could ingest, index, and make semantically recallable and identity-stable. That converts a competitor's output into Nectar's input.
+
+---
+
 ## What is genuinely novel about Nectar
 
 After surveying the field, the specific composition that no prior system delivers is:
@@ -210,3 +227,9 @@ Researched via Exa web search, June 2026.
 - opencode-codebase-index: https://github.com/ekakit/opencode-codebase-index
 - code-atlas: https://github.com/SerPeter/code-atlas
 - codebase-indexer: https://github.com/faktenforum/codebase-indexer
+
+Added July 2026:
+
+- OpenWiki (LangChain): https://github.com/langchain-ai/openwiki
+- OpenWiki launch blog: https://www.langchain.com/blog/introducing-openwiki-an-open-source-agent-for-repo-documentation
+- Full competitive read: [`./competitive-analysis-openwiki.md`](./competitive-analysis-openwiki.md)

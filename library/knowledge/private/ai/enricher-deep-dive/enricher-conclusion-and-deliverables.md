@@ -1,6 +1,6 @@
 # Enricher Conclusion and Deliverables
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Active
 
 The deliverable of the enricher deep dive: a lazy, debounced, cost-capped enrichment loop that keeps descriptions fresh without re-describing on every save; the model-choice defensibility restated; the graceful-degradation contract; and forward pointers to the sibling documents that complete the picture.
 
@@ -52,7 +52,8 @@ The enricher never produces a recall quality cliff. Every failure path degrades 
 | Condition | Behavior | Recall impact |
 |---|---|---|
 | Embedding provider unavailable | Description written; embedding NULL; `describe_status = 'described'` | Row served by BM25 over `title`/`description` — lexical-only, no error |
-| LLM returns malformed JSON | Batch retried once, then each file tried solo | Offending file marked `failed`; others described normally |
+| LLM returns malformed JSON | Batch retried once (fence-tolerant parse first), then each file tried solo | Offending file marked `failed`; others described normally |
+| LLM response truncated by the output cap | `DescribeTruncatedError` on `finish_reason: length`; batch split in half and retried | The batch makes progress instead of re-issuing the same oversized call every cycle |
 | LLM rate-limits persistently | Portkey backoff for transients; batch marked `failed` after exhaustion | Failed rows excluded from recall until retried; pending rows invisible |
 | File deleted while pending | Row marked `skipped-deleted`; no LLM call | Row never reaches recall — correct, the file is gone |
 | Cosmetics-only edit | Description inherited; no LLM call | Recall surfaces the carried-forward description unchanged |
@@ -60,6 +61,10 @@ The enricher never produces a recall quality cliff. Every failure path degrades 
 The shared shape across every row is that `describe_status` is the single gate recall reads. A row is recallable only when `describe_status = 'described'`, and every path that reaches that state — LLM call, inheritance, or a prior brooding write — is equivalent from recall's perspective. The embedding column is an enhancement, not a prerequisite: when it is NULL, recall falls back to BM25 over the description text, which is the same silent-fallback behavior the rest of Honeycomb uses. There is no error, no quality cliff, just lexical-only recall over descriptions until embeddings are available.
 
 This is the contract that lets the enricher run as a background loop without an operator watching it. A transient daemon outage, a rate-limit spike, a malformed batch — each degrades a single cycle or a single file, and the next cycle recovers. Recall never sees a partial or broken state, because it only ever sees rows that have reached `described`.
+
+### Hardened by a live soak, not softened
+
+The output-budget, truncation-split, and fence-tolerance changes above are the direct product of a July 2026 soak that surfaced a real stall: a batch of dense markdown files overflowed the model's 4096-token default output cap, the truncated JSON read as malformed, every file was marked failed, and the identical oversized call was re-issued every cycle until the persistent-failure alert halted enrichment. The fixes make the batch describe path self-correcting: a count-derived `max_tokens` (700 per file plus 512 headroom) sizes the request to the batch, `finish_reason: length` raises a typed `DescribeTruncatedError` instead of masquerading as malformed, and a truncated batch splits in half and retries like a context-window failure. A companion `onDescribeError` sink now surfaces the underlying error and the affected paths to stderr, so a future stall leaves a diagnosable trail rather than only a silent `filesFailed` count. These are production-hardening seams validated under load, not evidence of an immature loop; the graceful-degradation contract they extend is what makes the enricher safe to run unattended. The full mechanics are specified in [`enricher-technical-specification.md`](enricher-technical-specification.md).
 
 ---
 

@@ -1,6 +1,6 @@
 # Enricher Technical Specification
 
-> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
+> Category: AI | Version: 1.2 | Date: July 2026 | Status: Active
 
 The enricher contract: the polling loop over pending rows, the debounce plus meaningful-change heuristic, the rate-limit and cost-cap knobs, the model-comparison table, the capability tier a model must satisfy, the `describe_model` column contract, the failure-to-retry-solo path, and the embeddings layer.
 
@@ -139,14 +139,47 @@ Failure handling isolates blame to the offending file rather than aborting a who
 
 | Failure | Behavior |
 |---|---|
-| LLM returns malformed JSON | Re-try the batch once with a stricter prompt; if still malformed, mark each file `describe_status = 'failed'` and process them solo on the next cycle. |
+| LLM returns malformed JSON | Re-try the batch once with a stricter prompt; if still malformed, mark each file `describe_status = 'failed'` and process them solo on the next cycle. Parsing is fence-tolerant first (below), so a fenced-but-valid response is never counted as malformed. |
 | LLM returns wrong number of descriptions | Same as malformed — the validator catches length mismatch, retries, then falls back to solo. |
 | LLM rate-limits persistently | Portkey backoff handles transient 429s; persistent failure marks the batch `failed` and alerts. |
-| LLM call exceeds context window | Should never happen (batcher respects the limit), but if it does, the batch is split in half and retried. |
+| LLM call exceeds context window | The batch is split in half and each half retried (`isContextWindowError`, `src/enricher/describe.ts:133-139`; split at `src/enricher/cycle.ts:219-231`). |
+| LLM response truncated by the output-token cap | `describeFilesBatch` raises `DescribeTruncatedError` on `finish_reason: length` (`src/enricher/describe.ts:181-183`); the cycle splits the batch in half and retries, like a context-window failure. |
 | Embedding provider unavailable | Description is written; embedding is NULL; `describe_status = 'described'` (recall falls back to BM25). |
 | File deleted while pending | The pending version row is marked `describe_status = 'skipped-deleted'` on the next enricher cycle; no LLM call is made. |
 
 The retry-solo path is what makes a single bad file non-fatal: a batch of 40 that produces malformed JSON is retried as a batch, then — if still malformed — each file is tried individually. The 39 good files get described; the one offending file is isolated, marked `failed`, and re-tried on a later cycle.
+
+---
+
+## Output budgeting and truncation split
+
+The output side of the describe call has a token cap, and a batch whose JSON exceeds it is the root cause of the July 2026 soak stall: ten dense markdown files produced a response longer than the model's 4096-token default cap, the model stopped at `finish_reason: length`, the truncated JSON read as malformed, every file was marked failed, and the identical oversized call was re-issued every cycle until the persistent-failure alert halted enrichment. The request never changed, so the loop could not recover on its own. Three changes, mirroring the brooding path's sizing, make the batch describe path self-correcting.
+
+**Count-derived output budget.** Each request carries an explicit `max_tokens` sized to the batch rather than inheriting the 4096 default. The formula is `fileCount * ENRICHER_OUTPUT_TOKENS_PER_FILE + ENRICHER_OUTPUT_TOKEN_HEADROOM`, with the per-file allowance at 700 tokens and the fixed headroom at 512 tokens for the JSON envelope and long concept lists (`computeEnricherBatchMaxTokens`, `src/enricher/describe.ts:156-164`; applied at `src/enricher/describe.ts:177`).
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `ENRICHER_OUTPUT_TOKENS_PER_FILE` | 700 | Per-file output-token allowance for the batch response |
+| `ENRICHER_OUTPUT_TOKEN_HEADROOM` | 512 | Fixed headroom on top of the per-file allowance |
+| Prior implicit cap | 4096 | The inherited default the count-derived budget replaces |
+
+**Truncation is a typed error.** A response that still returns `finish_reason: length` raises `DescribeTruncatedError` (`src/enricher/describe.ts:149-154`, thrown at `src/enricher/describe.ts:181-183`) instead of falling through to the JSON validator and being misread as malformed. The error carries the batch size for the log line.
+
+**Split-on-truncation retry.** The cycle treats `DescribeTruncatedError` exactly like a context-window failure: split the batch in half and retry each half through the same `splitPairs` path (`src/enricher/cycle.ts:144-147`, dispatched at `src/enricher/cycle.ts:219-231`). A batch of ten that overflowed becomes two of five; the loop makes progress rather than re-issuing the doomed call.
+
+## Fence-tolerant response parsing
+
+`parseDescribeResponse` tolerates a markdown-fenced JSON array. Despite the "No markdown fences" system instruction, Gemini intermittently wraps the array anyway, and strict `JSON.parse` rejected the whole batch (the July 2026 soak rejected a fenced-but-valid eight-file response). Parsing now tries strict `JSON.parse` first and, on failure, falls back to extracting the first bracketed span before validating (`src/enricher/describe.ts:97-131`), mirroring the brooding path's `extractJson`. The count and shape validation are unchanged: a fence is tolerated, but a wrong array length or a missing `title`/`description` still fails into the retry-solo path.
+
+## The fail-soft describe-error sink
+
+The `filesFailed` counter is a summary, not a diagnosis. Before the `onDescribeError` seam existed, a describe batch that threw was visible only as a rising failed count, which made the multi-cycle stall undiagnosable: the persistent-failure alert could trip with nothing in the logs. The cycle now reports the underlying error and the affected paths through an optional sink on the terminal failure path, after the split-on-truncation and split-on-context-window retries are exhausted:
+
+```typescript
+readonly onDescribeError?: (err: unknown, paths: readonly string[]) => void;
+```
+
+The seam is fail-soft in both directions (`src/enricher/cycle.ts:64-71`, invoked at `src/enricher/cycle.ts:232-239`): it is optional, so omitting it preserves the prior behavior, and its invocation is wrapped so a throwing sink can never mask the failure handling itself. The live daemon wires it to stderr with the file count and the first affected path (`src/cli.ts:947-951`).
 
 ---
 
