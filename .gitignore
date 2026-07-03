@@ -103,3 +103,5 @@ typings/
 # tool-specific companions are not version-controlled here.
 CLAUDE.md
 
+# Nectar Specific Files
+.honeycomb/
