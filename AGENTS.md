@@ -20,14 +20,22 @@ rather than only "find symbol X".
   and graceful shutdown. Implementation proceeds PRD by PRD (see
   `library/requirements/`); the `library/` docs are the design contract the code
   conforms to, and both evolve together.
-- **The current implementation status is PRD-002 (the daemon).** The process,
-  lifecycle, lock, `/health`, worker harness, and CLI shell are implemented. The
-  Deep Lake data layer (PRD-005), file-registration/re-association (PRD-006),
-  brooding (PRD-007), Portkey/model routing (PRD-010), the portable projection
-  (PRD-011), recall integration (PRD-013), embeddings provider switch (PRD-014),
-  and the enricher steady-state loop (PRD-016) are the next tranches; CLI verbs
-  that invoke not-yet-built mechanics exit with a clear "owned by PRD-NNN" notice
-  rather than a silent stub.
+- **The current implementation status is PRD-001 through PRD-017 shipped, plus
+  the PRD-018 pre-release close-out.** Implemented and tested: the daemon process,
+  lifecycle, lock, `/health`, worker harness, and CLI (PRD-002/003/004); the Deep
+  Lake data layer (PRD-005); file-registration/re-association (PRD-006); brooding
+  (PRD-007); the daemon API surface (PRD-008); Portkey/model routing (PRD-010);
+  the portable projection (PRD-011); the standalone hybrid search engine (PRD-012,
+  reachable via `nectar search` and `POST /api/hive-graph/search`); the embeddings
+  provider switch (PRD-014); the enricher steady-state loop (PRD-016); and
+  usage/check-in telemetry (PRD-017). The `brood`, `prune`, `review-matches`,
+  `search`, `rebuild-projection`, and `brood --dry-run` CLI verbs are wired and
+  real. Auto-brood and the update-on-change watch leg run only once the brood
+  prerequisites are configured (`~/.deeplake/credentials.json` plus
+  `NECTAR_PORTKEY_ENABLED` / `NECTAR_PORTKEY_API_KEY` / `NECTAR_PORTKEY_CONFIG`);
+  without them the daemon still boots, serves `/health`, and reports brooding
+  dormant with a machine-readable reason. The agent-facing 4th recall arm
+  (PRD-013) remains out of repo and spec-stage.
 - **Zero runtime dependencies by design.** The daemon uses only Node built-ins
   (`node:http`, `node:fs`, `node:net`, `node:os`), mirroring the sibling
   **doctor** repo's minimal-footprint ethos. `typescript` and `@types/node`
@@ -55,7 +63,20 @@ src/                             the daemon implementation (TypeScript, ESM)
   poll-loop.ts                   adaptive poll loop (injected timer seam, backoff)
   health.ts                      PipelineStatus + purpose-built /health body
   config.ts                      runtime config resolution (env -> defaults)
+  config-file.ts                 ~/.honeycomb/nectar.json loader (env > file > default)
+  brood-prereqs.ts               brood prerequisite evaluation + first-run guidance
   errors.ts                      DaemonAlreadyRunningError
+  api/                           in-repo router + /api/hive-graph handlers (PRD-008)
+  brooding/                      the full-codebase brood pipeline (PRD-007)
+  embeddings/                    embeddings provider switch (off / local nomic / hosted, PRD-014)
+  enricher/                      the steady-state enrich loop (PRD-016)
+  hive-graph/                    Deep Lake store, schema, search engine, ULID (PRD-005/012)
+  portkey/                       Portkey gateway + describe-model routing (PRD-010)
+  projection/                    the portable .honeycomb/nectars.json projection (PRD-011)
+  registration/                  the file-registration ladder + NodeFS watch (PRD-006)
+  service/                       OS service install/uninstall (launchd/systemd/schtasks, PRD-003)
+  telemetry/                     doctor SQLite check-in/heartbeat/log store (PRD-017)
+  telemetry-usage/               anonymous PostHog usage-telemetry chokepoint (PRD-017)
 test/                            Node built-in test runner suites (*.test.ts)
 package.json                     scripts: build (tsc), typecheck, test, start
 tsconfig.json                    NodeNext ESM, strict, outDir dist/

@@ -150,11 +150,65 @@ export function fingerprintDistance(a: string, b: string): number {
   return bodyDist + lenDist + chkDist;
 }
 
-/** Map a fingerprint distance to a [0,1] confidence using the theoretical max distance (not a tuned cutoff). */
-export function distanceToConfidence(distance: number): number {
+/**
+ * Map a fingerprint distance to a [0,1] confidence. `maxDistance` is the
+ * normalization denominator; it defaults to the fixed {@link MAX_DISTANCE} so
+ * existing callers that score two same-order-of-magnitude-sized inputs (or
+ * that pre-compute their own denominator) are unaffected. Step 4 itself always
+ * passes a size-aware denominator via {@link achievableMaxDistance} (NEC-010) -
+ * see that function's docstring for why a fixed denominator over-inflates
+ * confidence for small inputs.
+ */
+export function distanceToConfidence(distance: number, maxDistance: number = MAX_DISTANCE): number {
   if (distance <= 0) return 1;
-  const c = 1 - distance / MAX_DISTANCE;
+  const denom = maxDistance > 0 ? maxDistance : MAX_DISTANCE;
+  const c = 1 - distance / denom;
   return c < 0 ? 0 : c > 1 ? 1 : c;
+}
+
+/** Number of byte-trigrams a content of `sizeBytes` bytes can produce (0 for content shorter than one trigram). */
+function trigramCount(sizeBytes: number): number {
+  return Math.max(0, sizeBytes - 2);
+}
+
+/**
+ * NEC-010 fix: the size-aware achievable maximum BODY distance for comparing
+ * two contents of the given byte sizes.
+ *
+ * The fixed `BODY_MAX` (768) assumes every one of the 128 buckets can carry a
+ * maximally-different quartile code, which is only reachable when both
+ * contents have enough trigrams to populate every bucket. A content of N bytes
+ * produces at most N-2 trigrams, so it can populate at most `min(N-2, BUCKETS)`
+ * distinct buckets; the other buckets stay at quartile code 0 on both sides and
+ * cannot contribute to the distance. Two contents can differ in at most the
+ * union of their populated buckets, so the achievable body distance is capped
+ * at `6 * (min(trigrams(A), BUCKETS) + min(trigrams(B), BUCKETS))` - the exact
+ * worst case the change-detection review measured for two ~10-byte files
+ * (H5: body distance <= 96 for two 8-trigram inputs, not the fixed 768).
+ *
+ * Once both sides carry >= BUCKETS trigrams (size >= 130 bytes), this collapses
+ * back to the fixed `BODY_MAX`, so content at or above the existing
+ * `tlsh.test.ts` fixture sizes (roughly 1000+ bytes) scores IDENTICALLY to
+ * before this fix (AC-018d.3): this function changes nothing for genuinely
+ * comparable inputs, only for evidence-starved tiny ones.
+ */
+function achievableBodyDistance(sizeA: number, sizeB: number): number {
+  const populated = Math.min(BUCKETS, trigramCount(sizeA)) + Math.min(BUCKETS, trigramCount(sizeB));
+  return Math.min(BODY_MAX, populated * 6);
+}
+
+/**
+ * NEC-010 fix: the size-aware achievable maximum total distance for comparing
+ * two contents. Only the body term scales down for small inputs
+ * ({@link achievableBodyDistance}); `LEN_MAX`/`CHK_MAX` stay fixed because the
+ * length code and checksum are stable signals regardless of content size (they
+ * are not trigram-histogram evidence). This is the denominator step 4 feeds
+ * {@link distanceToConfidence} so a tiny input's confidence reflects how much
+ * distance the digest could actually have produced, not the corpus-wide
+ * theoretical maximum.
+ */
+export function achievableMaxDistance(sizeA: number, sizeB: number): number {
+  return achievableBodyDistance(sizeA, sizeB) + LEN_MAX + CHK_MAX;
 }
 
 /** The +/-20% size-bucket half-width from the corpus (brooding-pipeline.md), an algorithmic optimization, not a threshold. */
@@ -164,10 +218,35 @@ export const SIZE_BUCKET_TOLERANCE = 0.2;
  * Minimum content length (bytes) for a meaningful fuzzy comparison. Content
  * shorter than one byte-trigram records no trigram, so distinct tiny contents
  * would collapse to the same fingerprint (distance 0, perfect confidence) and
- * could be auto-carried without evidence. Below this floor the fuzzy step
- * abstains (no match, no carry).
+ * could be auto-carried without evidence.
+ *
+ * This is the absolute floor against a distance-0 fingerprint collapse, NOT
+ * the evidence floor the fuzzy step actually gates on - see
+ * {@link MIN_FUZZY_EVIDENCE_BYTES} (NEC-010), which is strictly larger and
+ * supersedes this one for the step-4 abstain decision. Kept as a named
+ * constant for the narrower guarantee it documents.
  */
 export const MIN_FUZZY_BYTES = 3;
+
+/**
+ * NEC-010 fix (evidence gate, AC-018d.2): the byte floor below which a
+ * content's trigram histogram carries too little evidence for a meaningful
+ * fuzzy comparison, regardless of the computed digest distance. The
+ * change-detection review found that two unrelated ~10-byte files can score
+ * confidence >= 0.879 under the old fixed-`MAX_DISTANCE` mapping - well above
+ * the `highConfidence` default of 0.85 - because so few trigrams exist that
+ * the quartile-coded body is little more than an 8-of-128 occupancy bitmap.
+ * `MIN_FUZZY_BYTES` (3) only blocks a literal fingerprint collapse; this floor
+ * is deliberately much larger (in the review's suggested 50-100 byte
+ * neighborhood) so the fuzzy step abstains outright on any input too small to
+ * carry real signal, INDEPENDENT of {@link achievableMaxDistance}'s
+ * normalization fix (defense in depth: AC-018d.1's ~10-byte case is caught by
+ * both). Content at or above this floor - including every existing
+ * `tlsh.test.ts` fixture (roughly 1000+ bytes) - is unaffected (AC-018d.3).
+ * This is the mapping/gate, not the tunable `highConfidence`/`reviewFloor`
+ * band edges (`DEFAULT_TUNABLE_FUZZY_CONFIG`), which stay operator-tunable.
+ */
+export const MIN_FUZZY_EVIDENCE_BYTES = 50;
 
 /**
  * The step-4 confidence bands. Supplied by the caller (the daemon config), NOT
@@ -204,9 +283,12 @@ export function createTlshFuzzyStep(config: FuzzyConfig): FuzzyStep {
   return {
     match(content: string | Uint8Array, candidates: readonly FuzzyCandidate[]): FuzzyOutcome {
       const newSize = byteLengthOf(content);
-      // Too small to fingerprint meaningfully: abstain rather than risk a
-      // distance-0 collapse of distinct tiny contents into a false carry.
-      if (newSize < MIN_FUZZY_BYTES) return { kind: "none" };
+      // Evidence gate (NEC-010, AC-018d.2): below the evidence floor the
+      // trigram histogram carries too little signal for a meaningful fuzzy
+      // comparison, so abstain unconditionally - regardless of digest
+      // distance. Strictly supersedes the narrower MIN_FUZZY_BYTES collapse
+      // guard.
+      if (newSize < MIN_FUZZY_EVIDENCE_BYTES) return { kind: "none" };
       const lo = newSize * (1 - SIZE_BUCKET_TOLERANCE);
       const hi = newSize * (1 + SIZE_BUCKET_TOLERANCE);
       const newFingerprint = computeFingerprint(content);
@@ -219,10 +301,12 @@ export function createTlshFuzzyStep(config: FuzzyConfig): FuzzyStep {
       for (const candidate of candidates) {
         if (candidate.fingerprint === null) continue;
         const size = candidate.version.sizeBytes;
-        if (size < MIN_FUZZY_BYTES) continue; // a too-small candidate is not comparable
+        if (size < MIN_FUZZY_EVIDENCE_BYTES) continue; // the candidate side lacks evidence too (NEC-010)
         if (size < lo || size > hi) continue; // outside the +/-20% size bucket
         const distance = fingerprintDistance(newFingerprint, candidate.fingerprint);
-        const confidence = distanceToConfidence(distance);
+        // Size-aware denominator (NEC-010): reflects how much distance THIS
+        // pair could actually produce, not the corpus-wide fixed maximum.
+        const confidence = distanceToConfidence(distance, achievableMaxDistance(newSize, size));
         if (best === null || confidence > best.confidence) {
           best = { nectar: candidate.identity.nectar, confidence, distance };
           bestIsTied = false;

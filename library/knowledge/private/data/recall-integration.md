@@ -1,6 +1,6 @@
 # Recall Integration
 
-> Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
 
 How Nectar's `hive_graph_versions` table plugs into the existing Honeycomb hybrid recall pipeline: the guarded hive-graph arm, the latest-per-nectar subquery, the weighting and dedup strategy against session/memory/skill hits, and the structural-vs-semantic complementarity that makes recall stronger with both layers than with either alone.
 
@@ -61,7 +61,7 @@ ORDER BY bm25_score DESC
 LIMIT :k;
 ```
 
-The vector arm is analogous, substituting `<#>` (cosine distance) over `embedding` for the BM25/ILIKE filter, gated on `embedding IS NOT NULL`. When embeddings are off, only the BM25 arm runs — same silent-fallback behavior as every other recall arm in Honeycomb.
+The vector arm is analogous, substituting `<#>` (cosine similarity, sorted `DESC`, per the pg_deeplake operator reference) over `embedding` for the BM25/ILIKE filter, gated on `embedding IS NOT NULL`. When embeddings are off, only the BM25 arm runs - same silent-fallback behavior as every other recall arm in Honeycomb.
 
 The guard is load-bearing. If the Nectar tables are not present in a fresh workspace, this arm returns empty and the sessions, memory, and memories arms still answer. The implementation therefore mirrors Honeycomb's per-arm guarded-query pattern (`buildHiveGraphVersionsArmSql` beside the existing arm builders), rather than refactoring recall into one monolithic query.
 
@@ -102,15 +102,15 @@ The agent receives a single ranked list where a code-file description ("refreshe
 
 RRF is unweighted by default (each arm's rank-1 contributes `1 / (k + 1)` with the same `k`), but the recall layer supports per-arm multipliers for cases where one arm should count more or less. Nectar ships with a **multiplier of 1.0** (equal weighting) as the default, on the theory that a file-description hit is exactly as actionable as a session-trace hit — they answer different aspects of the same question.
 
-Operators who find Nectar hits dominating recall at the expense of session memory (a possible failure mode if descriptions are written to be too keyword-stuffed) can lower the multiplier via `~/.honeycomb/nectar.json`:
+Operators who find Nectar hits dominating recall at the expense of session memory (a possible failure mode if descriptions are written to be too keyword-stuffed) can lower the multiplier via the `nectar_rrf_multiplier` key in `~/.honeycomb/nectar.json`:
 
 ```json
 {
-  "recall": {
-    "nectar_rrf_multiplier": 0.7
-  }
+  "nectar_rrf_multiplier": 0.7
 }
 ```
+
+Resolution precedence is **environment variable > config file > code default**: `NECTAR_RECALL_MULTIPLIER` overrides the file, the file's `nectar_rrf_multiplier` overrides the built-in `1.0`, and a malformed file or unknown key is logged as a warning and ignored. The loader exposes the resolved value to the recall configuration surface (the search engine's dependencies). Note that the standalone hive-graph search engine that ships in this repo (`nectar search` and `POST /api/hive-graph/search`) applies **no cross-arm class weighting yet** (it is a per-arm guarded query per PRD-012a), so the multiplier is the documented wiring point a future cross-table fusion arm reads, not a value that alters fusion today. This is the same `~/.honeycomb/nectar.json` loader that serves the enricher's `redescribe_threshold` (see `ai/enricher-and-llm-model.md`).
 
 The reverse (raising the multiplier) is also supported but rarely useful — if Nectar is the dominant signal, the operator probably wants to investigate why session memory is thin, not amplify code descriptions to compensate.
 

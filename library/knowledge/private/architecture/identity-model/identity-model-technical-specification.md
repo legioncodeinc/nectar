@@ -1,6 +1,6 @@
 # Identity Model — Technical Specification
 
-> Category: Architecture | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Architecture | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The technical contract of Nectar's chosen identity model (Option C: daemon-minted ULID): the nectar format, the minting triggers, the primary-key contract, the no-source-mutation invariant, the universal-applicability rule, FR-8 compliance, and a decision-driver matrix showing how Option C satisfies each driver where A and B fail.
 
@@ -102,7 +102,7 @@ The nectar table is a **Deep Lake table**. There is no SQLite sidecar, no JSONL 
 
 A parallel SQLite store (Option D in the ADR) is rejected independently of the identity-key choice because it would drift from Deep Lake, get out of sync with the daemon, and become a second source of truth that the daemon's consistency checks cannot see. A *cache* — the regenerable `(path → mtime → last_hash)` map the daemon keeps to avoid re-hashing on poll — is acceptable because it is not a source of truth and can be deleted without loss.
 
-The committed `.honeycomb/nectars.json` projection is not a violation of FR-8 because it is a **projection, not a sidecar**. The distinction is enforcement: a projection is a denormalized, regenerable view written from the source of truth on a defined schedule, never edited directly, and deletable without loss. `honeycomb nectar rebuild-projection` regenerates it from a Deep Lake scan with no other inputs. The three enforcement rules are documented in [`../../data/portable-registry.md`](../../data/portable-registry.md): Deep Lake writes happen first, the projection is never hand-edited, and the projection is regenerable from Deep Lake alone.
+The committed `.honeycomb/nectars.json` projection is not a violation of FR-8 because it is a **projection, not a sidecar**. The distinction is enforcement: a projection is a denormalized, regenerable view written from the source of truth on a defined schedule, never edited directly, and deletable without loss. `nectar rebuild-projection` regenerates it from a Deep Lake scan with no other inputs. The three enforcement rules are documented in [`../../data/portable-registry.md`](../../data/portable-registry.md): Deep Lake writes happen first, the projection is never hand-edited, and the projection is regenerable from Deep Lake alone.
 
 ---
 

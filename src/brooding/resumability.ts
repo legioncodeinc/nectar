@@ -15,6 +15,12 @@
  * of `brood` retries it (US-007c.3). `--force` opts out of rule 1's skip for the
  * non-skipped statuses (described / failed / pending all re-enqueue), while the
  * two skip-* statuses stay skipped (no description is possible for them).
+ *
+ * NEC-038 / AC-018e.7-8: rule 1's skip is additionally conditioned on content
+ * hash for a `described` row - a path edited while the daemon was off (so the
+ * watcher/enricher never saw the change) is re-enqueued rather than skipped
+ * forever, even without `--force`. The two skip-* statuses are unaffected (no
+ * description is possible for them regardless of content).
  */
 import type { DescribeStatus, HiveGraphVersionRow } from "../hive-graph/model.js";
 
@@ -44,6 +50,15 @@ export function isForceProtectedStatus(status: DescribeStatus): boolean {
 export interface ClassifyResumeOptions {
   /** `--force`: re-describe every non-skipped file, ignoring existing descriptions. */
   readonly force?: boolean;
+  /**
+   * The freshly prepared file's content hash. When the latest row is
+   * `described` and this differs from `latest.contentHash`, the path is
+   * re-enqueued instead of skipped (NEC-038 / AC-018e.7) - the file changed
+   * since the last successful brood. Omit to preserve the pure path-status
+   * behavior (AC-018e.8's regression guard: matching or absent hash skips
+   * exactly as before).
+   */
+  readonly preparedContentHash?: string;
 }
 
 /**
@@ -63,6 +78,20 @@ export function classifyResume(
     return isForceProtectedStatus(latest.describeStatus) ? "skip" : "re-enqueue";
   }
 
-  if (isTerminalBroodStatus(latest.describeStatus)) return "skip"; // rule 1
+  if (isTerminalBroodStatus(latest.describeStatus)) {
+    // A `described` path whose on-disk content hash no longer matches the
+    // stored one changed since the last brood: re-enqueue rather than skip it
+    // forever (NEC-038 / AC-018e.7). The two skip-* statuses always skip here
+    // (unchanged, AC-018e.8) since no content comparison can make them
+    // describable.
+    if (
+      latest.describeStatus === "described" &&
+      opts.preparedContentHash !== undefined &&
+      opts.preparedContentHash !== latest.contentHash
+    ) {
+      return "re-enqueue";
+    }
+    return "skip"; // rule 1
+  }
   return "re-enqueue"; // rule 2 (pending) + failed re-enqueueable
 }

@@ -28,7 +28,7 @@ import { mintNectar } from "../hive-graph/ulid.js";
 import { filenameOf } from "../hive-graph/paths.js";
 import type { RegistrationFs } from "../registration/service.js";
 import type { IgnorePredicate } from "../registration/ignore.js";
-import type { PortkeyFetch } from "../portkey/transport.js";
+import type { PortkeyFetch, PortkeyUsage } from "../portkey/transport.js";
 import type { PortkeyEnabled } from "../portkey/config.js";
 import type { DescriptionPayload } from "../portkey/describe-model.js";
 import { createOffProvider, type EmbedProvider } from "../embeddings/provider.js";
@@ -37,7 +37,7 @@ import { rebuildProjectionAsync } from "../projection/write.js";
 import { discoverFiles, type DiscoverySource, type GitLsFiles } from "./discovery.js";
 import { contentHashPrecheck, prepareFiles, type PreparedFile } from "./precheck.js";
 import { bucketFiles, classifyBucket, type PackBatchesOptions } from "./bucketing.js";
-import { estimateBroodCost } from "./cost.js";
+import { estimateBroodCost, usageCostUsd } from "./cost.js";
 import {
   describeBatchGroup,
   describeSoloFile,
@@ -56,6 +56,7 @@ import {
   type BroodPlan,
   type BroodResult,
   type BroodRunOptions,
+  type PlanBroodOptions,
   type RowFields,
   type ToBroodItem,
 } from "./pipeline.js";
@@ -96,6 +97,8 @@ export interface AsyncBroodRuntimeDeps {
   readonly fetch?: PortkeyFetch;
   /** The embedding provider (default: the disabled provider -> NULL embeddings, BM25 fallback). */
   readonly embedProvider?: EmbedProvider;
+  /** Active embedding model id stamped as `embed_model` on rows carrying an embedding (PRD-018i / NEC-018). */
+  readonly embedModelId?: string | null;
   /**
    * Projection regeneration seam (default: {@link rebuildProjectionAsync} from
    * the async store). Returns the written path. The async twin of the sync
@@ -112,7 +115,10 @@ async function existingNectarSetAsync(store: AsyncHiveGraphStore, tenancy: Tenan
 }
 
 /** Stage 1-3: discover -> pre-check -> bucket against the async store, returning survivors + buckets. */
-async function discoverPrecheckBucketAsync(config: AsyncBroodConfig): Promise<{
+async function discoverPrecheckBucketAsync(
+  config: AsyncBroodConfig,
+  options: PlanBroodOptions = {},
+): Promise<{
   source: DiscoverySource;
   discoveredCount: number;
   inheritedRows: readonly { identity: HiveGraphRow; version: HiveGraphVersionRow }[];
@@ -132,7 +138,15 @@ async function discoverPrecheckBucketAsync(config: AsyncBroodConfig): Promise<{
     existingNectars: await existingNectarSetAsync(config.store, config.tenancy),
     nowIso: (config.now ?? defaultNow)(),
   });
-  const bucketed = bucketFiles(precheck.survivors, config.packOptions);
+  // Apply the resume partition before bucketing (brooding review M4 / EX-3):
+  // a `--dry-run` should quote the REMAINING cost, not the full original cost.
+  const remaining: PreparedFile[] = [];
+  for (const p of precheck.survivors) {
+    const existing = await config.store.latestVersionByPath(config.tenancy, p.file.relPath);
+    const action = classifyResume(existing?.version, { force: options.force, preparedContentHash: p.contentHash });
+    if (action !== "skip") remaining.push(p);
+  }
+  const bucketed = bucketFiles(remaining, config.packOptions);
   return {
     source: discovery.source,
     discoveredCount: discovery.files.length,
@@ -146,10 +160,12 @@ async function discoverPrecheckBucketAsync(config: AsyncBroodConfig): Promise<{
  * The `--dry-run` cost preview against the async store (the async twin of
  * {@link planBrood}): discover -> pre-check -> bucket -> estimate. Makes NO LLM
  * call and writes NOTHING (no rows, no projection); it only reads the async
- * store's latest-per-nectar set for the pre-check's already-brooded skip.
+ * store's latest-per-nectar set for the pre-check's already-brooded skip. The
+ * bucket counts and estimate reflect only the resumability-remaining
+ * survivors (brooding review M4 / EX-3).
  */
-export async function planBroodAsync(config: AsyncBroodConfig): Promise<BroodPlan> {
-  const { source, discoveredCount, inheritedRows, bucketed } = await discoverPrecheckBucketAsync(config);
+export async function planBroodAsync(config: AsyncBroodConfig, options: PlanBroodOptions = {}): Promise<BroodPlan> {
+  const { source, discoveredCount, inheritedRows, bucketed } = await discoverPrecheckBucketAsync(config, options);
   const estimate = estimateBroodCost(bucketed);
   return {
     source,
@@ -201,7 +217,7 @@ export async function runBroodAsync(
   const now = config.now ?? defaultNow;
 
   if (options.dryRun === true) {
-    const plan = await planBroodAsync(config);
+    const plan = await planBroodAsync(config, { force: options.force });
     return {
       ...plan,
       dryRun: true,
@@ -211,6 +227,7 @@ export async function runBroodAsync(
       describedCount: 0,
       failedCount: 0,
       projectionPath: null,
+      actualUsage: { inputTokens: 0, outputTokens: 0, usd: 0 },
     };
   }
 
@@ -240,7 +257,10 @@ export async function runBroodAsync(
   const toBrood: ToBroodItem[] = [];
   for (const p of precheck.survivors) {
     const existing = await config.store.latestVersionByPath(config.tenancy, p.file.relPath);
-    const action = classifyResume(existing?.version, { force: options.force });
+    const action = classifyResume(existing?.version, {
+      force: options.force,
+      preparedContentHash: p.contentHash,
+    });
     if (action === "skip") {
       skippedResumeCount += 1;
       continue;
@@ -311,91 +331,145 @@ export async function runBroodAsync(
     }
   }
 
-  // ── Stage 4: describe (batch + solo), with malformed-batch solo retry ────────
+  // ── Stage 4-6: describe -> embed -> persist, INCREMENTALLY per batch group
+  // and per solo call (NEC-003 / AC-018e.1-4): a chunk's described+failed rows
+  // are committed to the store before the next chunk's describe call runs, so
+  // a mid-run kill (or a throwing embed provider) leaves every already-
+  // completed chunk durable. A transport-level batch failure marks its rows
+  // failed with no solo retry, and a truncated batch is halved and retried
+  // (NEC-013); the positional-fallback safety lives in `describe.ts` (NEC-014).
   const describe = resolveDescribeFn(deps, capped.length);
   const bucketed = bucketFiles(
     capped.map((i) => i.prepared),
     config.packOptions,
   );
+  const embedProvider = deps.embedProvider ?? createOffProvider();
+  const embedModelId = deps.embedModelId ?? null;
 
-  const describedByNectar = new Map<string, { prepared: PreparedFile; payload: DescriptionPayload; model: string }>();
-  const failedNectars = new Set<string>();
+  const preparedByNectar = new Map<string, PreparedFile>();
+  for (const [prepared, nectar] of nectarByPrepared) preparedByNectar.set(nectar, prepared);
 
   const targetFor = (p: PreparedFile): DescribeTarget => ({ nectar: nectarByPrepared.get(p) as string, prepared: p });
 
-  for (const group of bucketed.batches) {
-    const targets = group.files.map(targetFor);
-    const result = await describeBatchGroup(targets, describe, options.model);
+  let describedCount = 0;
+  let failedCount = 0;
+  let actualInputTokens = 0;
+  let actualOutputTokens = 0;
+
+  function accumulateUsage(usage: PortkeyUsage | null): void {
+    if (usage === null) return;
+    actualInputTokens += usage.inputTokens;
+    actualOutputTokens += usage.outputTokens;
+  }
+
+  /** Embed one chunk's described payloads and persist them immediately (await against the async store). */
+  async function persistDescribedChunk(
+    entries: ReadonlyArray<{ nectar: string; prepared: PreparedFile; payload: DescriptionPayload; model: string }>,
+  ): Promise<void> {
+    if (entries.length === 0) return;
+    const vectors = await embedDescriptions(embedProvider, entries.map((e) => e.payload));
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i] as { nectar: string; prepared: PreparedFile; payload: DescriptionPayload; model: string };
+      const raw = vectors[i] ?? null;
+      const embedding = isValidEmbedding(raw) ? raw : null;
+      const seq = await config.store.nextSeq(e.nectar);
+      await config.store.appendVersion(
+        buildVersionRow(config.tenancy, now(), e.prepared, e.nectar, seq, {
+          title: e.payload.title,
+          description: e.payload.description,
+          concepts: e.payload.concepts,
+          describeStatus: "described",
+          describeModel: e.model,
+          describedAt: now(),
+          embedding,
+          embedModel: embedding !== null ? embedModelId : null,
+        }),
+      );
+      await config.store.touchIdentity(e.nectar, now());
+      describedCount += 1;
+    }
+  }
+
+  /** Persist a set of nectars as `failed` immediately (re-enqueueable next run / by the enricher). */
+  async function persistFailedNectars(nectars: readonly string[]): Promise<void> {
+    for (const nectar of nectars) {
+      const prepared = preparedByNectar.get(nectar);
+      if (prepared === undefined) continue;
+      const seq = await config.store.nextSeq(nectar);
+      await config.store.appendVersion(
+        buildVersionRow(config.tenancy, now(), prepared, nectar, seq, { describeStatus: "failed" }),
+      );
+      await config.store.touchIdentity(nectar, now());
+      failedCount += 1;
+    }
+  }
+
+  /** Describe one solo target and persist its outcome before the next solo call is issued (AC-018e.2). */
+  async function describeAndPersistSolo(target: DescribeTarget): Promise<void> {
+    const solo = await describeSoloFile(target, describe, options.model);
+    accumulateUsage(solo.usage);
+    if (solo.payload !== null) {
+      await persistDescribedChunk([
+        { nectar: target.nectar, prepared: target.prepared, payload: solo.payload, model: solo.model },
+      ]);
+    } else {
+      await persistFailedNectars([target.nectar]);
+    }
+  }
+
+  /**
+   * Describe one batch group, applying the failure-class retry policy
+   * (NEC-013) and the malformed-entry solo retry (spec-preserved), persisting
+   * as soon as each outcome is known.
+   */
+  async function describeAndPersistGroup(targets: readonly DescribeTarget[]): Promise<void> {
+    if (targets.length === 0) return;
+    const result = await describeBatchGroup(targets, describe, { model: options.model });
+    accumulateUsage(result.usage);
+
+    if (result.outcome === "transport-failed") {
+      await persistFailedNectars(result.failed);
+      return;
+    }
+
+    if (result.outcome === "truncated") {
+      if (targets.length === 1) {
+        await persistFailedNectars(targets.map((t) => t.nectar));
+        return;
+      }
+      const mid = Math.ceil(targets.length / 2);
+      await describeAndPersistGroup(targets.slice(0, mid));
+      await describeAndPersistGroup(targets.slice(mid));
+      return;
+    }
+
+    // outcome === "ok": persist the well-formed entries, then solo-retry the
+    // malformed ones (per spec), persisting each solo result immediately.
+    const describedEntries: Array<{ nectar: string; prepared: PreparedFile; payload: DescriptionPayload; model: string }> = [];
     for (const d of result.described) {
       const target = targets.find((t) => t.nectar === d.nectar);
-      if (target !== undefined)
-        describedByNectar.set(d.nectar, { prepared: target.prepared, payload: d.payload, model: result.model });
+      if (target !== undefined) {
+        describedEntries.push({ nectar: d.nectar, prepared: target.prepared, payload: d.payload, model: result.model });
+      }
     }
+    await persistDescribedChunk(describedEntries);
+
     for (const nectar of result.failed) {
       const target = targets.find((t) => t.nectar === nectar);
       if (target === undefined) {
-        failedNectars.add(nectar);
+        await persistFailedNectars([nectar]);
         continue;
       }
-      const solo = await describeSoloFile(target, describe, options.model);
-      if (solo.payload !== null) {
-        describedByNectar.set(nectar, { prepared: target.prepared, payload: solo.payload, model: solo.model });
-      } else {
-        failedNectars.add(nectar);
-      }
+      await describeAndPersistSolo(target);
     }
+  }
+
+  for (const group of bucketed.batches) {
+    await describeAndPersistGroup(group.files.map(targetFor));
   }
 
   for (const p of bucketed.soloFiles) {
-    const target = targetFor(p);
-    const solo = await describeSoloFile(target, describe, options.model);
-    if (solo.payload !== null) {
-      describedByNectar.set(target.nectar, { prepared: p, payload: solo.payload, model: solo.model });
-    } else {
-      failedNectars.add(target.nectar);
-    }
-  }
-
-  // ── Stage 5: embed (over title + ' ' + description) ─────────────────────────
-  const embedProvider = deps.embedProvider ?? createOffProvider();
-  const describedEntries = [...describedByNectar.entries()];
-  const vectors = await embedDescriptions(
-    embedProvider,
-    describedEntries.map(([, v]) => v.payload),
-  );
-
-  // ── Stage 6: persist described + failed rows ────────────────────────────────
-  let describedCount = 0;
-  for (let i = 0; i < describedEntries.length; i++) {
-    const [nectar, v] = describedEntries[i] as [string, { prepared: PreparedFile; payload: DescriptionPayload; model: string }];
-    const raw = vectors[i] ?? null;
-    const embedding = isValidEmbedding(raw) ? raw : null;
-    const seq = await config.store.nextSeq(nectar);
-    await config.store.appendVersion(
-      buildVersionRow(config.tenancy, now(), v.prepared, nectar, seq, {
-        title: v.payload.title,
-        description: v.payload.description,
-        concepts: v.payload.concepts,
-        describeStatus: "described",
-        describeModel: v.model,
-        describedAt: now(),
-        embedding,
-      }),
-    );
-    await config.store.touchIdentity(nectar, now());
-    describedCount += 1;
-  }
-
-  let failedCount = 0;
-  for (const nectar of failedNectars) {
-    const prepared = [...nectarByPrepared.entries()].find(([, n]) => n === nectar)?.[0];
-    if (prepared === undefined) continue;
-    const seq = await config.store.nextSeq(nectar);
-    await config.store.appendVersion(
-      buildVersionRow(config.tenancy, now(), prepared, nectar, seq, { describeStatus: "failed" }),
-    );
-    await config.store.touchIdentity(nectar, now());
-    failedCount += 1;
+    await describeAndPersistSolo(targetFor(p));
   }
 
   // ── Stage 7: regenerate the projection ──────────────────────────────────────
@@ -424,5 +498,10 @@ export async function runBroodAsync(
     describedCount,
     failedCount,
     projectionPath,
+    actualUsage: {
+      inputTokens: actualInputTokens,
+      outputTokens: actualOutputTokens,
+      usd: usageCostUsd(actualInputTokens, actualOutputTokens),
+    },
   };
 }

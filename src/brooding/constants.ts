@@ -55,6 +55,23 @@ export const MIN_BATCH_FILES_BAND = 30;
 export const BYTES_PER_TOKEN = 4;
 
 /**
+ * Estimated output tokens per file in a batch response (title + short
+ * description + concepts). Used to size a batch call's `max_tokens` from its
+ * file count instead of inheriting the flat `PORTKEY_DEFAULT_MAX_TOKENS`
+ * (NEC-013): the corpus estimates a full batch's JSON output at 2-4K tokens,
+ * and the flat 4096 default sits at or below that, inviting truncation.
+ */
+export const BATCH_OUTPUT_TOKENS_PER_FILE = 120;
+
+/**
+ * Fixed headroom added on top of the per-file estimate to absorb JSON
+ * structural overhead (array brackets, keys, quoting) and model variance, so a
+ * full {@link MAX_BATCH_FILES}-file batch's output fits comfortably under the
+ * requested cap rather than truncating at the edge of it.
+ */
+export const BATCH_OUTPUT_TOKEN_HEADROOM = 1024;
+
+/**
  * Extensions treated as binary without reading the file (the corpus's
  * "known-binary list": `.png`, `.jpg`, `.pdf`, `.woff2`, ...). Lowercase, no
  * leading dot, matching `hive-graph/paths.ts` `extOf`. A file whose extension is
@@ -72,7 +89,15 @@ export const KNOWN_BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
   // executables / native / compiled
   "exe", "dll", "so", "dylib", "bin", "o", "a", "class", "wasm", "node",
   // misc binary
-  "db", "sqlite", "sqlite3", "ds_store", "pyc", "pdb", "lock",
+  "db", "sqlite", "sqlite3", "pyc", "pdb",
+  // NEC-042 item 7 / AC-018l.14: `.lock` files (yarn.lock, Cargo.lock,
+  // Gemfile.lock, ...) are TEXT, not binary; classifying them skip-binary was
+  // dishonest and blocked `--force` from ever re-describing them. They are
+  // dropped from this list so they follow the ordinary size/NUL-sniff buckets
+  // (a text lockfile becomes batch/solo; an oversized one, skipped-too-large;
+  // and a genuinely binary `.lock` is still caught by the NUL content sniff).
+  // `ds_store` is dropped too: it was unreachable dead config - `extOf(".DS_Store")`
+  // returns "" (a dotfile has no extension), so this entry never matched.
 ]);
 
 /**

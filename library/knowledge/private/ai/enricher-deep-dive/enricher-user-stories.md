@@ -1,6 +1,6 @@
 # Enricher User Stories
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 Engineering and operator user stories for the lazy enrichment loop — the personas that own polling, model configuration, auditing, change-detection, and cost control, with acceptance criteria grounded in the enricher contract.
 
@@ -158,7 +158,7 @@ The personas recur across the stories:
 (b) New pending rows pick up the new `describe_model` on next enrichment.
 (c) Recall continues to surface old-model descriptions unchanged.
 
-**US-EN-017** — As the operator, when I want to re-describe everything under the new model I run `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to pending.
+**US-EN-017** - As the operator, when I want to re-describe everything under the new model I run `nectar brood --force --model <new>`, which sets all non-skipped rows back to pending.
 **Acceptance criteria:**
 (a) The command resets non-skipped rows to `describe_status = 'pending'`.
 (b) Skipped rows (`skipped-binary`, `skipped-too-large`) are not reset.
@@ -170,9 +170,9 @@ The personas recur across the stories:
 
 **US-EN-018** — As the cost-bound operator, I can cap the cost of a *brood* with `--limit N` and preview it with `--dry-run`, so the one-time bootstrap cannot exceed a known cost.
 **Acceptance criteria:**
-(a) `honeycomb nectar brood --limit N` describes at most N pending files per invocation (a `brood` flag, documented in `../brooding-pipeline.md`).
+(a) `nectar brood --limit N` describes at most N pending files per invocation (a `brood` flag, documented in `../brooding-pipeline.md`).
 (b) Remaining pending files stay pending for a subsequent brood or for the enricher loop to pick up.
-(c) `honeycomb nectar brood --dry-run` reports the estimated call count and cost without making LLM calls.
+(c) `nectar brood --dry-run` reports the estimated call count and cost without making LLM calls.
 (d) The steady-state enricher loop is not separately cost-capped per invocation; its cost is bounded by the pending-queue depth and the 30-second poll interval.
 
 **US-EN-019** — As the enricher loop, I rely on Portkey's built-in rate-limit handling for 429s and 5xxs rather than implementing my own retry, so that double-retry pathologies are avoided.

@@ -23,6 +23,17 @@ import { SERVICE_LABEL, WINDOWS_TASK_NAME, type ServicePlan } from "./platform.j
 export const NECTAR_RUN_COMMAND = "daemon" as const;
 
 /**
+ * The directory the launchd unit writes stdout/stderr logs into
+ * (`<home>/.honeycomb/nectar`). Single-sourced here so the install path
+ * (`service/index.ts`) creates exactly the directory the plist references,
+ * rather than the daemon silently losing its logs on macOS (NEC-042 item 2 /
+ * AC-018l.9). Forward slashes match the plist's own path style.
+ */
+export function launchdLogDir(home: string): string {
+  return `${home}/.honeycomb/nectar`;
+}
+
+/**
  * Seconds the OS waits before restarting a crashed nectar on POSIX. Used by the
  * launchd `ThrottleInterval` and the systemd `RestartSec` directives; both take
  * seconds. Mirrors doctor's `RESTART_SEC` (doctor/src/service/templates.ts).
@@ -36,6 +47,16 @@ export const RESTART_SEC = 5 as const;
  * doctor's `WINDOWS_RESTART_INTERVAL`.
  */
 export const WINDOWS_RESTART_INTERVAL = "PT1M" as const;
+
+/**
+ * systemd restart rate-limiting window (seconds) and burst count (daemon-api
+ * review H4). The old template disabled rate limiting (`StartLimitIntervalSec=0`),
+ * so a genuinely broken unit crash-looped every {@link RESTART_SEC} seconds
+ * forever. A finite burst over a finite window makes systemd give up and surface
+ * a failed state instead of burning CPU and journal space indefinitely.
+ */
+export const START_LIMIT_INTERVAL_SEC = 60 as const;
+export const START_LIMIT_BURST = 5 as const;
 
 /**
  * Quote a single token for a systemd `ExecStart` line. systemd does NOT invoke a
@@ -64,7 +85,7 @@ export function escapeXml(value: string): string {
 export function renderLaunchdPlist(plan: ServicePlan): string {
   const node = escapeXml(process.execPath);
   const exec = escapeXml(plan.execPath);
-  const home = escapeXml(plan.home);
+  const logDir = escapeXml(launchdLogDir(plan.home));
   const label = escapeXml(plan.label);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -87,9 +108,9 @@ export function renderLaunchdPlist(plan: ServicePlan): string {
 	<key>ProcessType</key>
 	<string>Background</string>
 	<key>StandardOutPath</key>
-	<string>${home}/.honeycomb/nectar/launchd.out.log</string>
+	<string>${logDir}/launchd.out.log</string>
 	<key>StandardErrorPath</key>
-	<string>${home}/.honeycomb/nectar/launchd.err.log</string>
+	<string>${logDir}/launchd.err.log</string>
 </dict>
 </plist>
 `;
@@ -101,20 +122,26 @@ export function renderLaunchdPlist(plan: ServicePlan): string {
  * `Type=simple` because nectar stays in the foreground of its own process.
  */
 export function renderSystemdUnit(plan: ServicePlan): string {
-  // Quote the exec path so a space-bearing install prefix cannot mis-split into two
-  // argv tokens; the run subcommand is a fixed literal with no spaces.
-  const exec = `${quoteSystemdToken(plan.execPath)} ${NECTAR_RUN_COMMAND}`;
+  // Prefix `process.execPath` (the node interpreter) exactly as the launchd and
+  // Scheduled Task templates do (daemon-api review H4): execing the CLI entry
+  // directly relied on `node` being on the systemd user manager's PATH, which it
+  // is not on an nvm/fnm/volta install, producing an infinite crash loop. Both
+  // tokens are quoted so a space-bearing path cannot mis-split into two argv
+  // tokens; the run subcommand is a fixed literal with no spaces.
+  const node = quoteSystemdToken(process.execPath);
+  const exec = quoteSystemdToken(plan.execPath);
   return `[Unit]
 Description=nectar - semantic memory layer daemon
 Documentation=https://get.theapiary.sh
 After=network.target
+StartLimitIntervalSec=${START_LIMIT_INTERVAL_SEC}
+StartLimitBurst=${START_LIMIT_BURST}
 
 [Service]
 Type=simple
-ExecStart=${exec}
+ExecStart=${node} ${exec} ${NECTAR_RUN_COMMAND}
 Restart=always
 RestartSec=${RESTART_SEC}
-StartLimitIntervalSec=0
 
 [Install]
 WantedBy=default.target

@@ -5,10 +5,10 @@
  * fuzzy matches. Writes are additive only: existing local nectars are never
  * overwritten.
  */
-import { nectarCreatedAt } from "../hive-graph/ulid.js";
+import { mintNectar, nectarCreatedAt } from "../hive-graph/ulid.js";
 import type { HiveGraphRow, HiveGraphVersionRow, Tenancy } from "../hive-graph/model.js";
 import type { PortableProjection, ProjectionFileEntry } from "./format.js";
-import { buildContentHashIndex } from "./load.js";
+import { buildContentHashMultiIndex } from "./load.js";
 
 /** Repo-relative path -> content hash (from disk scan). */
 export type DiskHashMap = ReadonlyMap<string, string>;
@@ -69,7 +69,13 @@ function toVersion(
   tenancy: Tenancy,
   observedAt: string,
 ): HiveGraphVersionRow {
-  const described = entry.title !== "" || entry.description !== "";
+  // PRD-018i / NEC-019 AC-018i.5: inherited rows land in the enricher's
+  // pending-selector-visible state (`pending`) with title/description/concepts
+  // PRESERVED, and `embedding: null`. The enricher's re-embed path then computes
+  // a 768-dim vector over the inherited `title + description` with NO LLM
+  // describe call (AC-018i.6) and stamps `embed_model` on completion. Writing
+  // them `described` (as before) left them invisible to the pending selector, so
+  // a fresh clone's vector arm stayed permanently empty.
   return {
     nectar,
     contentHash: entry.content_hash,
@@ -83,11 +89,12 @@ function toVersion(
     description: entry.description,
     concepts: conceptsToJson(entry.concepts),
     embedding: null,
+    embedModel: null,
     confidence: null,
     fingerprint: null,
     describedAt: entry.described_at,
     describeModel: entry.describe_model,
-    describeStatus: described ? "described" : "pending",
+    describeStatus: "pending",
     observedAt,
     orgId: tenancy.orgId,
     workspaceId: tenancy.workspaceId,
@@ -106,7 +113,7 @@ export function inheritFromProjection(
   diskHashes: DiskHashMap,
   opts: InheritFromProjectionOptions,
 ): InheritSummary {
-  const index = buildContentHashIndex(doc);
+  const index = buildContentHashMultiIndex(doc);
   const existing = opts.existingNectars ?? new Set<string>();
   const observedAt = opts.nowIso ?? new Date().toISOString();
 
@@ -115,24 +122,47 @@ export function inheritFromProjection(
   let unmatched = 0;
   let skippedExisting = 0;
 
+  // PRD-018i / NEC-037 AC-018i.9/.10: consume one projection entry per matched
+  // path for a shared content hash so duplicate-content files each keep their own
+  // nectar; when the on-disk duplicates outnumber the projection entries for that
+  // hash, the surplus paths mint FRESH nectars (inheriting the identical
+  // content's description) rather than reusing an already-consumed one.
+  const consumed = new Map<string, number>();
+
   for (const [path, hash] of diskHashes) {
-    const hit = index.get(hash);
-    if (hit === undefined) {
+    const list = index.get(hash);
+    if (list === undefined || list.length === 0) {
       unmatched += 1;
       continue;
     }
 
-    if (existing.has(hit.nectar)) {
-      skippedExisting += 1;
-      continue;
+    const used = consumed.get(hash) ?? 0;
+    if (used < list.length) {
+      const hit = list[used] as { nectar: string; entry: ProjectionFileEntry };
+      consumed.set(hash, used + 1);
+      if (existing.has(hit.nectar)) {
+        skippedExisting += 1;
+        continue;
+      }
+      const entry = { ...hit.entry, path };
+      rows.push({
+        identity: toIdentity(hit.nectar, entry, doc.derived, opts.tenancy),
+        version: toVersion(hit.nectar, entry, opts.tenancy, observedAt),
+      });
+      inherited += 1;
+    } else {
+      // Surplus duplicate path: mint a fresh nectar carrying the identical
+      // content's description. The originally-minted nectars are not reused, so
+      // none is orphaned by a double assignment (AC-018i.10).
+      const template = list[0] as { nectar: string; entry: ProjectionFileEntry };
+      const nectar = mintNectar();
+      const entry = { ...template.entry, path };
+      rows.push({
+        identity: toIdentity(nectar, entry, doc.derived, opts.tenancy),
+        version: toVersion(nectar, entry, opts.tenancy, observedAt),
+      });
+      inherited += 1;
     }
-
-    const entry = { ...hit.entry, path };
-    rows.push({
-      identity: toIdentity(hit.nectar, entry, doc.derived, opts.tenancy),
-      version: toVersion(hit.nectar, entry, opts.tenancy, observedAt),
-    });
-    inherited += 1;
   }
 
   return { inherited, unmatched, skippedExisting, rows };

@@ -1,6 +1,6 @@
 # Hive Graph: User Stories
 
-> Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The engineering and operator contracts that the `hive_graph` / `hive_graph_versions` schema imposes, written as testable user stories with acceptance criteria. Personas: the schema designer, the Deep Lake client writing rows, the recall query reading rows, the heal pass at daemon boot, and the operator auditing tenancy isolation.
 
@@ -104,7 +104,7 @@ These stories are engineering scope: they describe what the schema must support 
 
 **US-SG-020** — As a Deep Lake client writing rows, I regenerate the `.honeycomb/nectars.json` projection from `hive_graph_versions` after every brood and enrich cycle, so that the projection stays a faithful derived view. **Acceptance criteria:** (a) Deep Lake writes complete before the projection write begins; (b) the projection contains the latest described version per nectar, scoped to the project; (c) the projection write is atomic (temp file plus rename); (d) a crashed regeneration leaves the prior projection intact.
 
-**US-SG-021** — As an operator, I can rebuild the projection from Deep Lake alone via `honeycomb nectar project --rebuild-projection`, so that a lost or corrupt projection is recoverable without re-brooding. **Acceptance criteria:** (a) the rebuild command scans `hive_graph_versions` and produces the projection with no other inputs; (b) the rebuilt file is byte-identical to a fresh generation modulo `generated_at`; (c) if the rebuild could not reproduce the projection from Deep Lake alone, that would indicate a sidecar violation and is a defect.
+**US-SG-021** - As an operator, I can rebuild the projection from Deep Lake alone via `nectar project --rebuild-projection`, so that a lost or corrupt projection is recoverable without re-brooding. **Acceptance criteria:** (a) the rebuild command scans `hive_graph_versions` and produces the projection with no other inputs; (b) the rebuilt file is byte-identical to a fresh generation modulo `generated_at`; (c) if the rebuild could not reproduce the projection from Deep Lake alone, that would indicate a sidecar violation and is a defect.
 
 **US-SG-022** — As a schema designer, I ensure the projection is never a source of truth, so that FR-8 (no sidecars) is satisfied. **Acceptance criteria:** (a) no read path consults the projection as authoritative state (recall reads Deep Lake directly); (b) the projection flows into Deep Lake only on fresh-clone inheritance, and only for nectars local Deep Lake lacks; (c) a hand-edit to the projection is overwritten on the next regeneration.
 

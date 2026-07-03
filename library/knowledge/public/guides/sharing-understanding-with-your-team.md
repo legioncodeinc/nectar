@@ -1,8 +1,8 @@
 # Sharing Understanding With Your Team
 
-> Category: Guide | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Guide | Version: 1.1 | Date: July 2026 | Status: Draft
 
-Explains what happens when you commit Nectar's shared map to version control: a teammate who clones the repo gets the same file descriptions instantly, for free, with no re-scan — and everyone searches the same semantic index.
+Explains what happens when you commit Nectar's shared map to version control: a teammate who clones the repo gets the same file descriptions instantly, for free, with no re-scan - so everyone shares one understanding of the codebase.
 
 **Related:**
 - [`getting-started-with-nectar.md`](getting-started-with-nectar.md)
@@ -53,9 +53,9 @@ The first time your teammate's copy of Nectar starts up in the cloned project, i
 
 A current shared map typically produces **zero re-scan work and zero cost** on a fresh clone. Every file's content lines up with a record in the map, so every description carries over. The person who first scanned the project paid the bill; the clone pays nothing.
 
-### Step 4 — Everyone searches the same semantic index
+### Step 4 - Everyone shares one understanding of the codebase
 
-Once inheritance finishes, your teammate's project is in the same state yours was right after the first scan. They can immediately ask their AI agent "where is the login logic?" and get the same right answers you do. There is one shared understanding of the codebase, and you are all working from it.
+Once inheritance finishes, your teammate's project is in the same state yours was right after the first scan: every file carries its title and description. They can run `nectar search "where is the login logic"` and get lexical (name and description) matches straight away. Full vector-based semantic recall for the inherited files follows once their daemon (running with the [brood prerequisites](getting-started-with-nectar.md) configured) re-embeds those inherited entries. Surfacing this recall directly through an AI coding assistant is future work. There is one shared understanding of the codebase, and you are all working from it.
 
 ---
 
@@ -107,7 +107,7 @@ The recommendation is to commit it. The diff noise is small (one entry per chang
 
 - Commit `.honeycomb/nectars.json`. It is the bridge that turns one person's scan into the whole team's asset.
 - A fresh clone inherits every description for free, with zero re-scan cost, and works offline.
-- Everyone searches the same semantic index, so "where is the login logic?" returns the same right answers across the team.
+- Everyone shares one understanding of the codebase, so `nectar search "where is the login logic"` returns the same files across the team; vector recall for inherited files converges once the daemon re-embeds them.
 - Merges reconcile cleanly because each file is tracked independently.
 - Branch switches are free thanks to a grace period before any cleanup.
 - A stale map is not a disaster — only the gap gets re-described.

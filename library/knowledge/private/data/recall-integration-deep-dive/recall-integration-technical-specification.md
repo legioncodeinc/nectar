@@ -110,11 +110,11 @@ INNER JOIN (
   GROUP BY nectar
 ) latest ON v.nectar = latest.nectar AND v.seq = latest.max_seq
 WHERE v.embedding IS NOT NULL              -- gate: only rows the enricher embedded
-ORDER BY v.embedding <#> :query_vector     -- cosine distance, 768-dim
+ORDER BY v.embedding <#> :query_vector DESC     -- cosine similarity, 768-dim
 LIMIT :k;
 ```
 
-The `<#>` operator is cosine distance over the 768-dim `embedding` column. The dimensionality matches `sessions.message_embedding` and `memory.summary_embedding` deliberately — the hybrid recall pipeline's vector index expects consistent dimensionality across semantic arms. The embedding is computed over `title + ' ' + description` by the configured embedding provider, documented in [`../../ai/enricher-and-llm-model.md`](../../ai/enricher-and-llm-model.md).
+The `<#>` operator between a `FLOAT4[]` column and a `FLOAT4[]` literal is cosine similarity over the 768-dim `embedding` column, sorted `DESC` (most similar first), per the pg_deeplake SQL reference and confirmed by the live ordering probe in `test/hive-graph-search-live.test.ts` on 2026-07-03. (An earlier revision of this document called it cosine distance ordered ascending; that was incorrect and was flagged as NEC-005.) The dimensionality matches `sessions.message_embedding` and `memory.summary_embedding` deliberately - the hybrid recall pipeline's vector index expects consistent dimensionality across semantic arms. The embedding is computed over `title + ' ' + description` by the configured embedding provider, documented in [`../../ai/enricher-and-llm-model.md`](../../ai/enricher-and-llm-model.md).
 
 ### Graceful BM25-only fallback
 

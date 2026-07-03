@@ -26,6 +26,14 @@
 import { defaultFetch, type FetchLike } from "./http.js";
 import type { EmbedProvider } from "./provider.js";
 
+/**
+ * The pinned local nomic model id (PRD-014a / `ai/enricher-and-llm-model.md`).
+ * The embed daemon owns the model, revision, and quantization; nectar records
+ * this id as `embed_model` provenance on rows the local provider embeds
+ * (PRD-018i / NEC-018).
+ */
+export const LOCAL_NOMIC_MODEL_ID = "nomic-embed-text-v1.5" as const;
+
 /** The local embed daemon's loopback host (matches honeycomb's `EMBED_HOST`). */
 export const DEFAULT_LOCAL_EMBED_HOST = "127.0.0.1" as const;
 

@@ -1,6 +1,6 @@
 # Portable Registry: User Stories
 
-> Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
 
 Engineering and operator user stories for the portable registry projection, scoped to the personas that exercise it: the teammate on a fresh `git clone`, the daemon booting with a projection present, the reviewer reading the projection diff in a PR, the operator running `rebuild-projection`, and the contributor whose PR adds a newly-described file. Each story carries acceptance criteria tied to the contract in [`portable-registry-technical-specification.md`](portable-registry-technical-specification.md).
 
@@ -24,7 +24,7 @@ These are engineering-scope user stories, not a PRD. They describe the behaviors
 - **The teammate** — a developer on a fresh `git clone` whose checkout inherits identity through the committed projection.
 - **The daemon** — the hiveantennae process that loads, validates, and regenerates the projection at boot and at the end of brood/enrich cycles.
 - **The reviewer** — a human reading the projection diff in a PR, sanity-checking newly-committed descriptions.
-- **The operator** — a human running `honeycomb nectar rebuild-projection` to repair a corrupt, lost, or stale projection.
+- **The operator** - a human running `nectar rebuild-projection` to repair a corrupt, lost, or stale projection.
 - **The contributor** — a developer whose PR adds a new described file, producing one new projection entry.
 
 Story IDs are `US-PR-NNN`, grouped by lifecycle phase and cross-cutting concern.
@@ -82,7 +82,7 @@ Story IDs are `US-PR-NNN`, grouped by lifecycle phase and cross-cutting concern.
 **Acceptance criteria:** (a) No external tool or human edit to `.honeycomb/nectars.json` is respected as state. (b) The next regeneration overwrites any hand-edit. (c) The file is read-only from the system's perspective except for the regeneration write.
 
 **US-PR-013** — As the operator, I can regenerate a byte-identical projection (modulo `generated_at`) from Deep Lake alone, with no other inputs.
-**Acceptance criteria:** (a) `honeycomb nectar rebuild-projection` scans `hive_graph_versions` and produces the projection. (b) The output is byte-identical to a prior regeneration except for `generated_at`. (c) No input other than Deep Lake is required. (d) If the rebuild could not reproduce the file, the projection would be carrying state Deep Lake does not have — a sidecar, which is disallowed.
+**Acceptance criteria:** (a) `nectar rebuild-projection` scans `hive_graph_versions` and produces the projection. (b) The output is byte-identical to a prior regeneration except for `generated_at`. (c) No input other than Deep Lake is required. (d) If the rebuild could not reproduce the file, the projection would be carrying state Deep Lake does not have - a sidecar, which is disallowed.
 
 ---
 
@@ -114,7 +114,7 @@ Story IDs are `US-PR-NNN`, grouped by lifecycle phase and cross-cutting concern.
 **US-PR-019** — As the daemon, I regenerate the projection at the end of an enricher cycle that wrote new descriptions, substituting the newly-described versions in.
 **Acceptance criteria:** (a) End-of-enrich-cycle regeneration runs only after new descriptions are committed to Deep Lake. (b) The incremental update substitutes the newly-described latest versions into the projection. (c) Unchanged entries are retained.
 
-**US-PR-020** — As the operator, I can trigger a full regeneration explicitly via `honeycomb nectar rebuild-projection`.
+**US-PR-020** - As the operator, I can trigger a full regeneration explicitly via `nectar rebuild-projection`.
 **Acceptance criteria:** (a) The command performs a full regeneration from Deep Lake. (b) It is used when the projection is corrupt, lost, or suspected stale. (c) The output is byte-identical (modulo `generated_at`) to a daemon-generated projection.
 
 ---

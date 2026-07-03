@@ -9,6 +9,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { get, request } from "node:http";
+import { Readable } from "node:stream";
+import type { IncomingMessage } from "node:http";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +19,8 @@ import {
   ROUTE_GROUPS,
   HIVE_GRAPH_GROUP,
   allowAllPermission,
+  buildRouteContext,
+  MalformedJsonError,
   type RouteContext,
   type RouteResponse,
 } from "../dist/api/router.js";
@@ -62,6 +66,33 @@ function getJson(port: number, path: string): Promise<{ status: number; body: an
       });
     });
     req.on("error", reject);
+  });
+}
+
+/** Build a fake IncomingMessage streaming `raw`, so `buildRouteContext` can be unit-tested. */
+function fakeReq(raw: string, method = "POST"): IncomingMessage {
+  const req = Readable.from([Buffer.from(raw, "utf8")]) as unknown as IncomingMessage & { method: string; headers: Record<string, string> };
+  req.method = method;
+  req.headers = {};
+  return req;
+}
+
+/** POST a RAW (possibly malformed) body string, bypassing JSON.stringify. */
+function postRaw(port: number, path: string, raw: string): Promise<{ status: number; body: any }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      { host: "127.0.0.1", port, path, method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(raw) } },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c as Buffer));
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          resolve({ status: res.statusCode ?? 0, body: text ? JSON.parse(text) : null });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end(raw);
   });
 }
 
@@ -232,6 +263,129 @@ test("008a a mounted, allowed /api/hive-graph/* unfilled path returns the 501 sc
     const res = await getJson(port, "/api/hive-graph/not-attached");
     assert.equal(res.status, 501);
     assert.equal(res.body.error, "not_implemented");
+  } finally {
+    await daemon.shutdown();
+    rmDirWithRetry(runtimeDir);
+  }
+});
+
+test("AC-018a.7 POST /build returns 202 promptly while a slow brood runs; status stays pollable (async build contract)", async () => {
+  const runtimeDir = tmpRuntimeDir();
+  let started = 0;
+  let statusReads = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const daemon = assembleDaemon({
+    port: 0,
+    runtimeDir,
+    log: () => {},
+    hiveGraphApi: {
+      defaultScope: SCOPE,
+      runBrood: async () => {
+        started++;
+        await gate;
+        return { describedCount: 1 };
+      },
+      readStatus: async () => {
+        statusReads++;
+        return { queueDepth: 0, describeStatus: {}, costSpentUsd: 0, degraded: false } as any;
+      },
+    },
+  });
+  try {
+    const port = await daemon.start();
+
+    const t0 = Date.now();
+    const build = await postJson(port, "/api/hive-graph/build", {});
+    const elapsed = Date.now() - t0;
+    assert.equal(build.status, 202, "the build is accepted asynchronously (202)");
+    assert.equal(build.body.status, "accepted");
+    assert.ok(elapsed < 1000, `the response returned promptly, not after the brood (took ${elapsed}ms)`);
+
+    // The brood is still running (gate not released): status is pollable and a
+    // second build reports already-running.
+    const status = await getJson(port, "/api/hive-graph/status");
+    assert.equal(status.status, 200, "the status endpoint answers while the brood runs");
+    assert.ok(statusReads >= 1, "status was pollable during the in-flight brood");
+    const second = await postJson(port, "/api/hive-graph/build", {});
+    assert.equal(second.status, 409, "a second build while one is in flight reports already-running");
+
+    // Let the brood complete; the in-flight guard clears so a new build is accepted.
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    const third = await postJson(port, "/api/hive-graph/build", {});
+    assert.equal(third.status, 202, "once the in-flight brood settles a new build is accepted");
+    assert.equal(started, 2, "each accepted build started exactly one brood");
+  } finally {
+    await daemon.shutdown();
+    rmDirWithRetry(runtimeDir);
+  }
+});
+
+test("018j scope resolution over the socket: foreign ?project= on /build is rejected before runBrood", async () => {
+  const runtimeDir = tmpRuntimeDir();
+  let broodCalls = 0;
+  const daemon = assembleDaemon({
+    port: 0,
+    runtimeDir,
+    log: () => {},
+    hiveGraphApi: {
+      defaultScope: SCOPE,
+      runBrood: async () => {
+        broodCalls++;
+        return { describedCount: 0 };
+      },
+    },
+  });
+  try {
+    const port = await daemon.start();
+    const res = await postJson(port, "/api/hive-graph/build?project=other-proj", {});
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "foreign_project");
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(broodCalls, 0);
+  } finally {
+    await daemon.shutdown();
+    rmDirWithRetry(runtimeDir);
+  }
+});
+
+// ── NEC-042 item 1 / AC-018l.8: malformed JSON body -> 400, no poisoned cache ──
+
+test("AC-018l.8 body() throws MalformedJsonError CONSISTENTLY on a bad body (no poisoned-undefined second call)", async () => {
+  const ctx = await buildRouteContext(fakeReq("{ not valid json "), "/x", "/x");
+  assert.throws(() => ctx.body(), MalformedJsonError, "the first body() call rejects the malformed JSON");
+  // The pre-fix bug set parsedOnce before parsing, so the SECOND call silently
+  // returned undefined. It must now rethrow the same error consistently.
+  assert.throws(() => ctx.body(), MalformedJsonError, "a second body() call still rejects, never returns undefined");
+});
+
+test("AC-018l.8 body() parses once and caches a VALID body", async () => {
+  const ctx = await buildRouteContext(fakeReq('{"a":1}'), "/x", "/x");
+  assert.deepEqual(ctx.body(), { a: 1 });
+  assert.deepEqual(ctx.body(), { a: 1 }, "a valid body is cached and returned identically");
+});
+
+test("AC-018l.8 an empty body is undefined, not a parse error", async () => {
+  const ctx = await buildRouteContext(fakeReq(""), "/x", "/x");
+  assert.equal(ctx.body(), undefined);
+});
+
+test("AC-018l.8 a malformed JSON body over the socket returns 400 invalid_json, not 500", async () => {
+  const runtimeDir = tmpRuntimeDir();
+  const daemon = assembleDaemon({
+    port: 0,
+    runtimeDir,
+    log: () => {},
+    hiveGraphApi: { defaultScope: SCOPE, searchHiveGraph: async () => ({ hits: [], sources: [], degraded: false }) },
+  });
+  try {
+    const port = await daemon.start();
+    const res = await postRaw(port, "/api/hive-graph/search", "{ not valid json ");
+    assert.equal(res.status, 400, "a malformed body is a client error (400), not a server fault (500)");
+    assert.equal(res.body.error, "invalid_json");
   } finally {
     await daemon.shutdown();
     rmDirWithRetry(runtimeDir);

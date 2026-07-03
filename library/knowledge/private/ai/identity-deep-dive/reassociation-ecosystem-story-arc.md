@@ -1,6 +1,6 @@
 # Re-association: Ecosystem Story Arc
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 How the re-association ladder composes with the rest of Nectar: the journey of a single file through minting at brood, a live edit, an offline move, an offline move-and-edit, a teammate copy-paste that sets `derived_from_nectar`, and fresh-clone inheritance through the projection. Includes a cold-catch-up sequence diagram and shows how the ladder feeds the enricher queue and how the projection sync consumes its outputs.
 
@@ -106,7 +106,7 @@ Step 4 fires. The daemon computes a TLSH fingerprint of the file at `src/auth/ro
 
 The daemon carries N1: it appends a `hive_graph_versions` row for N1 with `seq = 3`, the new path, the new content hash, the `confidence` field populated (`1 − normalizedTLSHDistance`), and `describe_status = 'pending'`. An enrich job is enqueued because the content changed. The enricher later re-describes the file with its new CSRF behavior.
 
-Had the match fallen in the review band, the daemon would have provisionally minted a fresh nectar and surfaced the candidate to `honeycomb nectar review-matches` instead of auto-claiming. The ladder never guesses below the high-confidence band.
+Had the match fallen in the review band, the daemon would have provisionally minted a fresh nectar and surfaced the candidate to `nectar review-matches` instead of auto-claiming. The ladder never guesses below the high-confidence band.
 
 ---
 
@@ -231,7 +231,7 @@ The enricher drains the queue on its cycle (default 30 seconds), selecting `MAX(
 
 The enricher writes descriptions and embeddings to version rows. The projection sync reads those rows and regenerates `.honeycomb/nectars.json`. The coupling is also one-directional: the projection is derived from Deep Lake, never the reverse.
 
-The projection sync runs at three points, documented in [`../../data/portable-registry.md`](../../data/portable-registry.md): end of brooding, end of an enricher cycle that wrote new descriptions, and explicitly via `honeycomb nectar rebuild-projection`. The sync selects the latest described version per nectar, denormalizes it into the projection format, and writes atomically (temp file plus rename) so a crashed regeneration leaves the old projection intact.
+The projection sync runs at three points, documented in [`../../data/portable-registry.md`](../../data/portable-registry.md): end of brooding, end of an enricher cycle that wrote new descriptions, and explicitly via `nectar rebuild-projection`. The sync selects the latest described version per nectar, denormalizes it into the projection format, and writes atomically (temp file plus rename) so a crashed regeneration leaves the old projection intact.
 
 The full composition: the ladder resolves identity and appends version rows; the enricher fills descriptions on the pending rows; the projection sync regenerates the lockfile from the described rows; the committed lockfile is what the next fresh clone inherits. Each stage consumes the output of the previous one, and none of them write to each other's territory.
 

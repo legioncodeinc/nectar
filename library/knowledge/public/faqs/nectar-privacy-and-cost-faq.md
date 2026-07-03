@@ -1,6 +1,6 @@
 # Nectar Privacy and Cost FAQ
 
-> Category: FAQ | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: FAQ | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The trust questions: where your code goes, what it costs, how often it runs, and what happens if you stop using it.
 
@@ -45,7 +45,7 @@ Yes. Once the shared map has been built for a project, it can be committed to yo
 
 Here is why that works. Nectar records a fingerprint of each file's contents. When a fresh clone is opened, the tool checks each file's fingerprint against the committed map. A match means *"this is the same file someone already described"* — so it simply adopts the existing identity and description. No AI model is called, and no scanning cost is incurred.
 
-The practical effect: one person (or one automated run) pays the one-time cost to build the map; everyone else on the team gets it for free, instantly, the moment they clone. And because the map is just a committed file, this works even with no network connection at all.
+The practical effect: one person (or one automated run) pays the one-time cost to build the map; everyone else on the team inherits every file's identity and description for free, instantly, the moment they clone. Lexical recall (by name and description) works right away; full vector-based semantic recall for the inherited files converges once a configured daemon re-embeds them. And because the map is just a committed file, the inherited descriptions work even with no network connection at all.
 
 ---
 
@@ -76,6 +76,6 @@ If you ever come back, or a teammate picks it up later, the map is ready and wai
 
 Yes. Because the shared map can be committed to your repository, a clone of the project works without any network connection at all.
 
-When the map is present, Nectar can recognize every file and serve its description purely from what is already on disk — no calls home, no cloud lookup. This makes the project fully usable for reading, searching, and recall even on a plane, behind a strict firewall, or during an outage.
+When the map is present, Nectar can recognize every file and serve its description purely from what is already on disk, with no calls home and no cloud lookup. This makes the project's descriptions and lexical recall fully usable even on a plane, behind a strict firewall, or during an outage; vector-based semantic recall additionally needs each file's embedding to have been computed.
 
 The one thing that does require a connection is **producing new descriptions** — for a file nobody has described yet. That step calls an AI model through your gateway, so it needs network access. But once a description exists and is saved to the map, it is available offline forever. For an already-described project, offline use is the norm, not a special case.

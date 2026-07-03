@@ -1,8 +1,8 @@
 # Getting Started With Nectar
 
-> Category: Guide | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Guide | Version: 1.1 | Date: July 2026 | Status: Draft
 
-Walks you through your project's very first scan — what Nectar does on first run, what it costs, and how to know it worked — so you can start asking your AI agent "where is the login logic?" and get the right files back.
+Walks you through your project's very first scan (what Nectar does on first run, what it costs, and how to know it worked), so you can run `nectar search "where is the login logic"` and get the right files back.
 
 **Related:**
 - [`keeping-descriptions-accurate.md`](keeping-descriptions-accurate.md)
@@ -14,9 +14,23 @@ Walks you through your project's very first scan — what Nectar does on first r
 
 The first time Nectar meets your project, it does not know anything yet. Every file is just a name on disk. To turn that pile of names into something your AI agent can reason about, Nectar reads through your files and writes a short, plain-language description for each one. We call this first pass **the first scan** — internally it is called "brooding," but what it amounts to is: read your files, understand them, and write down what each one is for.
 
-Once the first scan finishes, your AI agent can answer questions in a new way. Instead of only finding files whose names match a search word, it understands what each file *does*. Ask "where is the login logic?" and it can return a file like `src/middleware/session-refresh.ts` — even though that file has no "login" in its name — because Nectar described it as part of the login session lifecycle.
+Once the first scan finishes, you can search your codebase in a new way. Instead of only finding files whose names match a search word, `nectar search` understands what each file *does*. Run `nectar search "where is the login logic"` and it can return a file like `src/middleware/session-refresh.ts` (even though that file has no "login" in its name) because Nectar described it as part of the login session lifecycle. Surfacing that recall directly through your AI coding assistant is future work; today the working surfaces are the `nectar search` command and the daemon's HTTP endpoint.
 
 The understanding Nectar builds is saved as a small shared file at the root of your project: `.honeycomb/nectars.json`. Think of it as a shared map of your codebase. You do not need to open it or edit it. Nectar maintains it for you, and you commit it to your repo just like any other project file. (For what that shared map makes possible across your team, see the [team-share guide](sharing-understanding-with-your-team.md).)
+
+---
+
+## Before you brood: prerequisites
+
+The dry-run preview below and `nectar search` work without any extra setup. A real first scan, though, needs two things in place so Nectar can actually describe your files:
+
+- **Deeplake credentials.** The shared `~/.deeplake/credentials.json` file (written when you sign in with `hivemind login`) tells Nectar where to store what it learns.
+- **A description model, via Portkey.** Set three environment variables so Nectar can call the model that writes descriptions:
+  - `NECTAR_PORTKEY_ENABLED=1`
+  - `NECTAR_PORTKEY_API_KEY=<your Portkey API key>`
+  - `NECTAR_PORTKEY_CONFIG=<your Portkey config id>`
+
+If either prerequisite is missing, the daemon still starts and serves `/health`, but brooding stays dormant: it describes nothing and tells you why. A startup log line names exactly what is missing, `/health` reports a `brooding.reason`, and on an interactive terminal the daemon prints the exact steps to fix it. Configure both, then start the daemon (or run `nectar brood`) and the first scan proceeds.
 
 ---
 
@@ -29,7 +43,7 @@ A typical project of 2,000 files costs about **three dollars** total for the fir
 If you want to know the exact cost for *your* project before spending anything, run the preview:
 
 ```bash
-honeycomb nectar brood --dry-run
+nectar brood --dry-run
 ```
 
 This reads your files, counts them, sorts them by size, and prints an estimate of how many descriptions it will write and roughly what they will cost. It does **not** describe anything, does **not** spend money, and does **not** change your project. Use it whenever you want to sanity-check the bill.
@@ -41,7 +55,7 @@ This reads your files, counts them, sorts them by size, and prints an estimate o
 When you are ready, start the first scan:
 
 ```bash
-honeycomb nectar brood
+nectar brood
 ```
 
 You will see progress as it works through your files. Here is what it is doing behind the scenes, in plain terms:
@@ -68,13 +82,13 @@ Two promises worth stating plainly, because they matter for trust:
 
 ## How to know it worked
 
-The simplest test is to ask your AI agent a "where is" question the old search would get wrong. Try something like:
+The simplest test is a `nectar search` query the old name-based search would get wrong. With the daemon running, try something like:
 
-- "Where is the login logic?"
-- "Give me everything related to sending email."
-- "What handles retry on failed payments?"
+- `nectar search "where is the login logic"`
+- `nectar search "everything related to sending email"`
+- `nectar search "what handles retry on failed payments"`
 
-If the agent returns files that do the thing you asked about — regardless of what those files are named — the first scan worked. Semantic understanding is live.
+If the results include files that do the thing you asked about, regardless of what those files are named, the first scan worked. Semantic recall is live. Surfacing this recall directly through your AI coding assistant is future work.
 
 You can also check the shared map directly. After a successful first scan, `.honeycomb/nectars.json` exists at your project root and contains one entry per described file, each with a title and a short description. You never need to read it by hand, but it is there, and it is human-readable if you are curious.
 
@@ -83,7 +97,7 @@ You can also check the shared map directly. After a successful first scan, `.hon
 ## What comes next
 
 - **Keep the shared map committed.** Add `.honeycomb/nectars.json` to version control. This is what lets teammates inherit your project's understanding instantly and for free — see [sharing understanding with your team](sharing-understanding-with-your-team.md).
-- **Let it stay fresh on its own.** As you edit, rename, and reorganize, Nectar keeps descriptions current automatically — see [keeping descriptions accurate](keeping-descriptions-accurate.md).
-- **Re-run with a cost cap if you like.** `honeycomb nectar brood --limit 100` describes at most 100 files at a time, useful if you added a large batch of new files and want to pace the cost.
+- **Let it stay fresh as you work.** When the brood prerequisites are configured, the daemon watches for changes and re-describes files as you edit, rename, and reorganize; see [keeping descriptions accurate](keeping-descriptions-accurate.md).
+- **Re-run with a cost cap if you like.** `nectar brood --limit 100` describes at most 100 files at a time, useful if you added a large batch of new files and want to pace the cost.
 
 That is the entire first-run journey. One scan, a small one-time cost, and your project is ready to answer questions the way a teammate who has been there for years would.

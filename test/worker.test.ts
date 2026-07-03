@@ -28,6 +28,38 @@ function arraySource(jobs: Job[]) {
   return { source, completed, failed };
 }
 
+test("whenIdle drains an in-flight job before resolving (AC-018a.10 seam)", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { source } = arraySource([{ id: "j1", kind: "brood" }]);
+  const worker = new HiveantennaeWorker({
+    source,
+    handlers: {
+      brood: async () => {
+        await gate;
+      },
+    },
+    pollIntervalMs: 1000,
+  });
+
+  await worker.whenIdle(); // idle: resolves immediately
+
+  const running = worker.runOnce(); // leases j1 and blocks in the handler
+  let drained = false;
+  const drain = worker.whenIdle().then(() => {
+    drained = true;
+  });
+  await Promise.resolve();
+  assert.equal(drained, false, "whenIdle is pending while the job runs");
+
+  release();
+  await running;
+  await drain;
+  assert.equal(drained, true, "whenIdle resolved after the in-flight job settled");
+});
+
 test("runOnce returns false on an empty source", async () => {
   const worker = new HiveantennaeWorker({
     source: emptyJobSource,

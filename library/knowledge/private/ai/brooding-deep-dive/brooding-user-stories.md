@@ -1,6 +1,6 @@
 # Brooding User Stories
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 Engineering and operator user stories for the brooding pipeline, scoped to the behaviors the brooder must implement and the workflows an operator drives around it. Each story carries acceptance criteria grounded in the pipeline contract; this is engineering scope, not a product spec.
 
@@ -103,7 +103,7 @@ The pipeline contract these stories derive from is [`brooding-technical-specific
 
 **US-BR-015** — As the brooder, at the end of a brood I want to regenerate `.honeycomb/nectars.json` from Deep Lake (temp file plus atomic rename), so that the committed projection captures the result and a fresh clone can inherit it.
 
-**Acceptance criteria:** (a) The projection is written to a temp file and atomically renamed into place. (b) The projection contains the latest described version per nectar, keyed by nectar, with a content-hash index. (c) A crashed regeneration leaves the previous projection intact, not a partial file. (d) The projection is regenerable from Deep Lake alone via `honeycomb nectar rebuild-projection`.
+**Acceptance criteria:** (a) The projection is written to a temp file and atomically renamed into place. (b) The projection contains the latest described version per nectar, keyed by nectar, with a content-hash index. (c) A crashed regeneration leaves the previous projection intact, not a partial file. (d) The projection is regenerable from Deep Lake alone via `nectar rebuild-projection`.
 
 ---
 
@@ -121,19 +121,19 @@ The pipeline contract these stories derive from is [`brooding-technical-specific
 
 ## CLI surface
 
-**US-BR-018** — As an operator, I want `honeycomb nectar brood --dry-run` to run discovery and bucketing, print the estimated call count and cost, and exit without LLM calls, so that I can sanity-check the cost of a brood before committing to it.
+**US-BR-018** - As an operator, I want `nectar brood --dry-run` to run discovery and bucketing, print the estimated call count and cost, and exit without LLM calls, so that I can sanity-check the cost of a brood before committing to it.
 
 **Acceptance criteria:** (a) `--dry-run` performs discovery and bucketing. (b) It prints the per-bucket file counts, the estimated call count, and the estimated cost. (c) No LLM calls are made. (d) No rows are written to Deep Lake and no projection is regenerated.
 
-**US-BR-019** — As an operator, I want `honeycomb nectar brood --limit N` to cap the number of pending files processed in one invocation, so that I can bound the cost of an explicit brood.
+**US-BR-019** - As an operator, I want `nectar brood --limit N` to cap the number of pending files processed in one invocation, so that I can bound the cost of an explicit brood.
 
 **Acceptance criteria:** (a) At most N pending files are processed per invocation. (b) Files beyond the limit remain `pending` and are picked up by a subsequent invocation or the enricher loop. (c) The cost of the invocation is bounded by N and the bucket distribution of those N files.
 
-**US-BR-020** — As an operator, I want `honeycomb nectar brood --force` to re-describe every non-skipped file (ignoring existing descriptions), so that I can re-brood after a model swap or a quality regression.
+**US-BR-020** - As an operator, I want `nectar brood --force` to re-describe every non-skipped file (ignoring existing descriptions), so that I can re-brood after a model swap or a quality regression.
 
 **Acceptance criteria:** (a) `--force` resets non-skipped described rows back to `pending`. (b) Skipped rows (binary, too-large) are not reset — they remain skipped. (c) The brood proceeds normally from the reset state, re-describing and re-embedding.
 
-**US-BR-021** — As an operator, I want a plain `honeycomb nectar brood` to respect existing descriptions and only process pending files, so that re-running an interrupted or `--limit`-capped brood fills in the gaps without redoing finished work.
+**US-BR-021** - As an operator, I want a plain `nectar brood` to respect existing descriptions and only process pending files, so that re-running an interrupted or `--limit`-capped brood fills in the gaps without redoing finished work.
 
 **Acceptance criteria:** (a) Existing described rows are not re-described. (b) Only `pending` rows are processed. (c) The projection is regenerated at the end to reflect any newly-described rows.
 

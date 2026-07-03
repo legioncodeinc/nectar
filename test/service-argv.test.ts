@@ -31,14 +31,27 @@ test("launchd uninstall: bootout the gui/<uid> service target", () => {
 
 test("systemd install/uninstall use --user scope by default and the nectar unit name", () => {
   const p = plan({ platform: "linux" });
-  assert.deepEqual(installCommands(p, 0)[0]?.args, ["--user", "enable", "--now", "nectar.service"]);
+  // NEC-042 item 3 / AC-018l.10: daemon-reload precedes enable --now.
+  assert.deepEqual(installCommands(p, 0)[0]?.args, ["--user", "daemon-reload"]);
+  assert.deepEqual(installCommands(p, 0)[1]?.args, ["--user", "enable", "--now", "nectar.service"]);
   assert.deepEqual(uninstallCommands(p, 0)[0]?.args, ["--user", "disable", "--now", "nectar.service"]);
   assert.deepEqual(statusCommand(p, 0).args, ["--user", "is-active", "nectar.service"]);
 });
 
 test("systemd system-scope omits --user", () => {
   const p = plan({ platform: "linux", privileged: true, preferSystemScope: true });
-  assert.deepEqual(installCommands(p, 0)[0]?.args, ["enable", "--now", "nectar.service"]);
+  assert.deepEqual(installCommands(p, 0)[0]?.args, ["daemon-reload"]);
+  assert.deepEqual(installCommands(p, 0)[1]?.args, ["enable", "--now", "nectar.service"]);
+});
+
+test("AC-018l.10 systemd reinstall issues daemon-reload before enable --now (NEC-042 item 3)", () => {
+  const p = plan({ platform: "linux" });
+  const cmds = installCommands(p, 0);
+  const reloadIdx = cmds.findIndex((c) => c.command === "systemctl" && c.args.includes("daemon-reload"));
+  const enableIdx = cmds.findIndex((c) => c.command === "systemctl" && c.args.includes("enable"));
+  assert.ok(reloadIdx >= 0, "a daemon-reload command is issued");
+  assert.ok(enableIdx >= 0, "an enable --now command is issued");
+  assert.ok(reloadIdx < enableIdx, "daemon-reload precedes enable --now");
 });
 
 test("schtasks install creates from XML then runs it; uninstall deletes; status queries", () => {

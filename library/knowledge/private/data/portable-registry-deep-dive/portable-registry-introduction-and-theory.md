@@ -1,6 +1,6 @@
 # Portable Registry: Introduction and Theory
 
-> Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The conceptual motivation for the portable registry: why Deep Lake (cloud) and fresh-clone (offline) are in tension, how the projection bridges them, why the projection-versus-sidecar distinction is enforcement-not-format, how a regenerable projection satisfies the FR-8 no-sidecar rule, and why a fresh clone with a current projection achieves zero LLM calls and zero fuzzy matches.
 
@@ -36,7 +36,7 @@ A **sidecar** is a parallel source of truth that the system reads from and write
 
 A **projection** is a denormalized, regenerable view of the source of truth. It is written from the source of truth on a defined schedule, never edited directly, and can be deleted and regenerated without loss. A lockfile (`package-lock.json`, `Cargo.lock`) is a projection — delete it and `npm install` or `cargo build` regenerates it from the manifest. The system does not depend on the lockfile for correctness; it depends on it for reproducibility and convenience.
 
-`.honeycomb/nectars.json` is generated from Deep Lake at the end of every brood and every enricher cycle that produced new descriptions. It is committed for portability. It is never the system of record. Delete it, and `honeycomb nectar rebuild-projection` reproduces it from Deep Lake alone. That property — regenerability from the source of truth with no other inputs — is what makes it a projection rather than a sidecar, regardless of the fact that it is a JSON file on disk.
+`.honeycomb/nectars.json` is generated from Deep Lake at the end of every brood and every enricher cycle that produced new descriptions. It is committed for portability. It is never the system of record. Delete it, and `nectar rebuild-projection` reproduces it from Deep Lake alone. That property - regenerability from the source of truth with no other inputs - is what makes it a projection rather than a sidecar, regardless of the fact that it is a JSON file on disk.
 
 ```mermaid
 flowchart LR

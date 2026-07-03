@@ -1,6 +1,6 @@
 # Conclusion and Deliverables of Nectar
 
-> Category: Overview | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Overview | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The synthesis: what Nectar delivers restated as concrete outcomes, the non-goals restated as a contract boundary, a "what success looks like" section framed as measurable properties, and a forward pointer that expands the reading guide into the rest of the corpus.
 
@@ -87,11 +87,11 @@ After a full brood and an indefinite period of live watch, `git status` shows no
 
 ### Property 5 — Brooding cost is bounded and predictable
 
-A full brood of a 2000-file repository costs under ~$3; a 10000-file monorepo costs ~$15; the cost scales linearly with file count at a roughly constant batch/solo ratio. The `honeycomb nectar brood --dry-run` flag reports the estimated call count and cost before any LLM call is made, so the cost is knowable in advance. (See [`../ai/brooding-pipeline.md`](../ai/brooding-pipeline.md).)
+A full brood of a 2000-file repository costs under ~$3; a 10000-file monorepo costs ~$15; the cost scales linearly with file count at a roughly constant batch/solo ratio. The `nectar brood --dry-run` flag reports the estimated call count and cost before any LLM call is made, so the cost is knowable in advance. (See [`../ai/brooding-pipeline.md`](../ai/brooding-pipeline.md).)
 
 ### Property 6 — The projection is enforceably a projection, not a sidecar
 
-`honeycomb nectar rebuild-projection` regenerates `.honeycomb/nectars.json` from a Deep Lake scan alone, byte-identical modulo `generated_at`, with no other inputs. If it could not, the projection would be carrying state Deep Lake lacks and would be a sidecar in violation of FR-8. (See [`../data/portable-registry.md`](../data/portable-registry.md).)
+`nectar rebuild-projection` regenerates `.honeycomb/nectars.json` from a Deep Lake scan alone, byte-identical modulo `generated_at`, with no other inputs. If it could not, the projection would be carrying state Deep Lake lacks and would be a sidecar in violation of FR-8. (See [`../data/portable-registry.md`](../data/portable-registry.md).)
 
 ---
 

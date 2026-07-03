@@ -134,6 +134,9 @@ const fakeBroodResult = {
     embeddingUsd: 0.001,
     totalUsd: 0.01,
   },
+  // EX-3: the daemon records real usage, not the estimate; the fake reports
+  // actuals that happen to match the estimate so the health assertions hold.
+  actualUsage: { inputTokens: 100, outputTokens: 25, usd: 0.01 },
   dryRun: false,
   skippedResumeCount: 0,
   reenqueueCount: 0,
@@ -332,7 +335,8 @@ test("runBootProjectionLoad validates a projection and inherits hash-matched fil
   assert.equal(result.inheritSummary?.inherited, 1);
   assert.equal(written.length, 1, "the hash-matched file's row was written to the durable store");
   assert.equal(written[0].identity.nectar, nectar, "nectar inherited verbatim (zero LLM calls)");
-  assert.equal(written[0].version.describeStatus, "described");
+  // PRD-018i / NEC-019 AC-018i.5: inherited rows land `pending` (selector-visible) for re-embed.
+  assert.equal(written[0].version.describeStatus, "pending");
 });
 
 test("runBootProjectionLoad rejects a project-mismatched projection wholesale (never partial)", async () => {
@@ -414,14 +418,18 @@ test("the daemon runs the boot projection load in the background (awaitBoot sett
 
 // ── E. The durable enricher store adapter (hydrate + write-through) ─────────────
 
-test("DeepLakeEnricherStore hydrates from the durable seam and writes updates through", async () => {
+test("DeepLakeEnricherStore hydrates from the durable seam and commits version-bump appends", async () => {
   const nectar = mintNectar();
   const seeded = [versionRow(nectar, 0, "src/a.ts", "pending")];
-  const writtenSql: string[] = [];
+  const appended: string[] = [];
   const adapter = new DeepLakeEnricherStore({
     loadVersions: async () => seeded,
-    writeBack: async (sql: string) => {
-      writtenSql.push(sql);
+    // PRD-018g / NEC-017: the durable write is a collision-safe version-bump
+    // append, NOT the retired in-place UPDATE.
+    appendVersion: async (row) => {
+      const seq = row.seq + 1;
+      appended.push(`${row.nectar}@${seq}:${row.describeStatus}`);
+      return seq;
     },
   });
 
@@ -430,9 +438,8 @@ test("DeepLakeEnricherStore hydrates from the durable seam and writes updates th
   assert.equal(adapter.isHydrated, true);
   assert.equal(adapter.countPending(TEN), 1, "the seeded pending row is visible to the sync cycle");
 
-  adapter.updateVersion(versionRow(nectar, 0, "src/a.ts", "described"));
-  await flush(5);
-  assert.equal(writtenSql.length, 1, "the update was written through to the durable store");
-  assert.ok(writtenSql[0].includes("UPDATE"), "write-through used buildUpdateVersionSql");
-  assert.equal(adapter.countPending(TEN), 0, "the mirror reflects the described row immediately");
+  const committed = await adapter.commitVersion(versionRow(nectar, 0, "src/a.ts", "described"));
+  assert.equal(committed, true, "commitVersion resolves true on a confirmed durable append");
+  assert.equal(appended.length, 1, "the described row was durably appended (version-bump), not UPDATEd");
+  assert.equal(adapter.countPending(TEN), 0, "the mirror's latest row is now described");
 });

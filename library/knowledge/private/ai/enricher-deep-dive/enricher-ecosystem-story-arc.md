@@ -1,6 +1,6 @@
 # Enricher Ecosystem Story Arc
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 How the enricher composes with the watcher, the meaningful-change heuristic, the LLM call, the embedding provider stack, recall, and the projection — traced as a steady-state edit end to end, plus the model-swap arc that follows.
 
@@ -85,7 +85,7 @@ A model swap follows the same row lifecycle but changes what the `describe_model
 
 3. **New pending rows get the new model.** The next file whose content meaningfully changes enters the queue as `pending`; the enricher describes it under the new model and writes `describe_model = claude-haiku-4.5`. From this point forward, the project's `hive_graph_versions` table carries a mix of old-model and new-model rows, distinguishable by `describe_model`.
 
-4. **(Optional) Selective re-description of old-model rows.** If the operator decides the old-model descriptions are no longer good enough, they run `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`. The enricher re-describes them on subsequent cycles, overwriting the old descriptions and updating `describe_model` to the new value. Skipped rows (`skipped-binary`, `skipped-too-large`) are not reset. A middle path — re-describe only rows where `describe_model` matches the old model identifier — is supported by filtering on that column.
+4. **(Optional) Selective re-description of old-model rows.** If the operator decides the old-model descriptions are no longer good enough, they run `nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`. The enricher re-describes them on subsequent cycles, overwriting the old descriptions and updating `describe_model` to the new value. Skipped rows (`skipped-binary`, `skipped-too-large`) are not reset. A middle path - re-describe only rows where `describe_model` matches the old model identifier - is supported by filtering on that column.
 
 ```mermaid
 flowchart TD
@@ -96,7 +96,7 @@ flowchart TD
     enrichNew --> mix["project now has mixed describe_model values"]
     mix --> audit{"reviewer audits per row"}
     audit -->|"quality acceptable"| leave["leave old-model rows as-is"]
-    audit -->|"quality demands it"| force["honeycomb nectar brood --force --model new"]
+    audit -->|"quality demands it"| force["nectar brood --force --model new"]
     force --> reset["non-skipped rows set back to pending"]
     reset --> redescribe["enricher re-describes under new model"]
     redescribe --> converge["describe_model converges to new value"]

@@ -40,6 +40,22 @@ export type DiscoverySource = "git" | "walk";
 export interface DiscoveryResult {
   readonly source: DiscoverySource;
   readonly files: readonly DiscoveredFile[];
+  /**
+   * Set when `source` is "walk" because git is PRESENT but ERRORED (PRD-018c
+   * NEC-039 / AC-018c.10) - never set when git is genuinely absent (that walk
+   * is silent and correct). Surfaced so `nectar brood --dry-run` can report
+   * the degradation instead of a user discovering it only via an inflated
+   * brood cost (AC-018c.11).
+   */
+  readonly degraded?: { readonly reason: string };
+}
+
+/** Thrown by {@link discoverFiles} when `onGitErrorPolicy` is `"abort"` and git is present but `ls-files` failed (PRD-018c NEC-039 / AC-018c.10). */
+export class GitDiscoveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GitDiscoveryError";
+  }
 }
 
 /**
@@ -50,10 +66,33 @@ export interface DiscoveryResult {
 export type GitLsFiles = (root: string) => GitLsFilesResult;
 export type GitLsFilesResult =
   | { readonly available: true; readonly paths: readonly string[] }
-  | { readonly available: false };
+  | {
+      readonly available: false;
+      /**
+       * PRD-018c NEC-039 / AC-018c.10: distinguishes git genuinely ABSENT
+       * (no `.git`, no `git` on PATH - the walk fallback is silent and
+       * correct) from git PRESENT but ERRORING (non-zero exit, `ENOBUFS` -
+       * must be surfaced loudly, never a silent gitignore-blind walk).
+       * Omitted by hand-written test fakes (`{ available: false }`), which
+       * `discoverFiles` treats as the pre-018c "absent" behavior.
+       */
+      readonly reason?: "absent" | "error";
+      readonly message?: string;
+    };
 
 /** Max bytes captured from `git ls-files` stdout (guards a pathological repo). */
 export const GIT_LS_FILES_MAX_BUFFER = 64 * 1024 * 1024;
+
+/**
+ * Normalize path separators to forward slashes ONLY on Windows (NEC-042 item 11
+ * / AC-018l.18). On POSIX a literal backslash is a VALID filename character, so
+ * rewriting `\` -> `/` corrupted `a\b.ts` into `a/b.ts` (which then failed to
+ * stat and was silently dropped). Git already emits forward slashes on Windows,
+ * so this is a defensive no-op there; on POSIX the path is left untouched.
+ */
+export function normalizeRepoSeparators(p: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? p.replace(/\\/g, "/") : p;
+}
 
 /**
  * The discovery command arguments, carried verbatim from `brooding-pipeline.md`:
@@ -83,16 +122,36 @@ export const spawnGitLsFiles: GitLsFiles = (root: string): GitLsFilesResult => {
       maxBuffer: GIT_LS_FILES_MAX_BUFFER,
       windowsHide: true,
     });
-  } catch {
-    return { available: false };
+  } catch (err) {
+    // spawnSync itself throwing generally means the `git` binary could not be
+    // resolved at all: absent, not an error (NEC-039).
+    return { available: false, reason: "absent", message: err instanceof Error ? err.message : String(err) };
   }
-  if (res.error !== undefined || res.status !== 0 || res.stdout === null) {
-    return { available: false };
+  if (res.error !== undefined) {
+    const code = (res.error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { available: false, reason: "absent", message: res.error.message };
+    // ENOBUFS (ls-files output exceeded maxBuffer) and any other spawn-level
+    // error mean git IS present but the call itself failed: loud, never silent.
+    return { available: false, reason: "error", message: res.error.message };
+  }
+  if (res.status !== 0) {
+    const stderr = Buffer.isBuffer(res.stderr) ? res.stderr.toString("utf8") : String(res.stderr ?? "");
+    if (/not a git repository/i.test(stderr)) {
+      return { available: false, reason: "absent", message: stderr.trim() };
+    }
+    return {
+      available: false,
+      reason: "error",
+      message: stderr.trim() || `git ls-files exited with status ${String(res.status)}`,
+    };
+  }
+  if (res.stdout === null) {
+    return { available: false, reason: "error", message: "git ls-files produced no stdout" };
   }
   const stdout = Buffer.isBuffer(res.stdout) ? res.stdout.toString("utf8") : String(res.stdout);
   const paths = stdout
     .split("\0")
-    .map((p) => p.replace(/\\/g, "/"))
+    .map((p) => normalizeRepoSeparators(p))
     .filter((p) => p.length > 0);
   return { available: true, paths };
 };
@@ -103,8 +162,30 @@ export interface DiscoverFilesOptions {
   readonly fs: RegistrationFs;
   /** The git runner (default {@link spawnGitLsFiles}). */
   readonly gitLsFiles?: GitLsFiles;
-  /** The ignore predicate for the WALK fallback (default: `createDefaultIgnore(root)`). */
+  /**
+   * The shared ignore predicate (PRD-018c AC-018c.1), applied on BOTH the git
+   * path and the walk fallback (default: `createDefaultIgnore(root)`, the
+   * segments+graph-ignore-only default; production wiring passes the
+   * `createSharedIgnore(root).isIgnored` predicate the watch intake and resync
+   * path also share).
+   */
   readonly isIgnored?: IgnorePredicate;
+  /**
+   * PRD-018c NEC-039 / AC-018c.10: the policy when git is PRESENT but
+   * `ls-files` failed. `"warn"` (default) falls back to the walk but marks the
+   * result `degraded` with the reason, so the caller can surface it loudly
+   * (the dry-run report does, AC-018c.11). `"abort"` throws
+   * {@link GitDiscoveryError} instead of ever walking. Git genuinely ABSENT is
+   * never "degraded" - the walk is the correct, silent behavior in that case.
+   */
+  readonly onGitErrorPolicy?: "warn" | "abort";
+  /**
+   * The platform whose separator convention the walk fallback applies (NEC-042
+   * item 11 / AC-018l.18). Defaults to `process.platform`; injectable so a test
+   * can prove a POSIX filename with a literal backslash survives regardless of
+   * the host OS. On non-Windows the `\` -> `/` rewrite is skipped.
+   */
+  readonly platform?: NodeJS.Platform;
 }
 
 /**
@@ -134,15 +215,33 @@ export function discoverFiles(opts: DiscoverFilesOptions): DiscoveryResult {
   const git = gitLsFiles(opts.root);
 
   if (git.available) {
+    // PRD-018c NEC-007 / AC-018c.3: the git path now applies the SAME shared
+    // predicate the walk fallback already did - a graph-ignore.json-excluded,
+    // git-TRACKED file (and the committed `.honeycomb/nectars.json` itself,
+    // via the `.honeycomb` segment rule) is no longer described just because
+    // it is git-tracked.
+    const isIgnored = opts.isIgnored ?? createDefaultIgnore(opts.root);
     const files: DiscoveredFile[] = [];
     const seen = new Set<string>();
     for (const rel of git.paths) {
       if (seen.has(rel)) continue;
       seen.add(rel);
+      if (isIgnored(rel)) continue;
       const discovered = toDiscovered(rel, opts.fs);
       if (discovered !== null) files.push(discovered);
     }
     return { source: "git", files };
+  }
+
+  // PRD-018c NEC-039 / AC-018c.10: git present but ERRORED must never
+  // silently collapse into a `.gitignore`-blind walk. "absent" (or a
+  // hand-written test fake omitting `reason` entirely) keeps the pre-018c
+  // silent-walk behavior, since a non-git workspace has no gitignore
+  // semantics to lose in the first place.
+  if (git.reason === "error") {
+    if ((opts.onGitErrorPolicy ?? "warn") === "abort") {
+      throw new GitDiscoveryError(git.message ?? "git ls-files failed");
+    }
   }
 
   // Fallback: manual recursive walk applying the shared CodeGraph ignore contract.
@@ -150,12 +249,13 @@ export function discoverFiles(opts: DiscoverFilesOptions): DiscoveryResult {
   const files: DiscoveredFile[] = [];
   const seen = new Set<string>();
   for (const raw of opts.fs.listPaths()) {
-    const rel = raw.replace(/\\/g, "/");
+    const rel = normalizeRepoSeparators(raw, opts.platform);
     if (seen.has(rel)) continue;
     seen.add(rel);
     if (isIgnored(rel)) continue;
     const discovered = toDiscovered(rel, opts.fs);
     if (discovered !== null) files.push(discovered);
   }
-  return { source: "walk", files };
+  const result: DiscoveryResult = { source: "walk", files };
+  return git.reason === "error" ? { ...result, degraded: { reason: git.message ?? "git ls-files failed" } } : result;
 }

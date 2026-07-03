@@ -34,12 +34,22 @@ export function estimateTokens(sizeBytes: number): number {
 }
 
 /**
+ * True when an extension is in the known-binary list, with NO dependence on
+ * file content or size. Exposed so {@link "./precheck.js" | precheck.ts} can
+ * short-circuit a known-binary file before reading any bytes (NEC-012 /
+ * AC-018e.5), the same predicate {@link classifyBucket} applies after prepare.
+ */
+export function isKnownBinaryExtension(ext: string): boolean {
+  return KNOWN_BINARY_EXTENSIONS.has(ext);
+}
+
+/**
  * Classify one prepared file into exactly one bucket. Order: known-binary
  * extension first (no size dependence), then too-large, then NUL-sniffed binary,
  * then the batch/solo size split.
  */
 export function classifyBucket(prepared: PreparedFile): BroodBucket {
-  if (KNOWN_BINARY_EXTENSIONS.has(prepared.file.ext)) return "skip-binary";
+  if (isKnownBinaryExtension(prepared.file.ext)) return "skip-binary";
   if (prepared.file.sizeBytes > MAX_DESCRIBE_SIZE) return "skip-too-large";
   if (prepared.hasNulInSniff) return "skip-binary";
   if (prepared.file.sizeBytes <= BATCH_FILE_SIZE) return "batch";

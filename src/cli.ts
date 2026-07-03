@@ -26,7 +26,9 @@
  * root from `NECTAR_PROJECT_ID` / `NECTAR_PROJECT_ROOT` (see USAGE).
  */
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline/promises";
 import { assembleDaemon, type AssembledDaemon, type AssembleOptions, type BootProjectionLoad } from "./daemon.js";
 import { resolveConfig } from "./config.js";
 import { mountHiveGraphApi } from "./api/hive-graph-api.js";
@@ -37,19 +39,31 @@ import { createServiceModule, serviceStatus } from "./service/index.js";
 import { registerWithDoctor } from "./doctor-registry.js";
 import { emitInstalled, emitUninstalled, recordDaemonStart } from "./telemetry-usage/emit.js";
 import type { Tenancy } from "./hive-graph/model.js";
+import type { HiveGraphStore, AsyncHiveGraphStore } from "./hive-graph/store.js";
 import { DeepLakeHiveGraphStore } from "./hive-graph/deeplake-store.js";
 import { InMemoryHiveGraphStore } from "./hive-graph/memory-store.js";
-import { HttpDeepLakeTransport } from "./hive-graph/deeplake-transport.js";
-import { loadDeepLakeCredentials } from "./hive-graph/deeplake-credentials.js";
+import { loadDeepLakeCredentials, credentialsPath } from "./hive-graph/deeplake-credentials.js";
+import { broodPrereqsFromEnv, formatFirstRunGuidance } from "./brood-prereqs.js";
+import { resolveNectarTunables } from "./config-file.js";
 import { resolveProjectScope, type ProjectScopeSource } from "./hive-graph/project-scope.js";
 import { createDiskRegistrationFs } from "./registration/disk-fs.js";
-import { rebuildProjectionAsync, projectionFinalPath } from "./projection/write.js";
+import { StoreBridge } from "./registration/store-bridge.js";
+import { runPrune } from "./registration/prune-cli.js";
+import { runReviewMatches, type ReviewDecision } from "./registration/review-cli.js";
+import {
+  FilePendingReviewStore,
+  type PendingReviewStore,
+  type PendingReviewCandidate,
+} from "./registration/review-store.js";
+import { rebuildProjectionAsync, projectionFinalPath, ProjectionWriter } from "./projection/write.js";
 import { DEFAULT_PROJECTION_REL_PATH } from "./projection/format.js";
 import type { InheritRow } from "./projection/inherit.js";
 import { resolvePortkeyConfig, type PortkeyEnabled } from "./portkey/config.js";
-import { resolveEmbeddingsConfig } from "./embeddings/config.js";
+import { activeEmbedModelId, resolveEmbeddingsConfig, validateEmbedDimension } from "./embeddings/config.js";
 import { resolveEmbedProvider, type EmbedProvider } from "./embeddings/provider.js";
+import { stderrDimRejectionSink } from "./embeddings/guard.js";
 import { DeepLakeEnricherStore } from "./enricher/store-adapter.js";
+import { createPriorContentCache } from "./enricher/content-cache.js";
 import type { ContentReader } from "./enricher/index.js";
 import type { PipelineMetricsSink } from "./telemetry/index.js";
 import {
@@ -58,8 +72,11 @@ import {
   formatDryRunReport,
   discoverFiles,
   prepareFiles,
+  runBroodAsync,
   type BroodConfig,
   type BroodRunOptions,
+  type AsyncBroodConfig,
+  type AsyncBroodRuntimeDeps,
 } from "./brooding/index.js";
 
 const USAGE = `nectar - semantic memory layer over a source tree
@@ -70,13 +87,13 @@ Usage:
   nectar uninstall              Deregister the OS service unit (PRD-003b)
   nectar service-status         Report the OS service unit's running state (PRD-003b)
   nectar brood [flags]          Full-codebase brood (PRD-007). --dry-run previews cost locally;
-                                a real brood executes daemon-side (PRD-008 build endpoint, Wave D).
-                                Flags: --force, --limit N, --dry-run, --model <id>
+                                a mutating brood runs against the durable Deep Lake store (needs
+                                Portkey configured). Flags: --force, --limit N, --dry-run, --model <id>
   nectar search <query> [flags] Manual hive-graph search (PRD-012). Thin loopback client of the
                                 daemon search endpoint (POST /api/hive-graph/search). Requires a
                                 running 'nectar daemon'. Flags: --limit N, --json
-  nectar prune [--confirm]      Prune long-missing nectars     (logic implemented; durable wiring pending daemon integration)
-  nectar review-matches         Review low-confidence matches  (logic implemented; durable wiring pending daemon integration)
+  nectar prune [--confirm]      Prune long-missing nectars from the durable store (PRD-006d)
+  nectar review-matches         Review low-confidence step-4 matches against the durable store (PRD-006d)
   nectar rebuild-projection     Regenerate .honeycomb/nectars.json from Deep Lake (PRD-011)
   nectar project --rebuild-projection   Project-scoped regeneration of .honeycomb/nectars.json (PRD-011)
   nectar --help                 Show this help
@@ -141,18 +158,17 @@ async function runInstall(): Promise<number> {
 
 /** `nectar uninstall` (PRD-003b): deregisters the OS service unit so it does not resurrect. */
 async function runUninstall(): Promise<number> {
-  // Usage telemetry: fire BEFORE teardown (fire-and-forget) so the event has a
-  // chance to leave while the service unit is being removed. Awaited only
-  // after teardown completes; emitUninstalled never throws, so the uninstall
-  // outcome and exit code are unaffected either way.
-  const telemetryDone = emitUninstalled();
   const serviceModule = createServiceModule({
     execPath: resolveServiceExecPath(),
     preferSystemScope: preferSystemScope(),
   });
   const result = await serviceModule.uninstall();
   process.stdout.write(`${result.message}\n`);
-  await telemetryDone;
+  // Usage telemetry (NEC-042 item 4 / AC-018l.11): fire only AFTER the uninstall
+  // outcome is known, and only on success - a failed/aborted uninstall must not
+  // emit a `nectar_uninstalled` event. emitUninstalled never throws and is
+  // bounded, so it cannot alter the exit code.
+  if (result.ok) await emitUninstalled();
   return result.ok ? 0 : 1;
 }
 
@@ -301,6 +317,10 @@ function runBroodDryRun(): number {
       batchCalls: plan.batchCalls,
       soloCalls: plan.soloCalls,
       estimate: plan.estimate,
+      // PRD-018c AC-018c.11: report the discovery source and, when git errored
+      // (not simply absent), the degradation reason.
+      source: plan.source,
+      ...(plan.degraded !== undefined ? { degraded: plan.degraded } : {}),
     })}\n`,
   );
   return 0;
@@ -316,7 +336,7 @@ function runBroodDryRun(): number {
  * async — the deferral documented on `AsyncHiveGraphStore`), so it is not
  * simulated against a throwaway store.
  */
-function runBroodCommand(broodArgs: readonly string[]): number {
+async function runBroodCommand(broodArgs: readonly string[]): Promise<number> {
   const invocation = classifyBroodInvocation(broodArgs);
   switch (invocation.kind) {
     case "errors":
@@ -325,18 +345,291 @@ function runBroodCommand(broodArgs: readonly string[]): number {
     case "dry-run":
       return runBroodDryRun();
     case "run":
-      process.stderr.write(
-        "nectar brood: a mutating brood executes daemon-side (PRD-007d) via the live " +
-          "POST /api/hive-graph/build endpoint (PRD-008); a running 'nectar daemon' with Deep Lake + " +
-          "Portkey configured broods durably (and auto-broods a fresh project on boot). A thin CLI " +
-          "loopback dispatcher for this verb is not wired yet; use 'nectar brood --dry-run' for a " +
-          "local cost preview, or POST the build endpoint directly.\n",
-      );
-      return 2;
+      return runBroodMutating(invocation.options);
     default: {
       const unreachable: never = invocation;
       return unreachable;
     }
+  }
+}
+
+// ── PRD-018b: the durable, testable verb runners (brood/prune/review-matches) ──
+// These take an already-resolved store + io so they are unit-testable against an
+// injected store (AC-018b.8), while the process wrappers below resolve the real
+// Deep Lake context, bridge the sync/async gap, and flush.
+
+/** Deps for {@link runBroodMutatingVerb}: the durable async store + the brood seams. */
+export interface BroodMutatingVerbDeps {
+  readonly config: AsyncBroodConfig;
+  readonly deps: AsyncBroodRuntimeDeps;
+  readonly options?: BroodRunOptions;
+  out(line: string): void;
+}
+
+/**
+ * Run a mutating brood against the durable async store (AC-018b.8): `runBroodAsync`
+ * discovers, mints, describes, and persists to Deep Lake directly (it consumes the
+ * async store, so no sync/async bridge is needed here). Returns 0 on success.
+ */
+export async function runBroodMutatingVerb(d: BroodMutatingVerbDeps): Promise<number> {
+  const result = await runBroodAsync(d.config, d.deps, d.options ?? {});
+  d.out(
+    `nectar brood: discovered ${result.discoveredCount} file(s); ` +
+      `${result.describedCount} described, ${result.failedCount} failed` +
+      `${result.projectionPath !== null ? `; projection ${result.projectionPath}` : ""}.`,
+  );
+  return 0;
+}
+
+/** Deps for {@link runPruneVerb}: any sync store (the bridge in prod, an in-memory store in tests). */
+export interface PruneVerbDeps {
+  readonly store: HiveGraphStore;
+  readonly tenancy: Tenancy;
+  existsOnDisk(relPath: string): boolean;
+  readonly confirm: boolean;
+  out(line: string): void;
+  now?(): string;
+}
+
+/** Run `prune` (preview or `--confirm` delete) against the injected store (AC-018b.8). Returns 0. */
+export function runPruneVerb(deps: PruneVerbDeps): number {
+  runPrune({
+    store: deps.store,
+    tenancy: deps.tenancy,
+    existsOnDisk: (p) => deps.existsOnDisk(p),
+    now: deps.now ?? (() => new Date().toISOString()),
+    confirm: deps.confirm,
+    out: deps.out,
+  });
+  return 0;
+}
+
+/** Deps for {@link runReviewMatchesVerb}: any sync store + the pending-review queue + a decider. */
+export interface ReviewMatchesVerbDeps {
+  readonly store: HiveGraphStore;
+  readonly tenancy: Tenancy;
+  readonly pendingReviews: PendingReviewStore;
+  decide(candidate: PendingReviewCandidate, preview: string): Promise<ReviewDecision> | ReviewDecision;
+  out(line: string): void;
+  now?(): string;
+}
+
+/** Run `review-matches` against the injected store (AC-018b.8). Returns 0. */
+export async function runReviewMatchesVerb(deps: ReviewMatchesVerbDeps): Promise<number> {
+  await runReviewMatches({
+    store: deps.store,
+    tenancy: deps.tenancy,
+    pendingReviews: deps.pendingReviews,
+    decide: deps.decide,
+    out: deps.out,
+    now: deps.now ?? (() => new Date().toISOString()),
+  });
+  return 0;
+}
+
+/**
+ * The interactive review decider's IO seam (CodeRabbit PR-18 finding #6):
+ * factored out of {@link interactiveReviewDecider} so a test can drive it with
+ * a fake `question`/`write` pair instead of real stdin/stdout, and so the
+ * decider is self-contained (it prints its own context rather than relying on
+ * a caller having already done so earlier in the same loop iteration).
+ */
+export interface InteractiveReviewIo {
+  /** True for a real TTY; a non-TTY input defaults every candidate to `skip`. */
+  readonly isTTY: boolean;
+  /** Ask the accept/reject/skip question and resolve with the raw answer. */
+  question(prompt: string): Promise<string>;
+  /** Write one line of context (the preview) before asking. */
+  write(line: string): void;
+  /** Release any resources the IO holds (e.g. a readline interface on stdin). */
+  close(): void;
+}
+
+/** The real stdin/stdout-backed {@link InteractiveReviewIo}. */
+function realInteractiveReviewIo(): InteractiveReviewIo {
+  const isTTY = process.stdin.isTTY === true;
+  if (!isTTY) {
+    return { isTTY, question: async () => "", write: () => {}, close: () => {} };
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return {
+    isTTY,
+    question: (prompt) => rl.question(prompt),
+    write: (line) => process.stdout.write(`${line}\n`),
+    close: () => rl.close(),
+  };
+}
+
+/**
+ * A stdin-driven per-candidate decider for the interactive `review-matches`
+ * prompt. On a non-TTY stdin (a script, CI) it defaults every candidate to
+ * `skip` (the safe, non-destructive choice) rather than blocking on input; a
+ * real TTY gets the preview printed, then an accept/reject/skip prompt.
+ * Returns a `close` so the caller releases stdin (otherwise the readline
+ * interface would keep the process alive).
+ *
+ * CodeRabbit PR-18 finding #6: the prior implementation's `decide` ignored its
+ * `candidate`/`preview` parameters entirely, so on its own it asked
+ * accept/reject/skip with zero printed context. `runReviewMatches`
+ * (`review-cli.ts`) happens to print the same preview via `out()` immediately
+ * before calling `decide` today, but `decide` should not depend on that
+ * caller-side ordering to be usable - it prints the preview itself now.
+ */
+export function interactiveReviewDecider(
+  io: InteractiveReviewIo = realInteractiveReviewIo(),
+): {
+  decide: (candidate: PendingReviewCandidate, preview: string) => Promise<ReviewDecision>;
+  close: () => void;
+} {
+  if (!io.isTTY) {
+    return { decide: async () => "skip", close: io.close };
+  }
+  return {
+    decide: async (_candidate, preview) => {
+      io.write(preview);
+      const answer = (await io.question("  [a]ccept / [r]eject / [s]kip? ")).trim().toLowerCase();
+      if (answer === "a" || answer === "accept") return "accept";
+      if (answer === "r" || answer === "reject") return "reject";
+      return "skip";
+    },
+    close: io.close,
+  };
+}
+
+/**
+ * Resolve the embed provider + its active embed model id for the CLI's
+ * mutating brood deps, the same way the daemon wiring does
+ * (`api/daemon-api-wiring.ts`'s `activeEmbedModel`) - CodeRabbit PR-18 finding
+ * #7. Exported so the resolution itself (independent of the live Deep Lake
+ * context `runBroodMutating` also needs) is unit-testable without network
+ * credentials: without threading `embedModelId` through, CLI-brooded rows
+ * stamped `embed_model = null` and were never requeued on a provider switch
+ * (AC-018i.3).
+ */
+export function resolveCliBroodEmbedDeps(): { embedProvider: EmbedProvider; embedModelId: string | null } {
+  const embeddingsConfig = resolveEmbeddingsConfig({});
+  return {
+    embedProvider: resolveEmbedProvider(embeddingsConfig),
+    embedModelId: activeEmbedModelId(embeddingsConfig),
+  };
+}
+
+/**
+ * `nectar brood` (mutating, PRD-018b AC-018b.8): resolve the Deep Lake context,
+ * require a Portkey describe transport (an LLM-less brood cannot describe), and
+ * run the real `runBroodAsync` against the durable store. Exits 1 (a real error,
+ * not a wiring stub) when credentials or Portkey are absent.
+ */
+async function runBroodMutating(options: BroodRunOptions): Promise<number> {
+  const ctx = resolveProjectionContext();
+  if (!ctx.ok) {
+    process.stderr.write(
+      `nectar brood: ${ctx.message}.\n` +
+        "org_id/workspace_id come from ~/.deeplake/credentials.json; the project id resolves via " +
+        "NECTAR_PROJECT_ID > detected HONEYCOMB_PROJECT_ID > ~/.deeplake/projects.json binding > git remote signal > __unsorted__.\n",
+    );
+    return 1;
+  }
+  const portkey = resolvePortkeyConfig();
+  if (!portkey.enabled) {
+    process.stderr.write(
+      "nectar brood: a mutating brood needs a describe transport. Configure Portkey " +
+        "(PORTKEY_API_KEY + PORTKEY_CONFIG) and retry, or use 'nectar brood --dry-run' for a local cost preview.\n",
+    );
+    return 1;
+  }
+  const { embedProvider, embedModelId } = resolveCliBroodEmbedDeps();
+  return runBroodMutatingVerb({
+    config: {
+      store: ctx.store,
+      tenancy: ctx.tenancy,
+      root: ctx.projectRoot,
+      fs: createDiskRegistrationFs(ctx.projectRoot),
+    },
+    deps: { portkey, embedProvider, embedModelId },
+    options,
+    out: (line) => process.stdout.write(`${line}\n`),
+  });
+}
+
+/**
+ * Build a {@link StoreBridge} over the resolved durable store, hydrate it, run
+ * `body` against the SYNC bridge (so the tested `runPrune`/`runReviewMatches`
+ * mechanics run unchanged), then flush the durable writes. Returns the body's
+ * exit code, or 1 with a printed notice when no Deep Lake context resolves.
+ */
+async function withDurableBridge(
+  purpose: string,
+  body: (bridge: StoreBridge, ctx: ResolvedContext) => Promise<number>,
+): Promise<number> {
+  const ctx = resolveProjectionContext();
+  if (!ctx.ok) {
+    process.stderr.write(
+      `nectar ${purpose}: ${ctx.message}.\n` +
+        "org_id/workspace_id come from ~/.deeplake/credentials.json; the project id resolves via " +
+        "NECTAR_PROJECT_ID > detected HONEYCOMB_PROJECT_ID > ~/.deeplake/projects.json binding > git remote signal > __unsorted__.\n",
+    );
+    return 1;
+  }
+  const bridge = new StoreBridge({
+    durable: ctx.store,
+    onFlushError: (err, op) =>
+      process.stderr.write(
+        `nectar ${purpose}: durable ${op} failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`,
+      ),
+  });
+  await bridge.hydrate(ctx.tenancy);
+  const code = await body(bridge, ctx);
+  await bridge.whenFlushed();
+  if (bridge.durableFlushFailures > 0) {
+    process.stderr.write(
+      `nectar ${purpose}: ${bridge.durableFlushFailures} durable write(s) failed to flush; ` +
+        "the local result above is applied but Deep Lake may be behind. Re-run once connectivity is restored.\n",
+    );
+    return 1;
+  }
+  return code;
+}
+
+/**
+ * `nectar prune [--confirm]` (PRD-018b AC-018b.8): the real `runPrune` mechanic
+ * against the durable store through the sync/async bridge.
+ */
+async function runPruneCommand(args: readonly string[]): Promise<number> {
+  const confirm = args.includes("--confirm");
+  return withDurableBridge("prune", async (bridge, ctx) => {
+    const fs = createDiskRegistrationFs(ctx.projectRoot);
+    return runPruneVerb({
+      store: bridge,
+      tenancy: ctx.tenancy,
+      existsOnDisk: (p) => fs.existsOnDisk(p),
+      confirm,
+      out: (line) => process.stdout.write(`${line}\n`),
+    });
+  });
+}
+
+/**
+ * `nectar review-matches` (PRD-018b AC-018b.8): the real `runReviewMatches`
+ * mechanic against the durable store through the sync/async bridge, reading the
+ * same file-backed pending-review queue the daemon writes.
+ */
+async function runReviewMatchesCommand(): Promise<number> {
+  const config = resolveConfig();
+  const reviews = new FilePendingReviewStore(join(config.runtimeDir, "pending-reviews.json"));
+  const decider = interactiveReviewDecider();
+  try {
+    return await withDurableBridge("review-matches", (bridge, ctx) =>
+      runReviewMatchesVerb({
+        store: bridge,
+        tenancy: ctx.tenancy,
+        pendingReviews: reviews,
+        decide: decider.decide,
+        out: (line) => process.stdout.write(`${line}\n`),
+      }),
+    );
+  } finally {
+    decider.close();
   }
 }
 
@@ -415,7 +708,11 @@ export function renderSearchTable(result: HiveGraphSearchResult): string {
   }
   if (result.degraded) {
     lines.push("");
-    lines.push("(degraded: semantic search did not run; results are lexical-only)");
+    if (result.reason === "backend-error") {
+      lines.push("(degraded: one or more search backends failed; use --json for arm status)");
+    } else {
+      lines.push("(degraded: semantic search did not run; results are lexical-only)");
+    }
   }
   return `${lines.join("\n")}\n`;
 }
@@ -462,25 +759,6 @@ async function runSearchCommand(args: readonly string[]): Promise<number> {
     return 1;
   }
 }
-
-/**
- * Verbs whose command logic is implemented and tested here (`runPrune` /
- * `runReviewMatches`, the review store, the tenancy guards), but which are not
- * yet wired to a durable, sync-capable hive-graph store. The live daemon does
- * not instantiate the registration pipeline (a documented PRD-006a non-goal),
- * and the durable `DeepLakeHiveGraphStore` is async while `HiveGraphStore`
- * is sync (a bridge deferred in `store.ts`). Running these against a throwaway
- * empty in-memory store would make `prune --confirm` silently delete nothing and
- * `review-matches` silently drop every candidate, so instead they announce this
- * state and exit non-zero, exactly like the NOT_YET verbs. The wiring lands with
- * the daemon's registration-pipeline integration.
- */
-const NOT_WIRED: Record<string, string> = {
-  prune:
-    "PRD-006 (prune mechanics implemented + tested in runPrune; durable-store wiring lands with the daemon's registration-pipeline integration)",
-  "review-matches":
-    "PRD-006 (review-matches mechanics implemented + tested in runReviewMatches; durable-store wiring lands with the daemon's registration-pipeline integration)",
-};
 
 /**
  * Build the boot projection load seam for the live daemon (PRD-011b AC-6): if a
@@ -562,13 +840,6 @@ function buildLiveDurableWiring(
   ctx: ResolvedContext,
   portkey: PortkeyEnabled,
 ): LiveDurableWiring {
-  const creds = ctx.credentials;
-  const transport = new HttpDeepLakeTransport({
-    endpoint: creds.apiUrl,
-    token: creds.token,
-    orgId: creds.orgId,
-    workspaceId: creds.workspaceId,
-  });
   const fs = createDiskRegistrationFs(ctx.projectRoot);
   const readContent: ContentReader = {
     read: (path: string): string | null => {
@@ -581,11 +852,13 @@ function buildLiveDurableWiring(
       }
     },
   };
+  // PRD-018g / NEC-017: the durable write-back is a collision-safe VERSION-BUMP
+  // APPEND (`appendVersionAtNextSeq`), not the retired fire-and-forget in-place
+  // UPDATE. The cycle awaits it and only counts a file described on a confirmed
+  // durable write.
   const enricher = new DeepLakeEnricherStore({
     loadVersions: async (tenancy) => (await ctx.store.listLatestVersions(tenancy)).map((lv) => lv.version),
-    writeBack: async (sql: string) => {
-      await transport.query(sql);
-    },
+    appendVersion: (row) => ctx.store.appendVersionAtNextSeq(row),
     onWriteBackError: (err: unknown) => {
       process.stderr.write(
         `nectar enricher: durable write-back failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`,
@@ -598,7 +871,17 @@ function buildLiveDurableWiring(
 async function runDaemon(): Promise<void> {
   const ctx = safeResolveContext();
   const portkey = resolvePortkeyConfig();
-  const embedProvider: EmbedProvider = resolveEmbedProvider(resolveEmbeddingsConfig({}));
+  const embeddingsConfig = resolveEmbeddingsConfig({});
+  // AC-018i.7: catch a wrong NECTAR_EMBEDDINGS_OUTPUT_DIMENSION at config
+  // resolution and warn loudly rather than silently nulling every hosted vector.
+  const dimCheck = validateEmbedDimension(embeddingsConfig);
+  if (!dimCheck.ok) process.stderr.write(`nectar daemon: ${dimCheck.message ?? "invalid embedding output dimension"}\n`);
+  // AC-018i.8: wire the dim-rejection sink at the daemon-path resolveEmbedProvider
+  // call site (the API path wires it separately in daemon-api-wiring).
+  const embedProvider: EmbedProvider = resolveEmbedProvider(embeddingsConfig, {
+    onDimRejected: stderrDimRejectionSink,
+  });
+  const embedModel = activeEmbedModelId(embeddingsConfig);
 
   let bootProjection: BootProjectionLoad | undefined;
   try {
@@ -615,15 +898,50 @@ async function runDaemon(): Promise<void> {
   const live: LiveDurableWiring | undefined =
     ctx !== undefined && portkey.enabled ? buildLiveDurableWiring(ctx, portkey) : undefined;
 
+  // PRD-018k / NEC-023: resolve the brood prerequisites so a dormant daemon
+  // surfaces WHY on /health and in the startup log (and, on a TTY, prints the
+  // guided first-run steps below). PRD-018k / NEC-041: resolve the per-repo
+  // tunables (`~/.honeycomb/nectar.json`, env-over-file) once at boot.
+  const broodPrereqs = broodPrereqsFromEnv({ credentialsPresent: ctx !== undefined, credentialsPath: credentialsPath() });
+  const tunables = resolveNectarTunables();
+
   const options: AssembleOptions = {
+    broodPrereqs,
     ...(bootProjection !== undefined ? { bootProjection } : {}),
-    ...(ctx !== undefined ? { tenancy: ctx.tenancy, projectRoot: ctx.projectRoot } : {}),
+    // PRD-018b: when Deep Lake creds resolve, start the update-on-change watch
+    // pipeline against the durable store (the watch leg needs no LLM - it appends
+    // pending version rows the enricher describes later). Absent creds -> the
+    // watch leg stays dormant and /health says so (AC-018b.7).
+    ...(ctx !== undefined
+      ? { tenancy: ctx.tenancy, projectRoot: ctx.projectRoot, registrationStore: ctx.store }
+      : {}),
     ...(live !== undefined && ctx !== undefined
       ? {
           asyncBroodStore: ctx.store,
-          broodDepsAsync: { portkey: live.portkey, embedProvider },
+          // AC-018i.1: stamp embed_model on auto-brood-embedded rows.
+          broodDepsAsync: { portkey: live.portkey, embedProvider, embedModelId: embedModel },
           enricherStore: live.enricher,
-          enricherCycle: { readContent: live.readContent, portkey: live.portkey, embedProvider },
+          enricherCycle: {
+            readContent: live.readContent,
+            portkey: live.portkey,
+            embedProvider,
+            // PRD-018k / NEC-041 AC-018k.6: source the redescribe threshold from
+            // ~/.honeycomb/nectar.json (env-over-file), falling back to the code
+            // default when neither the env var nor the file supplies one.
+            ...(tunables.redescribeThreshold !== undefined
+              ? { config: { redescribeThreshold: tunables.redescribeThreshold } }
+              : {}),
+            // AC-018i.1: stamp embed_model on enricher-embedded rows.
+            embedModel,
+            // AC-018g.6: re-seed the working set each cycle from the durable store.
+            refreshWorkingSet: () => live.enricher.refresh(ctx.tenancy),
+            // AC-018g.9: prior-content cache backs the cosmetic-change gate.
+            priorContentCache: createPriorContentCache(),
+            // AC-018g.11/.12: trigger #2 - a debounced projection write after a
+            // cycle that wrote descriptions, sourced from the enricher mirror.
+            projectionWriter: new ProjectionWriter({ projectRoot: ctx.projectRoot }),
+            projectionDoc: () => live.enricher.buildProjectionDoc(ctx.tenancy),
+          },
         }
       : {}),
   };
@@ -644,7 +962,12 @@ async function runDaemon(): Promise<void> {
           projectRoot: ctx.projectRoot,
           store: ctx.store,
           costSpentUsd: () => daemon.health.snapshot().cost.broodTotalUsd,
+          // PRD-018k / NEC-041 AC-018k.7: thread the loaded recall multiplier into
+          // the live search deps (the config surface reaches the recall path).
+          ...(tunables.recallMultiplier !== undefined ? { recallMultiplier: tunables.recallMultiplier } : {}),
           brood: { portkey, embedProvider, metrics: daemonMetricsProxy(daemon) },
+          // AC-018g.2: share the daemon's brood guard with the API /build handler.
+          broodGuard: daemon.broodGuard,
         }),
       );
     }
@@ -657,6 +980,15 @@ async function runDaemon(): Promise<void> {
   process.stdout.write(
     `nectar daemon listening on http://${daemon.config.host}:${port}/health\n`,
   );
+
+  // PRD-018k / NEC-023 (AC-018k.5, option B): a guided first-run experience.
+  // When brooding is dormant AND this is an interactive terminal, print the
+  // exact steps to configure the prerequisites. Never block or prompt; in a
+  // non-interactive context (a service unit, CI) nothing is printed - the loud
+  // startup log line already carried the machine-readable dormancy reason.
+  if (!broodPrereqs.ready && process.stdout.isTTY === true) {
+    process.stdout.write(formatFirstRunGuidance(broodPrereqs));
+  }
 
   // Hydrate the durable enricher's working set from Deep Lake in the BACKGROUND
   // (never blocks readiness; fail-soft). The enricher loop sees an empty working
@@ -709,6 +1041,14 @@ async function main(argv: readonly string[]): Promise<number> {
     return runBroodCommand(argv.slice(1));
   }
 
+  if (command === "prune") {
+    return runPruneCommand(argv.slice(1));
+  }
+
+  if (command === "review-matches") {
+    return runReviewMatchesCommand();
+  }
+
   if (command === "search") {
     return runSearchCommand(argv.slice(1));
   }
@@ -723,16 +1063,6 @@ async function main(argv: readonly string[]): Promise<number> {
     process.stderr.write(
       "nectar project: only 'project --rebuild-projection' is implemented (PRD-011c).\n" +
         "The broader project verb surface lands with a later PRD.\n",
-    );
-    return 2;
-  }
-
-  const notWired = NOT_WIRED[command];
-  if (notWired !== undefined) {
-    process.stderr.write(
-      `nectar ${command}: not yet wired to the durable store. ${notWired}.\n` +
-        "The command logic is implemented and tested; it runs against real data once the daemon instantiates the registration pipeline. " +
-        "Refusing to run against an empty in-memory store so a destructive verb never silently no-ops.\n",
     );
     return 2;
   }

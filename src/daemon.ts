@@ -23,20 +23,24 @@
  * Opening/writing telemetry is fail-soft throughout (`telemetry/index.ts`):
  * a SQLite failure never blocks the lock, the bind, or the pipeline (AC-7).
  */
+import { join } from "node:path";
 import {
   type RuntimeConfig,
   type RuntimeConfigOverrides,
   resolveConfig,
+  isLoopbackHost,
 } from "./config.js";
 import { HealthState, type HealthBody, type PipelineStatus } from "./health.js";
+import type { BroodPrereqStatus } from "./brood-prereqs.js";
 import { resolvePortkeyConfig, type PortkeyConfigOverrides } from "./portkey/config.js";
 import {
   resolveEmbeddingsConfig,
   type EmbeddingsConfigOverrides,
 } from "./embeddings/config.js";
 import type { EmbedProviderSelector } from "./embeddings/provider.js";
-import { acquireSingleInstanceLock, releaseSingleInstanceLock } from "./lock.js";
-import { createHttpServer, type HttpServer } from "./server.js";
+import { acquireSingleInstanceLock, releaseSingleInstanceLock, type LockIdentity } from "./lock.js";
+import { DaemonStartAbortedError, NonLoopbackOpenApiError } from "./errors.js";
+import { createHttpServer, DEFAULT_CLOSE_GRACE_MS, type HttpServer } from "./server.js";
 import {
   NectarRouter,
   ROUTE_GROUPS,
@@ -45,6 +49,7 @@ import {
   type RouteGroup,
 } from "./api/router.js";
 import { mountHiveGraphApi, type MountHiveGraphOptions } from "./api/hive-graph-api.js";
+import { createBroodGuard, type BroodGuard } from "./brood-guard.js";
 import type { Timer } from "./poll-loop.js";
 import {
   createLogTap,
@@ -64,6 +69,12 @@ import {
 import type { Tenancy } from "./hive-graph/model.js";
 import type { AsyncHiveGraphStore, HiveGraphStore } from "./hive-graph/store.js";
 import { createDiskRegistrationFs } from "./registration/disk-fs.js";
+import { RegistrationService, type RegistrationFs } from "./registration/service.js";
+import type { WatcherState } from "./registration/fs-watch.js";
+import { StoreBridge } from "./registration/store-bridge.js";
+import { createSharedIgnore, type IgnorePredicate } from "./registration/ignore.js";
+import { createTlshFuzzyStep, DEFAULT_TUNABLE_FUZZY_CONFIG, type FuzzyConfig } from "./registration/tlsh.js";
+import { FilePendingReviewStore, type PendingReviewStore } from "./registration/review-store.js";
 import { createOffProvider } from "./embeddings/provider.js";
 import {
   createEnricherLoop,
@@ -91,6 +102,32 @@ import { loadProjection, loadProjectionFromFile, type LoadIgnoreReason } from ".
 import { inheritFromProjection, type DiskHashMap, type InheritRow, type InheritSummary } from "./projection/inherit.js";
 import type { PortableProjection } from "./projection/format.js";
 
+/**
+ * Bounded drain timeout for `shutdown()` (PRD-018a NEC-033 / AC-018a.11): how
+ * long to wait for the in-flight worker tick and background boot tasks to settle
+ * before releasing the lock and proceeding. A drain that exceeds this logs and
+ * proceeds, so shutdown stays bounded (it must not reintroduce the NEC-021 hang).
+ */
+export const DEFAULT_SHUTDOWN_DRAIN_MS = 5_000;
+
+/**
+ * Await `work` but give up after `ms`. Resolves `true` when the work settled
+ * first, `false` on timeout. The timer is unref'd so it never keeps the process
+ * alive, and cleared on settle so it never leaks.
+ */
+async function raceWithTimeout(work: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([work.then(() => true), timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export interface AssembleOptions extends RuntimeConfigOverrides {
   /** Override the worker's job source (defaults to the empty source until PRD-005/006 land). */
   readonly jobSource?: JobSource;
@@ -104,8 +141,20 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
   readonly telemetryHeartbeatIntervalMs?: number;
   /** Injected timer for the heartbeat (deterministic tests). */
   readonly telemetryTimer?: Timer;
+  /** Bounded drain timeout for `shutdown()` (AC-018a.11). Default: {@link DEFAULT_SHUTDOWN_DRAIN_MS}. */
+  readonly shutdownDrainMs?: number;
+  /** Grace before force-closing active connections on shutdown (AC-018a.6). Default: {@link DEFAULT_CLOSE_GRACE_MS}. */
+  readonly shutdownCloseGraceMs?: number;
   /** Portkey config overrides (default: resolve from `process.env`). Lets a test set the health `portkey.enabled` bit without env. */
   readonly portkey?: PortkeyConfigOverrides;
+  /**
+   * The resolved brood prerequisites (PRD-018k / NEC-023). When supplied and
+   * NOT ready, the daemon sets the `/health` brooding reason at assembly
+   * (AC-018k.3) and logs one loud line naming exactly which prerequisites are
+   * missing at `start()` (AC-018k.1 / AC-018k.2). Absent -> no dormancy signal
+   * (the pre-018k behavior for callers that do not resolve prerequisites).
+   */
+  readonly broodPrereqs?: BroodPrereqStatus;
   /** Embeddings config overrides (default: resolve from `process.env`). Lets a test set the health `embeddings.provider` label without env. */
   readonly embeddings?: EmbeddingsConfigOverrides;
 
@@ -165,6 +214,31 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
 
   /** Boot projection load + fresh-clone inheritance seam (PRD-011 AC-6). Absent -> skipped. */
   readonly bootProjection?: BootProjectionLoad;
+
+  // ── PRD-018b: the update-on-change registration pipeline ────────────────────
+  /**
+   * The durable ASYNC store the update-on-change pipeline persists to (Deep
+   * Lake). When set (and {@link registrationEnabled} is not false), `start()`
+   * constructs a {@link RegistrationService} over a sync/async
+   * {@link StoreBridge}, hydrates it, starts the NodeFS watcher, and requests a
+   * cold-catch-up resync - all sequenced AFTER auto-brood settles (AC-018b.1/5/6).
+   * Absent -> the watch leg is dormant and `/health` says so (AC-018b.7).
+   */
+  readonly registrationStore?: AsyncHiveGraphStore;
+  /** Disable the registration pipeline even when a store is present. Default: enabled when a store is set. */
+  readonly registrationEnabled?: boolean;
+  /** Override the registration filesystem seam (default: `createDiskRegistrationFs(projectRoot)`). */
+  readonly registrationFs?: RegistrationFs;
+  /** Override the shared ignore predicate (default: `createSharedIgnore(projectRoot).isIgnored`, PRD-018c AC-018c.1 - the SAME predicate is also used by brood discovery's fs/isIgnored). */
+  readonly registrationIgnore?: IgnorePredicate;
+  /** Override the pending-review queue (default: a {@link FilePendingReviewStore} in the runtime dir). */
+  readonly registrationReviews?: PendingReviewStore;
+  /** Fuzzy step-4 config override (default: {@link DEFAULT_TUNABLE_FUZZY_CONFIG}). */
+  readonly registrationFuzzyConfig?: FuzzyConfig;
+  /** Injected timer for the intake debounce (deterministic tests). */
+  readonly registrationTimer?: Timer;
+  /** Debounce window for the intake (default: the intake's own `DEFAULT_DEBOUNCE_MS`). */
+  readonly registrationDebounceMs?: number;
 
   // ── Wave D daemon API surface (PRD-008 / PRD-012b) ──────────────────────────
   /**
@@ -294,10 +368,27 @@ function embeddingsHealthProvider(selector: EmbedProviderSelector): HealthBody["
   }
 }
 
+/**
+ * The live update-on-change pipeline handle (PRD-018b): the settled-handler
+ * {@link RegistrationService} and the sync/async {@link StoreBridge} it persists
+ * through. Exposed for introspection/tests once the pipeline has started (after
+ * auto-brood settles); null when the watch leg is dormant (no durable store).
+ */
+export interface RegistrationPipeline {
+  readonly service: RegistrationService;
+  readonly bridge: StoreBridge;
+}
+
 export interface AssembledDaemon {
   readonly config: RuntimeConfig;
   readonly health: HealthState;
   readonly worker: HiveantennaeWorker;
+  /**
+   * The daemon's shared brood guard (PRD-018g / NEC-011 AC-018g.2). Pass it into
+   * `mountHiveGraphApi` so the API `/build` handler and the boot auto-brood share
+   * one single-flight; also exposed so a test can assert brood/enricher exclusion.
+   */
+  readonly broodGuard: BroodGuard;
   /** Acquire lock -> start worker -> bind socket. Returns the bound port. Idempotent. */
   start(): Promise<number>;
   /** Drain worker -> close socket -> release lock. Idempotent. */
@@ -328,6 +419,20 @@ export interface AssembledDaemon {
    * before the first `start()`.
    */
   awaitBoot(): Promise<void>;
+  /**
+   * The update-on-change pipeline (PRD-018b), or null when the watch leg is
+   * dormant (no durable store resolved). Available once `start()` has bound;
+   * the watcher itself starts in the background after auto-brood settles, so
+   * assert liveness through `health.snapshot().watch.running` after `awaitBoot()`.
+   */
+  registration(): RegistrationPipeline | null;
+  /**
+   * How many times the daemon has requested the boot cold-catch-up resync
+   * (AC-018b.5): exactly once per successful `start()` once boot settles, and
+   * zero when the watch leg is dormant. Lets a test assert the "requested
+   * exactly once, after auto-brood" contract.
+   */
+  registrationBootResyncCount(): number;
 }
 
 function defaultLog(line: Record<string, unknown>): void {
@@ -353,6 +458,14 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     embeddingsProvider: embeddingsHealthProvider(embeddingsConfig.selector),
   });
 
+  // PRD-018k / NEC-023: surface the brooding-dormancy reason on /health as soon
+  // as the daemon is constructed, so a dormant daemon is observable before the
+  // auto-brood trigger even runs. Ready (or unspecified) leaves reason null.
+  const broodPrereqs = options.broodPrereqs;
+  if (broodPrereqs !== undefined) {
+    health.setBroodingState({ reason: broodPrereqs.ready ? null : broodPrereqs.reason });
+  }
+
   const telemetryDbPath = options.telemetryDbPath ?? telemetryDbPathForRuntimeDir(config.runtimeDir);
 
   // A no-op placeholder until the first start() actually opens the SQLite store
@@ -377,12 +490,33 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
   // RouteGroup handle so `mountHiveGraphApi` can attach handlers before OR after
   // the socket binds (the route table is consulted per request).
   const router = new NectarRouter(ROUTE_GROUPS, options.apiPermission ?? allowAllPermission);
+  const apiPermission = options.apiPermission ?? allowAllPermission;
 
   // Shared Wave C context: an empty placeholder tenancy means an empty store
   // yields no work, so the default enricher loop is a harmless no-op until a
   // real tenancy + store are wired in.
   const waveCTenancy: Tenancy = options.tenancy ?? { orgId: "", workspaceId: "", projectId: "" };
   const projectRoot = options.projectRoot ?? process.cwd();
+
+  // PRD-018c NEC-007 (AC-018c.1): the ONE shared ignore predicate (segments ∪
+  // graph-ignore ∪ gitignore semantics) - the SAME function reference is used
+  // by brood discovery (both its git and walk paths), the watch intake, and
+  // the resync path, so the three legs of the mission never disagree about
+  // what the codebase is again. Memoized and constructed LAZILY on first
+  // actual use (registration or brood activating), not at assembly time: a
+  // daemon that never wires a store (most unit tests) never spawns `git`.
+  let sharedIgnoreInstance: ReturnType<typeof createSharedIgnore> | undefined;
+  function sharedIgnore(): ReturnType<typeof createSharedIgnore> {
+    if (sharedIgnoreInstance === undefined) sharedIgnoreInstance = createSharedIgnore(projectRoot);
+    return sharedIgnoreInstance;
+  }
+  const resolvedIgnore: IgnorePredicate =
+    options.registrationIgnore ?? ((relPath: string) => sharedIgnore().isIgnored(relPath));
+
+  // PRD-018g / NEC-011: the ONE shared brood guard. The boot auto-brood and the
+  // API `/build` handler both go through it, and the enricher pauses while it is
+  // active, so at most one brood runs per daemon and the enricher never races it.
+  const broodGuard = createBroodGuard();
 
   // ── PRD-016: the enricher steady-state loop ─────────────────────────────────
   // The loop reads/writes the SYNCHRONOUS EnricherStore seam; its per-cycle stats
@@ -427,6 +561,8 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
       tenancy: waveCTenancy,
       logSink: enricherHealthSink,
       metrics: enricherMetrics,
+      // AC-018g.1: pause the enricher while a brood is in flight (shared guard).
+      broodActive: () => broodGuard.active(),
     };
     enricherLoop = createEnricherLoop({
       deps: cycleDeps,
@@ -447,7 +583,7 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
       filesTotal: result.discoveredCount,
       lastEventAt: new Date().toISOString(),
     });
-    health.addBroodCost({ tokens: result.estimate.inputTokens, usd: result.estimate.totalUsd });
+    health.addBroodCost({ tokens: result.actualUsage.inputTokens, usd: result.actualUsage.usd });
   }
 
   /**
@@ -461,16 +597,22 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     if ((options.autoBroodEnabled ?? true) === false) return;
     const asyncStore = options.asyncBroodStore;
     const syncStore = options.broodStore;
+    if (asyncStore === undefined && syncStore === undefined) return;
+    // AC-018g.2: route the boot auto-brood through the SAME shared guard the API
+    // `/build` handler uses, so a `/build` arriving during the boot brood is
+    // refused (409) and no two broods ever run - and no identity is double-minted.
+    if (!broodGuard.tryAcquire()) return;
     try {
       if (asyncStore !== undefined) {
         if (!shouldAutoBrood(await evaluateAutoBroodAsync(asyncStore, waveCTenancy, projectRoot))) return;
         health.setBroodingState({ active: true, lastEventAt: new Date().toISOString() });
         const config: AsyncBroodConfig = {
+          isIgnored: resolvedIgnore,
           ...options.broodConfigAsync,
           store: telemetry.wrapAsyncStore(asyncStore),
           tenancy: waveCTenancy,
           root: projectRoot,
-          fs: options.broodConfigAsync?.fs ?? createDiskRegistrationFs(projectRoot),
+          fs: options.broodConfigAsync?.fs ?? createDiskRegistrationFs(projectRoot, resolvedIgnore),
         };
         const run = options.broodRunAsync ?? runBroodAsync;
         finishBrood(await run(config, options.broodDepsAsync ?? {}, options.broodOptions ?? {}));
@@ -480,11 +622,12 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
         if (!shouldAutoBrood(evaluateAutoBrood(syncStore, waveCTenancy, projectRoot))) return;
         health.setBroodingState({ active: true, lastEventAt: new Date().toISOString() });
         const config: BroodConfig = {
+          isIgnored: resolvedIgnore,
           ...options.broodConfig,
           store: syncStore,
           tenancy: waveCTenancy,
           root: projectRoot,
-          fs: options.broodConfig?.fs ?? createDiskRegistrationFs(projectRoot),
+          fs: options.broodConfig?.fs ?? createDiskRegistrationFs(projectRoot, resolvedIgnore),
         };
         const run = options.broodRun ?? runBrood;
         finishBrood(await run(config, options.broodDeps ?? {}, options.broodOptions ?? {}));
@@ -493,6 +636,8 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     } catch (err) {
       health.setBroodingState({ active: false });
       log({ level: "error", scope: "brood", err: String(err) });
+    } finally {
+      broodGuard.release();
     }
   }
 
@@ -510,11 +655,96 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     }
   }
 
+  // ── PRD-018b: the update-on-change registration pipeline ────────────────────
+  // Constructed at start() (after the bind) when a durable async store resolved,
+  // then hydrated + started + resynced in the background AFTER auto-brood settles
+  // (so a first boot's brood never races the watcher into a double mint, and an
+  // already-brooded boot still gets its cold catch-up). Stopped in shutdown()
+  // before the lock is released, with its durable writes drained.
+  const registrationStore = options.registrationStore;
+  const registrationOn = registrationStore !== undefined && (options.registrationEnabled ?? true);
+  let registration: RegistrationPipeline | null = null;
+  let bootResyncCount = 0;
+
+  /**
+   * Build the registration pipeline: a {@link StoreBridge} over the durable async
+   * store and a {@link RegistrationService} wired with the disk fs, ignore
+   * predicate, the tunable TLSH fuzzy step, and the file-backed review queue.
+   * Constructing the service does NOT start the watcher (that is `service.start()`).
+   */
+  function buildRegistration(store: AsyncHiveGraphStore): RegistrationPipeline {
+    const bridge = new StoreBridge({
+      durable: store,
+      onFlushError: (err, op) => {
+        health.recordWatchFlushFailure(new Date().toISOString());
+        log({ level: "error", scope: "registration.bridge", op, err: String(err) });
+      },
+    });
+    const reviews: PendingReviewStore =
+      options.registrationReviews ?? new FilePendingReviewStore(join(config.runtimeDir, "pending-reviews.json"));
+    const registrationMetrics: PipelineMetricsSink = {
+      incrementFilesRegistered: () => telemetry.metrics.incrementFilesRegistered(),
+      incrementNectarsMinted: () => telemetry.metrics.incrementNectarsMinted(),
+      incrementDescriptionsGenerated: () => telemetry.metrics.incrementDescriptionsGenerated(),
+      incrementHiveGraphVersions: () => telemetry.metrics.incrementHiveGraphVersions(),
+      incrementEmbeddingsComputed: () => telemetry.metrics.incrementEmbeddingsComputed(),
+    };
+    const service = new RegistrationService({
+      store: bridge,
+      tenancy: waveCTenancy,
+      fs: options.registrationFs ?? createDiskRegistrationFs(projectRoot, resolvedIgnore),
+      root: projectRoot,
+      fuzzy: createTlshFuzzyStep(options.registrationFuzzyConfig ?? DEFAULT_TUNABLE_FUZZY_CONFIG),
+      pendingReviews: reviews,
+      isIgnored: resolvedIgnore,
+      ...(options.registrationTimer !== undefined ? { timer: options.registrationTimer } : {}),
+      ...(options.registrationDebounceMs !== undefined ? { debounceMs: options.registrationDebounceMs } : {}),
+      metrics: registrationMetrics,
+      log,
+      // PRD-018c NEC-007 point 1: refresh the shared predicate's gitignore
+      // snapshot on every resync (boot, directory-event, watcher-restart, and
+      // the periodic backstop all funnel through requestResync()), so the
+      // cache stays warm without spawning git per watch event. A no-op when
+      // `registrationIgnore` overrides the shared predicate (nothing to refresh).
+      onResyncRequested: () => sharedIgnoreInstance?.refresh(),
+      // PRD-018c AC-018c.6/7: surface watcher liveness on /health.
+      onWatcherStateChange: (state: WatcherState) => {
+        health.setWatchState({ state, running: state === "running" });
+      },
+    });
+    return { service, bridge };
+  }
+
+  /**
+   * Hydrate the mirror, start the watcher, and request the single cold-catch-up
+   * resync (AC-018b.5) - the boot sequencing step that runs AFTER auto-brood
+   * settles. A shutdown that raced boot sets `closed`; in that case this bails
+   * out so the watcher is never started during teardown (AC-018b.3).
+   */
+  async function startRegistrationPipeline(): Promise<void> {
+    if (registration === null || closed) return;
+    try {
+      await registration.bridge.hydrate(waveCTenancy);
+    } catch (err) {
+      log({ level: "error", scope: "registration.hydrate", err: String(err) });
+    }
+    if (closed) return; // a shutdown may have landed while hydrating
+    registration.service.start();
+    health.setWatchState({ running: true, reason: null });
+    registration.service.requestResync();
+    bootResyncCount += 1;
+    log({ level: "info", scope: "registration", msg: "watch leg started", root: projectRoot });
+  }
+
   const lockPaths = { lockFilePath: config.lockFilePath, pidFilePath: config.pidFilePath };
+  const drainTimeoutMs = options.shutdownDrainMs ?? DEFAULT_SHUTDOWN_DRAIN_MS;
+  const closeGraceMs = options.shutdownCloseGraceMs ?? DEFAULT_CLOSE_GRACE_MS;
 
   let server: HttpServer | null = null;
   let closed = false;
   let signalsInstalled = false;
+  /** The identity this instance stamped into the lock, or null when it holds no lock (never acquired, or released). */
+  let lockIdentity: LockIdentity | null = null;
   /** The one in-flight (or settled) startup. Concurrent/repeat callers share it, so nobody observes a "started" port before listen() actually succeeds. */
   let startPromise: Promise<number> | null = null;
   /** Stops the check-in heartbeat armed by the current telemetry instance, or null before/after it is running. */
@@ -524,9 +754,28 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     if (startPromise !== null) return startPromise;
 
     startPromise = (async () => {
-      // Step 5 (PRD-002a): acquire the single-instance lock BEFORE the bind.
-      acquireSingleInstanceLock(lockPaths);
+      // CodeRabbit PR-18 finding #1: clear `closed` at the very top of the
+      // startPromise IIFE, before anything that can throw (the loopback guard,
+      // the lock acquire). On a REUSED daemon instance (start -> shutdown ->
+      // start again), a second start() that throws before this point used to
+      // leave `closed === true` from the prior shutdown; the catch handler's
+      // rollback `await shutdown()` then no-op'd on the `if (closed) return;`
+      // guard and never cleared `startPromise`, wedging every later start() on
+      // the same rejected promise forever. This is a synchronous assignment at
+      // the top of a prefix that is itself synchronous up to the awaited
+      // `listen()` call, so it does not affect the EX-1 race test's timing.
       closed = false;
+
+      // PRD-018j / NEC-029: refuse to bind off loopback when the default open gate
+      // is active, so the API is never network-reachable without authentication.
+      if (apiPermission === allowAllPermission && !isLoopbackHost(config.host)) {
+        throw new NonLoopbackOpenApiError(config.host);
+      }
+
+      // Step 5 (PRD-002a): acquire the single-instance lock BEFORE the bind, and
+      // remember the identity we stamped so the rollback path releases only what
+      // THIS instance acquired (PRD-018a NEC-002).
+      lockIdentity = acquireSingleInstanceLock(lockPaths);
       // Step 6: start services (the worker's adaptive poll loop + the enricher loop).
       worker.start();
       enricherLoop?.start();
@@ -545,15 +794,68 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
         timer: options.telemetryTimer,
       });
 
-      // Step 7: bind the socket.
-      server = createHttpServer(health, config.host, config.port, router);
-      const boundPort = await server.listen();
+      // Step 7: bind the socket. Use a local reference so a concurrent shutdown()
+      // that nulls `server` cannot turn the unwind below into a null deref.
+      const httpServer = createHttpServer(health, config.host, config.port, router);
+      server = httpServer;
+      const boundPort = await httpServer.listen();
+
+      // EX-1 / M6: a shutdown() may have raced this start between lock acquisition
+      // and the bind completing. If so, unwind: close the socket we just bound and
+      // release the lock this instance holds, so we never end up listening without
+      // a lock (which would let a second daemon start alongside us).
+      if (closed) {
+        await httpServer.close(closeGraceMs);
+        if (server === httpServer) server = null;
+        if (lockIdentity !== null) {
+          releaseSingleInstanceLock(lockPaths, lockIdentity);
+          lockIdentity = null;
+        }
+        throw new DaemonStartAbortedError();
+      }
+
       log({ level: "info", scope: "daemon", msg: "listening", host: config.host, port: boundPort });
 
-      // Step 8 (Wave C): kick off the background boot tasks AFTER the daemon is
-      // accepting requests, so neither the fresh-clone projection load nor the
-      // auto-brood trigger ever blocks readiness (PRD-007d / PRD-011b AC-6).
-      bootSettled = Promise.allSettled([loadBootProjection(), triggerAutoBrood()]).then(() => {});
+      // PRD-018k / NEC-023 (AC-018k.1 / AC-018k.2): a booted daemon that cannot
+      // brood says so loudly, enumerating exactly which prerequisites are unmet
+      // (the credentials file, and/or the specific NECTAR_PORTKEY_* variables),
+      // instead of silently describing nothing.
+      if (broodPrereqs !== undefined && !broodPrereqs.ready) {
+        log({
+          level: "warn",
+          scope: "brood",
+          msg: "brooding is dormant; the following prerequisites are missing",
+          reason: broodPrereqs.reason,
+          missing: broodPrereqs.missing,
+        });
+      }
+
+      // PRD-018b: construct the registration pipeline now (side-effect light: no
+      // watcher yet), and surface the watch-leg state on /health. Dormant with a
+      // reason when no durable store resolved (AC-018b.7); constructed-but-not-yet
+      // -started otherwise (the watcher starts in the boot task below).
+      if (registrationOn && registrationStore !== undefined) {
+        registration = buildRegistration(registrationStore);
+        health.setWatchState({ running: false, reason: null });
+      } else {
+        health.setWatchState({
+          running: false,
+          reason: registrationStore === undefined ? "no-credentials" : "disabled",
+        });
+      }
+
+      // Step 8 (Wave C / PRD-018b): kick off the background boot tasks AFTER the
+      // daemon is accepting requests, so neither the fresh-clone projection load
+      // nor the auto-brood trigger ever blocks readiness (PRD-007d / PRD-011b
+      // AC-6). The registration watcher + cold-catch-up resync are sequenced
+      // AFTER auto-brood settles (AC-018b.5/6): on a first boot the order is
+      // brood, then watch, then resync; on a warm boot auto-brood is a no-op and
+      // the resync runs promptly. No lock is needed - the watcher simply is not
+      // running while the brood runs, so it cannot race a mint.
+      bootSettled = (async () => {
+        await Promise.allSettled([loadBootProjection(), triggerAutoBrood()]);
+        await startRegistrationPipeline();
+      })();
 
       return boundPort;
     })();
@@ -573,15 +875,65 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     if (closed) return; // idempotent: a second signal is ignored
     closed = true;
 
+    // EX-1 / M6: if a start is in flight, let IT observe `closed` and unwind
+    // itself (close its own socket, release its own lock) rather than racing to
+    // close a mid-bind socket here (which would leave the start's `listen()`
+    // unsettled and hang shutdown). Its rejection is expected during this race.
+    const inFlightStart = startPromise;
+    if (inFlightStart !== null) {
+      try {
+        await inFlightStart;
+      } catch {
+        // An aborted or failed start during a racing shutdown is expected here.
+      }
+    }
+
+    // Disarm the poll loops so no NEW tick starts, then drain the in-flight tick
+    // and the background boot tasks (bootSettled) before releasing the lock.
     worker.stop();
     enricherLoop?.stop();
+    // PRD-018b AC-018b.3: stop the watcher NOW (before the lock is released) so no
+    // new watch event is scheduled; an in-flight cycle is drained below. This also
+    // means the boot task's `startRegistrationPipeline` (if it has not run yet)
+    // sees `closed` and never starts the watcher during teardown.
+    registration?.service.stop();
+    if (registration !== null) health.setWatchState({ running: false });
+
+    // AC-018a.10/11 (NEC-033): await the in-flight worker tick and bootSettled
+    // under a bounded timeout so a shutdown that catches the worker busy drains
+    // the write instead of killing it mid-flight. The drain never rejects
+    // (errors are logged); a drain that exceeds the timeout logs and proceeds so
+    // shutdown stays bounded (it must not reintroduce the NEC-021 hang). PRD-018b:
+    // the registration cycle and its durable bridge flush are drained too, so a
+    // ladder write in flight lands durably before the lock is released.
+    const drainWork = (async () => {
+      await worker.whenIdle();
+      await bootSettled;
+      if (registration !== null) {
+        await registration.service._waitForIdle();
+        await registration.bridge.whenFlushed();
+      }
+    })().catch((err) => {
+      log({ level: "error", scope: "daemon", msg: "drain error", err: String(err) });
+    });
+    const drained = await raceWithTimeout(drainWork, drainTimeoutMs);
+    if (!drained) {
+      log({ level: "warn", scope: "daemon", msg: "drain timed out; proceeding with shutdown", timeoutMs: drainTimeoutMs });
+    }
+
     if (server !== null) {
-      await server.close();
+      await server.close(closeGraceMs);
       server = null;
     }
     stopHeartbeat?.();
     stopHeartbeat = null;
-    releaseSingleInstanceLock(lockPaths);
+    // Ownership-checked release: only remove the lock this instance holds. A
+    // failed second start (which never acquired the lock) has lockIdentity null
+    // and touches nothing, so it can never delete the live daemon's lock (NEC-002).
+    if (lockIdentity !== null) {
+      releaseSingleInstanceLock(lockPaths, lockIdentity);
+      lockIdentity = null;
+    }
     startPromise = null; // allow a fresh start after a clean shutdown
     log({ level: "info", scope: "daemon", msg: "shutdown complete" });
     telemetry.close();
@@ -603,6 +955,7 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     config,
     health,
     worker,
+    broodGuard,
     start,
     shutdown,
     pipelineStatus: () => health.pipelineStatus,
@@ -611,13 +964,17 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     acknowledgeAlert: () => enricherLoop?.acknowledgeAlert(),
     awaitBoot: () => bootSettled,
     group: (path) => router.group(path),
+    registration: () => registration,
+    registrationBootResyncCount: () => bootResyncCount,
   };
 
   // PRD-008: attach the /api/hive-graph handlers when the caller wired the
   // mechanics. The group is already scaffolded + protected regardless; this
   // fills it. Callers may equivalently call mountHiveGraphApi(daemon, opts).
   if (options.hiveGraphApi !== undefined) {
-    mountHiveGraphApi(daemon, options.hiveGraphApi);
+    // Share the daemon's brood guard with the API `/build` handler (AC-018g.2)
+    // unless the caller already supplied one.
+    mountHiveGraphApi(daemon, { broodGuard, ...options.hiveGraphApi });
   }
 
   return daemon;

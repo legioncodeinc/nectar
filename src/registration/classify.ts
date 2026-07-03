@@ -7,6 +7,13 @@
  * vs edit), or a missing path (a known nectar's path is gone from disk). A path
  * that neither exists nor is known is a no-op (for example a temp file created
  * and deleted inside the debounce window) and classifies to null.
+ *
+ * PRD-018c NEC-034 / AC-018c.8: the `known` lookup takes an optional `fold`
+ * function so a case-insensitive workspace can compare case-folded (the
+ * caller pre-folds `knownPaths`'s entries with the SAME function, service.ts's
+ * `knownPaths()`). `fold` defaults to the identity, preserving case-sensitive
+ * behavior. The RETURNED `relPath` is always `obs.relPath` verbatim - the
+ * fold is a lookup-only concern; stored rows keep the observed on-disk casing.
  */
 
 export interface PathObservation {
@@ -29,8 +36,9 @@ export interface LadderInput {
 export function classifyPath(
   obs: PathObservation,
   knownPaths: ReadonlySet<string>,
+  fold: (relPath: string) => string = (relPath) => relPath,
 ): LadderInput | null {
-  const known = knownPaths.has(obs.relPath);
+  const known = knownPaths.has(fold(obs.relPath));
   if (obs.existsOnDisk) {
     return { kind: known ? "changed-path" : "new-path", relPath: obs.relPath };
   }

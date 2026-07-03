@@ -1,6 +1,6 @@
 # Identity and Re-association
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The core algorithm of Nectar: how a ULID nectar is minted, how it survives edits and renames and moves, how the daemon re-associates a nectar to a file on disk after offline changes, and how copy-paste becomes a first-class provenance edge instead of a history-loss event.
 
@@ -135,7 +135,7 @@ function bestFuzzyMatch(
 }
 ```
 
-The match is **scored, not binary**. The `hive_graph_versions` row appended for a fuzzy match carries a `confidence` field (1 − normalized distance). If confidence is below a "high" band (configurable, default tuned during brooding), the daemon does **not** silently claim the nectar — instead it surfaces the candidate match to the dashboard (or to an interactive `honeycomb nectar review-matches` command) for human confirmation. Low-confidence matches mint a new nectar instead.
+The match is **scored, not binary**. The `hive_graph_versions` row appended for a fuzzy match carries a `confidence` field (1 − normalized distance). If confidence is below a "high" band (configurable, default tuned during brooding), the daemon does **not** silently claim the nectar - instead it surfaces the candidate match to the dashboard (or to an interactive `nectar review-matches` command) for human confirmation. Low-confidence matches mint a new nectar instead.
 
 This step primarily fires after cold restart with offline changes, but it is not limited to that mode. Nectar mirrors Honeycomb's `node:fs.watch` pattern, which reports uncorrelated `(eventType, filename)` observations rather than a rich move object. During live operation the debounced event stream updates the missing-files and new/changed-files sets; step 3 reconstructs ordinary moves by exact hash, and step 4 handles move-and-edit cases when exact hash evidence is not enough.
 
@@ -211,7 +211,7 @@ Cold catch-up is the hard case because all the daemon has is the final state of 
 
 A nectar, once minted, is never deleted by the re-association ladder. If a file on disk has no re-association candidate (step 5), the daemon mints a new nectar — it does not scan for "orphaned" nectars whose paths are missing and reuse them. Orphaned nectars (the file was deleted, not moved) remain in Deep Lake as history.
 
-Deletion of nectar records is a separate, explicit operation: `honeycomb nectar prune --confirm` removes nectars whose latest version's path has been missing for longer than a configurable grace period (default 30 days). The grace period exists because a file that is "missing" might be on a branch that is currently checked out elsewhere, or might come back after a merge. Pruning is conservative and human-triggered.
+Deletion of nectar records is a separate, explicit operation: `nectar prune --confirm` removes nectars whose latest version's path has been missing for longer than a configurable grace period (default 30 days). The grace period exists because a file that is "missing" might be on a branch that is currently checked out elsewhere, or might come back after a merge. Pruning is conservative and human-triggered.
 
 This append-only-ish behavior (nectars are minted freely, pruned rarely, never reused) is what makes the history chain trustworthy. A nectar's version chain is a complete record of every observed state of the logical file it represents, from minting to (eventually) archival.
 

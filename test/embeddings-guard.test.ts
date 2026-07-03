@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { guardVector, withDimGuard } from "../dist/embeddings/guard.js";
 import type { DimRejection } from "../dist/embeddings/guard.js";
 import { resolveEmbedProvider } from "../dist/embeddings/provider.js";
-import { resolveEmbeddingsConfig } from "../dist/embeddings/config.js";
+import { resolveEmbeddingsConfig, validateEmbedDimension } from "../dist/embeddings/config.js";
+import { stderrDimRejectionSink } from "../dist/embeddings/guard.js";
 import type { LocalNomicTransport } from "../dist/embeddings/local-nomic.js";
 import { EMBED_DIMS } from "../dist/hive-graph/model.js";
 
@@ -51,6 +52,40 @@ test("014-AC-3 a 767-dim vector from the cohere provider is discarded to null an
 });
 
 // ── the guard primitive itself ─────────────────────────────────────────────────
+
+// ── PRD-018i / NEC-028: config-resolution dimension validation + wired sink ────
+
+test("018i.7 validateEmbedDimension refuses a non-768 hosted output dimension", () => {
+  const bad = resolveEmbeddingsConfig({ selector: "hosted", hosted: { outputDimension: 1536 }, env: {} });
+  const v = validateEmbedDimension(bad);
+  assert.equal(v.ok, false);
+  assert.equal(v.requested, 1536);
+  assert.equal(v.expected, EMBED_DIMS);
+  assert.match(v.message ?? "", new RegExp(String(EMBED_DIMS)));
+});
+
+test("018i.7 validateEmbedDimension passes the 768 default and non-hosted selectors", () => {
+  assert.equal(validateEmbedDimension(resolveEmbeddingsConfig({ selector: "hosted", env: {} })).ok, true);
+  assert.equal(validateEmbedDimension(resolveEmbeddingsConfig({ selector: "local", env: {} })).ok, true);
+  assert.equal(validateEmbedDimension(resolveEmbeddingsConfig({ selector: "off", env: {} })).ok, true);
+});
+
+test("018i.8 stderrDimRejectionSink is a real (non-noop) sink that writes the mismatch", () => {
+  const original = process.stderr.write.bind(process.stderr);
+  const lines: string[] = [];
+  (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => {
+    lines.push(s);
+    return true;
+  };
+  try {
+    stderrDimRejectionSink({ provider: "hosted", expected: EMBED_DIMS, actual: 1536 });
+  } finally {
+    (process.stderr as unknown as { write: typeof original }).write = original;
+  }
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? "", /embed\.dim_rejected/);
+  assert.match(lines[0] ?? "", /actual=1536/);
+});
 
 test("014-AC-3 guardVector passes a valid 768-dim vector and null, discards any other length", () => {
   const valid = new Array(EMBED_DIMS).fill(0.3);

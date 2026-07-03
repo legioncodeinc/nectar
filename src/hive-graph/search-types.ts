@@ -45,10 +45,54 @@ export interface HiveGraphSearchDeps {
   readonly storage: StorageQuery;
   /** When absent, search runs lexical-only and returns `degraded: true`. */
   readonly embed?: EmbedClient;
+  /**
+   * The active embedding provider's model id (PRD-018i / NEC-018 AC-018i.3). When
+   * set, the semantic arm excludes rows whose non-null `embed_model` disagrees
+   * with it (a cross-space cosine comparison is meaningless) and reports the
+   * mismatched nectars through {@link onReembedNeeded}. Rows with a null
+   * `embed_model` (pre-provenance rows) are treated as compatible.
+   */
+  readonly activeEmbedModel?: string;
+  /** Sink for nectars whose stored embedding disagrees with the active model, to be re-embedded (AC-018i.3). */
+  readonly onReembedNeeded?: (nectars: readonly string[]) => void;
+  /**
+   * The recall RRF multiplier loaded from `~/.honeycomb/nectar.json`'s
+   * `nectar_rrf_multiplier` knob (PRD-018k / NEC-041 AC-018k.7). This is the
+   * config SURFACE the knob plugs into: the value is accepted and exposed here,
+   * but this standalone two-arm engine deliberately applies NO cross-arm class
+   * weighting (PRD-012a; see the recall review's spec-conformance note), so the
+   * multiplier does not yet alter fusion. It reaches the recall path so a future
+   * cross-table fusion arm can weight nectar hits without a new plumbing change.
+   */
+  readonly rrfMultiplier?: number;
 }
+
+export type HiveGraphSearchArmState = "ok" | "missing-table" | "error" | "not-run";
+
+export type HiveGraphSearchArmName = "semantic" | "lexical";
+
+export interface HiveGraphSearchArmStatus {
+  readonly status: HiveGraphSearchArmState;
+  readonly rows: number;
+  readonly reason?: string;
+}
+
+export type HiveGraphSearchReason =
+  | "ok"
+  | "empty-query"
+  | "semantic-unavailable"
+  | "no-matches"
+  | "missing-table"
+  | "backend-error";
 
 export interface HiveGraphSearchResult {
   readonly hits: readonly HiveGraphHit[];
   readonly sources: readonly ("nectar")[];
   readonly degraded: boolean;
+  readonly reason?: HiveGraphSearchReason;
+  readonly errorSources?: readonly HiveGraphSearchArmName[];
+  readonly arms?: {
+    readonly semantic: HiveGraphSearchArmStatus;
+    readonly lexical: HiveGraphSearchArmStatus;
+  };
 }

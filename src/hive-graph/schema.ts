@@ -61,6 +61,10 @@ export const HIVE_GRAPH_VERSIONS_COLUMNS: readonly ColumnDef[] = [
   { name: "fingerprint", type: "TEXT", notNull: false },
   { name: "described_at", type: "TEXT", notNull: true, default: "" },
   { name: "describe_model", type: "TEXT", notNull: true, default: "" },
+  // Nullable embedding-model provenance (PRD-018i / NEC-018). Added additively to
+  // pre-existing tables via `healMissingColumn`; old rows read back null. This is
+  // the ONLY schema change in the PRD-018 close-out.
+  { name: "embed_model", type: "TEXT", notNull: false },
   { name: "describe_status", type: "TEXT", notNull: true, default: "pending" },
   { name: "observed_at", type: "TEXT", notNull: true, default: "" },
   { name: "org_id", type: "TEXT", notNull: true, default: "" },
@@ -147,4 +151,17 @@ export function buildCreateTableSql(table: CatalogTable): string {
   const safeName = sqlIdent(table.name);
   const colSql = table.columns.map(columnClause).join(", ");
   return `CREATE TABLE IF NOT EXISTS "${safeName}" (${colSql}) USING deeplake`;
+}
+
+/**
+ * Render `ALTER TABLE "<name>" ADD COLUMN <col>` for one additive column, the
+ * catalog heal path for a column added to the definition after the table already
+ * exists (PRD-018i / `hive-graph-schema.md:145-149`). The table name is validated
+ * through `sqlIdent`; the column clause reuses {@link columnClause} (identifier
+ * validated, default rendered as a guarded literal), so a healable column is only
+ * ever an additive nullable one whose clause carries no NOT NULL surprise.
+ */
+export function buildAddColumnSql(table: CatalogTable, col: ColumnDef): string {
+  const safeName = sqlIdent(table.name);
+  return `ALTER TABLE "${safeName}" ADD COLUMN ${columnClause(col)}`;
 }

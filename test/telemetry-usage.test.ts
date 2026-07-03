@@ -52,6 +52,30 @@ function readLedger(dir: string): { distinctId?: string; reported: string[]; las
   return JSON.parse(readFileSync(join(dir, USAGE_LEDGER_FILE_NAME), "utf8"));
 }
 
+// ── NEC-042 item 4 / AC-018l.11: NECTAR_TELEMETRY accepts the falsy family ─────
+
+test("AC-018l.11 NECTAR_TELEMETRY opt-out accepts 0/false/off (case-insensitive), not just the literal '0'", () => {
+  for (const v of ["0", "false", "off", "OFF", "False", "no", "No"]) {
+    assert.equal(isOptedOut({ NECTAR_TELEMETRY: v }), true, `NECTAR_TELEMETRY=${v} opts out`);
+  }
+  // Truthy or unrelated values do NOT opt out (telemetry stays on).
+  assert.equal(isOptedOut({ NECTAR_TELEMETRY: "1" }), false);
+  assert.equal(isOptedOut({ NECTAR_TELEMETRY: "on" }), false);
+  assert.equal(isOptedOut({}), false);
+});
+
+test("AC-018l.11 NECTAR_TELEMETRY=off silences the emit chokepoint end-to-end", async () => {
+  const dir = tmpStateDir();
+  const rec = recorder();
+  try {
+    const outcome = await emitUsageEvent("nectar_installed", keyedDeps(dir, rec.fetch, { env: { NECTAR_TELEMETRY: "off" } }));
+    assert.deepEqual(outcome, { sent: false, skipped: "opted_out" });
+    assert.equal(rec.calls.length, 0, "no POST is issued when opted out via the falsy family");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ── Gates ────────────────────────────────────────────────────────────────
 
 test("gate: empty baked key hard-disables (no fetch, no state written)", async () => {

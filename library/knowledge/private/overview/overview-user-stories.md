@@ -1,6 +1,6 @@
 # User Stories: Operator and Engineering Scope
 
-> Category: Overview | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Overview | Version: 1.1 | Date: July 2026 | Status: Draft
 
 A detailed set of operator and engineering user stories with acceptance criteria for Nectar — the engineering scope of the daemon worker, the identity model, the description pipeline, the two-layer recall complementarity, fresh-clone inheritance, and daemon integration. This is not a product feature list; it is the scope a daemon operator, an implementing engineer, and a reviewer verify against.
 
@@ -93,7 +93,7 @@ These stories are scoped to the people who *operate and build* Nectar, not end-p
 
 **US-OV-021** — As a reviewer reading `nectars.json`, I want the projection diff in a pull request to be reviewable, so that I can sanity-check that newly-described files have reasonable descriptions. **Acceptance criteria:** (a) a typical PR adds or modifies a handful of projection entries, each carrying the file's title, description, and concepts; (b) the projection changes at most once per enricher cycle (debounced, default 30 seconds); (c) the projection omits embeddings and the full version chain so the diff stays kilobytes, not megabytes.
 
-**US-OV-022** — As a reviewer reading `nectars.json`, I want the projection to make the projection-vs-sidecar distinction enforceable, so that I can confirm the file is regenerable rather than a hidden source of truth. **Acceptance criteria:** (a) Deep Lake writes happen before the projection is regenerated; (b) `honeycomb nectar rebuild-projection` regenerates the file from Deep Lake alone; (c) the projection carries no state that Deep Lake does not have.
+**US-OV-022** - As a reviewer reading `nectars.json`, I want the projection to make the projection-vs-sidecar distinction enforceable, so that I can confirm the file is regenerable rather than a hidden source of truth. **Acceptance criteria:** (a) Deep Lake writes happen before the projection is regenerated; (b) `nectar rebuild-projection` regenerates the file from Deep Lake alone; (c) the projection carries no state that Deep Lake does not have.
 
 ---
 
@@ -105,7 +105,7 @@ These stories are scoped to the people who *operate and build* Nectar, not end-p
 
 **US-OV-025** — As a daemon operator, I want brooding to be resumable after a crash, so that an interrupted brood does not restart from zero or leave inconsistent state. **Acceptance criteria:** (a) every mint and description write is a committed Deep Lake write; (b) on restart, files with `describe_status != 'pending'` are skipped, pending files are re-enqueued, and un-minted files are discovered fresh; (c) there is no "brood in progress" lockfile — state is fully derivable from `describe_status`.
 
-**US-OV-026** — As a daemon operator, I want explicit control commands, so that I can trigger, cap, or rebuild the worker's work on demand. **Acceptance criteria:** (a) `honeycomb nectar brood` respects existing descriptions, `--force` re-describes everything, `--limit N` caps the cost, and `--dry-run` estimates without LLM calls; (b) `rebuild-projection` regenerates the lockfile from Deep Lake; (c) `prune --confirm` removes nectars whose latest path has been missing past the grace period (default 30 days).
+**US-OV-026** - As a daemon operator, I want explicit control commands, so that I can trigger, cap, or rebuild the worker's work on demand. **Acceptance criteria:** (a) `nectar brood` respects existing descriptions, `--force` re-describes everything, `--limit N` caps the cost, and `--dry-run` estimates without LLM calls; (b) `rebuild-projection` regenerates the lockfile from Deep Lake; (c) `prune --confirm` removes nectars whose latest path has been missing past the grace period (default 30 days).
 
 **US-OV-027** — As a daemon operator, I want the worker to never mutate source files, so that the AGPL license header and contributor workflow are untouched. **Acceptance criteria:** (a) no file on disk other than `.honeycomb/nectars.json` is written by hiveantennae; (b) the only on-disk artifact is the regenerable projection; (c) the identity layer requires no git hooks that prepend content to source files.
 

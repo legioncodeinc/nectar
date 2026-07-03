@@ -1,6 +1,6 @@
 # Re-association: Technical Specification
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The algorithmic contract for the re-association ladder: each of the five steps specified by input state, comparison predicate, Deep Lake write, post-condition, and confidence handling; the three TypeScript functions that implement minting, copy detection, and fuzzy matching; the confidence field semantics; the review surface; and the prune grace period.
 
@@ -96,7 +96,7 @@ The hard case. The file was moved *and* edited while the daemon was offline, so 
 | Input state | A nectar whose latest version's `path` is absent from disk; a new on-disk path whose content hash matches nothing, with a computed TLSH fingerprint. |
 | Comparison predicate | `tlshDiff(newFingerprint, candidate.fingerprint)` minimized over missing-file candidates, compared against the fuzzy threshold. |
 | Action (high confidence) | Append a new `hive_graph_versions` row for the existing nectar with the new `path`, new `content_hash`, and `confidence` field set; enqueue an enrich job. |
-| Action (low confidence) | Surface the candidate match for human review via `honeycomb nectar review-matches`; do not auto-claim the nectar. |
+| Action (low confidence) | Surface the candidate match for human review via `nectar review-matches`; do not auto-claim the nectar. |
 | Action (no match) | Fall through to step 5. |
 | Post-condition (high confidence) | The nectar follows the file to its new location with a version row flagging the confidence of the association. |
 | Confidence handling | The `confidence` field on the appended version row is `1 − normalizedTLSHDistance`. Matches at or above the high band are carried; matches in the review band are surfaced; matches below the low band fall through to mint. |
@@ -212,7 +212,7 @@ The source spec deliberately commits **no concrete threshold value**: the high b
 | Band | Bound | Behavior |
 |---|---|---|
 | High confidence | above the configurable high band (default tuned during brooding) | The daemon carries the nectar automatically, appends the version row with the `confidence` value, and flags it. No human review required. |
-| Review band | below the high band, above the low band | The daemon does **not** auto-claim the nectar. It surfaces the candidate match to the review surface (`honeycomb nectar review-matches`). |
+| Review band | below the high band, above the low band | The daemon does **not** auto-claim the nectar. It surfaces the candidate match to the review surface (`nectar review-matches`). |
 | Low confidence | at or below the low band | The match is not surfaced; the daemon mints a new nectar instead (step 5). |
 
 The bands are configurable and the defaults are determined empirically during brooding — they are not fixed constants in the spec. The high band is deliberately strict: a false claim at the high band is the failure mode the ladder exists to prevent, so the threshold errs toward minting rather than carrying.
@@ -223,10 +223,10 @@ The `confidence` value is persisted on the version row so that a reviewer can se
 
 ## The review surface
 
-Low-confidence matches are surfaced for human review rather than auto-claimed. The review surface is the interactive command `honeycomb nectar review-matches`, plus a dashboard view. The source spec names the command but does not pin its sub-flag syntax; the command lists pending candidates and lets a reviewer accept (carry the candidate nectar) or reject (leave the provisional mint in place). The exact flag surface is an implementation detail left to the daemon.
+Low-confidence matches are surfaced for human review rather than auto-claimed. The review surface is the interactive command `nectar review-matches`, plus a dashboard view. The source spec names the command but does not pin its sub-flag syntax; the command lists pending candidates and lets a reviewer accept (carry the candidate nectar) or reject (leave the provisional mint in place). The exact flag surface is an implementation detail left to the daemon.
 
 ```bash
-honeycomb nectar review-matches        # list pending low-confidence candidates
+nectar review-matches        # list pending low-confidence candidates
 # then accept/reject each candidate via the command's review flow
 ```
 
@@ -248,7 +248,7 @@ A nectar, once minted, is never deleted by the re-association ladder. If a file 
 Deletion of nectar records is a separate, explicit, human-triggered operation.
 
 ```bash
-honeycomb nectar prune --confirm
+nectar prune --confirm
 ```
 
 This removes nectars whose latest version's `path` has been missing for longer than the configurable grace period. The defaults are conservative:

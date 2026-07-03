@@ -261,6 +261,16 @@ async function call(router: NectarRouter, method: string, path: string, opts: { 
   return { status: res!.status, body: JSON.parse(res!.body) };
 }
 
+/** Poll until `pred` is true or the timeout elapses (for a background brood behind the 202 contract). */
+async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pred()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error("waitFor timed out");
+}
+
 test("bridge-AC live build endpoint broods against the durable store when Portkey is configured", async () => {
   const root = tmpRoot();
   const { store, inner } = makeAsyncStore();
@@ -287,9 +297,13 @@ test("bridge-AC live build endpoint broods against the durable store when Portke
 
     const router = mount(options);
     const res = await call(router, "POST", "/api/hive-graph/build", { body: {} });
-    assert.equal(res.status, 200, "the live build path returns a 200 result, not 501");
-    assert.equal(res.body.describedCount, 1, "the file was described end-to-end");
-    assert.equal(inner.listLatestVersions(TEN).length, 1, "a row landed in the durable store");
+    // AC-018a.7: /build is now async (202 + background brood), not a synchronous 200.
+    assert.equal(res.status, 202, "the live build path accepts asynchronously (202), not 501");
+    assert.equal(res.body.status, "accepted");
+
+    // The brood runs in the background behind the 202; wait for its durable effect.
+    await waitFor(() => inner.listLatestVersions(TEN).length === 1);
+    assert.equal(inner.listLatestVersions(TEN).length, 1, "a row landed in the durable store end-to-end");
     assert.equal(metrics.counts.descriptionsGenerated, 1, "the live build path moved the counters");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -337,6 +351,9 @@ const fakeBroodResult = {
   batchCalls: 1,
   soloCalls: 0,
   estimate: { totalCalls: 1, inputTokens: 80, inputUsd: 0.004, outputUsd: 0.003, embeddingUsd: 0.001, totalUsd: 0.008 },
+  // EX-3: the daemon records real usage, not the estimate; the fake reports
+  // actuals that happen to match the estimate so the health assertion holds.
+  actualUsage: { inputTokens: 80, outputTokens: 20, usd: 0.008 },
   dryRun: false,
   skippedResumeCount: 0,
   reenqueueCount: 0,

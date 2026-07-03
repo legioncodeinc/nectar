@@ -78,7 +78,21 @@ test("012a-AC-1.1 lexical arm uses guarded ILIKE over title, description, and co
   assert.match(sql, /v\.description ILIKE/);
   assert.match(sql, /v\.concepts ILIKE/);
   assert.match(sql, /FROM "hive_graph_versions" v/);
+  // NEC-042 item 5 / AC-018l.12: every ILIKE carries an explicit ESCAPE clause.
+  assert.match(sql, /ORDER BY CASE WHEN v\.title ILIKE '%login%' ESCAPE '\\' THEN 0/);
+  assert.match(sql, /WHEN v\.description ILIKE '%login%' ESCAPE '\\' THEN 1/);
+  assert.match(sql, /WHEN v\.concepts ILIKE '%login%' ESCAPE '\\' THEN 2/);
+  assert.match(sql, /ELSE 3 END ASC, v\.nectar ASC/);
   assert.match(sql, /LIMIT 20/);
+});
+
+test("AC-018l.12 the lexical ILIKE arm carries an explicit ESCAPE clause (NEC-042 item 5)", () => {
+  // A term with LIKE metacharacters: the escape char pins `\%`/`\_` as literals.
+  const sql = buildHiveGraphLexicalArmSql("50%_off", SCOPE, 5);
+  const escapeMatches = sql.match(/ILIKE '[^']*' ESCAPE '\\'/g) ?? [];
+  // Three ILIKE expressions in WHERE + three in the ORDER BY ranking = six.
+  assert.equal(escapeMatches.length, 6, "every ILIKE (WHERE + ranking) carries ESCAPE '\\'");
+  assert.ok(!/ILIKE '[^']*'(?! ESCAPE)/.test(sql), "no ILIKE is left without an ESCAPE clause");
 });
 
 test("012a-AC-1.2 lexical arm applies MAX(seq) join and describe_status = described filter", () => {
@@ -136,6 +150,9 @@ test("012a-AC-2.1 semantic arm uses vector search then hydrate as two guarded qu
   );
 
   assert.equal(result.degraded, false);
+  assert.equal(result.reason, "ok");
+  assert.equal(result.arms.semantic.status, "ok");
+  assert.equal(result.arms.lexical.status, "ok");
   assert.equal(result.hits.length, 2);
   assert.deepEqual(result.sources, ["nectar"]);
   const vectorQueries = storage.queries.filter((q) => q.sql.includes("<#>"));
@@ -160,6 +177,9 @@ test("012a-AC-2.2 non-768 embed vector skips semantic arm and returns degraded t
   });
 
   assert.equal(result.degraded, true);
+  assert.equal(result.reason, "semantic-unavailable");
+  assert.equal(result.arms.semantic.status, "not-run");
+  assert.equal(result.arms.lexical.status, "ok");
   assert.equal(result.hits.length, 1);
   assert.equal(storage.queries.some((q) => q.sql.includes("<#>")), false);
 });
@@ -182,6 +202,7 @@ test("012a-AC-2.3 both arms fuse by reciprocal rank and dedupe source+id", async
   });
 
   assert.equal(result.degraded, false);
+  assert.equal(result.reason, "ok");
   assert.equal(result.hits.length, 2);
   const ids = result.hits.map((h) => h.id);
   assert.equal(new Set(ids).size, ids.length);
@@ -201,6 +222,8 @@ test("012a-AC-3.1 absent embed client runs lexical arm only", async () => {
 
   const result = await searchHiveGraph("logout", SCOPE, undefined, { storage });
 
+  assert.equal(result.degraded, true);
+  assert.equal(result.reason, "semantic-unavailable");
   assert.equal(result.hits.length, 1);
   assert.equal(storage.queries.some((q) => q.sql.includes("<#>")), false);
 });
@@ -217,12 +240,16 @@ test("012a-AC-3.2 lexical-only run returns degraded true", async () => {
   });
 
   assert.equal(result.degraded, true);
+  assert.equal(result.reason, "semantic-unavailable");
+  assert.deepEqual(result.errorSources, []);
+  assert.equal(result.arms.semantic.status, "not-run");
+  assert.equal(result.arms.lexical.status, "ok");
   assert.deepEqual(result.sources, ["nectar"]);
 });
 
 // --- fail-soft (AC-012a.4.x) ---
 
-test("012a-AC-4.1 missing hive_graph_versions table returns empty degraded floor without throwing", async () => {
+test("012a-AC-4.1 missing hive_graph_versions table returns classified empty floor without throwing", async () => {
   const storage = new RecordingStorage(() => {
     throw new TransportError("query", 'relation "hive_graph_versions" does not exist');
   });
@@ -232,7 +259,12 @@ test("012a-AC-4.1 missing hive_graph_versions table returns empty degraded floor
     embed: { embed: async () => makeVector(0.03) },
   });
 
-  assert.deepEqual(result, { hits: [], sources: [], degraded: true });
+  assert.deepEqual(result.hits, []);
+  assert.deepEqual(result.sources, []);
+  assert.equal(result.degraded, false);
+  assert.equal(result.reason, "missing-table");
+  assert.equal(result.arms.semantic.status, "missing-table");
+  assert.equal(result.arms.lexical.status, "missing-table");
 });
 
 test("012a-AC-4.2 empty query returns empty degraded floor", async () => {
@@ -240,16 +272,106 @@ test("012a-AC-4.2 empty query returns empty degraded floor", async () => {
     throw new Error("storage should not be called for empty query");
   });
 
-  assert.deepEqual(await searchHiveGraph("", SCOPE, undefined, { storage }), {
-    hits: [],
-    sources: [],
-    degraded: true,
+  const empty = await searchHiveGraph("", SCOPE, undefined, { storage });
+  assert.deepEqual(empty.hits, []);
+  assert.deepEqual(empty.sources, []);
+  assert.equal(empty.degraded, true);
+  assert.equal(empty.reason, undefined);
+  assert.equal(empty.arms, undefined);
+
+  const blank = await searchHiveGraph("   ", SCOPE, undefined, { storage });
+  assert.deepEqual(blank.hits, []);
+  assert.deepEqual(blank.sources, []);
+  assert.equal(blank.degraded, true);
+  assert.equal(blank.reason, undefined);
+});
+
+test("018h-AC-3 semantic arm storage error degrades while lexical results are served", async () => {
+  const lexicalId = "01ARZ3NDEKTSV4RRFFQ69G5FB2";
+  const storage = new RecordingStorage((sql) => {
+    if (sql.includes("<#>")) throw new TransportError("query", "401: unauthorized", 401);
+    if (sql.includes("ILIKE")) return [hitRow(lexicalId)];
+    return [];
   });
-  assert.deepEqual(await searchHiveGraph("   ", SCOPE, undefined, { storage }), {
-    hits: [],
-    sources: [],
-    degraded: true,
+
+  const result = await searchHiveGraph("auth", SCOPE, 5, {
+    storage,
+    embed: { embed: async () => makeVector(0.04) },
   });
+
+  assert.equal(result.degraded, true);
+  assert.equal(result.reason, "backend-error");
+  assert.deepEqual(result.errorSources, ["semantic"]);
+  assert.equal(result.arms.semantic.status, "error");
+  assert.match(result.arms.semantic.reason ?? "", /401/);
+  assert.equal(result.arms.lexical.status, "ok");
+  assert.deepEqual(result.hits.map((hit) => hit.id), [lexicalId]);
+});
+
+test("018h-AC-4 missing semantic table is classified without degrading lexical results", async () => {
+  const lexicalId = "01ARZ3NDEKTSV4RRFFQ69G5FB3";
+  const storage = new RecordingStorage((sql) => {
+    if (sql.includes("<#>")) throw new TransportError("query", 'relation "hive_graph_versions" does not exist');
+    if (sql.includes("ILIKE")) return [hitRow(lexicalId)];
+    return [];
+  });
+
+  const result = await searchHiveGraph("auth", SCOPE, 5, {
+    storage,
+    embed: { embed: async () => makeVector(0.05) },
+  });
+
+  assert.equal(result.degraded, false);
+  assert.equal(result.reason, "ok");
+  assert.deepEqual(result.errorSources, []);
+  assert.equal(result.arms.semantic.status, "missing-table");
+  assert.equal(result.arms.lexical.status, "ok");
+  assert.deepEqual(result.hits.map((hit) => hit.id), [lexicalId]);
+});
+
+test("018h-AC-5 both arms failing reports backend-error instead of no matches", async () => {
+  const storage = new RecordingStorage((sql) => {
+    if (sql.includes("<#>")) throw new TransportError("query", "500: vector backend failed", 500);
+    if (sql.includes("ILIKE")) throw new TransportError("query", "500: lexical backend failed", 500);
+    return [];
+  });
+
+  const result = await searchHiveGraph("auth", SCOPE, 5, {
+    storage,
+    embed: { embed: async () => makeVector(0.06) },
+  });
+
+  assert.deepEqual(result.hits, []);
+  assert.deepEqual(result.sources, []);
+  assert.equal(result.degraded, true);
+  assert.equal(result.reason, "backend-error");
+  assert.deepEqual(result.errorSources, ["semantic", "lexical"]);
+  assert.equal(result.arms.semantic.status, "error");
+  assert.equal(result.arms.lexical.status, "error");
+});
+
+test("018h-AC-6/7 lexical arm orders by match field priority and nectar tiebreaker", async () => {
+  const sql = buildHiveGraphLexicalArmSql("auth", SCOPE, 2);
+  assert.match(sql, /ORDER BY CASE/);
+  assert.match(sql, /WHEN v\.title ILIKE '%auth%' ESCAPE '\\' THEN 0/);
+  assert.match(sql, /WHEN v\.description ILIKE '%auth%' ESCAPE '\\' THEN 1/);
+  assert.match(sql, /WHEN v\.concepts ILIKE '%auth%' ESCAPE '\\' THEN 2/);
+  assert.match(sql, /ELSE 3 END ASC, v\.nectar ASC LIMIT 2/);
+
+  const lexicalRows = [
+    hitRow("01ARZ3NDEKTSV4RRFFQ69G5FB4", { title: "auth title" }),
+    hitRow("01ARZ3NDEKTSV4RRFFQ69G5FB5", { body: "auth description" }),
+  ];
+  const storage = new RecordingStorage((querySql) => {
+    if (querySql.includes("ILIKE")) return lexicalRows;
+    return [];
+  });
+
+  const first = await searchHiveGraph("auth", SCOPE, 2, { storage });
+  const second = await searchHiveGraph("auth", SCOPE, 2, { storage });
+
+  assert.deepEqual(first.hits.map((hit) => hit.id), second.hits.map((hit) => hit.id));
+  assert.deepEqual(first.hits.map((hit) => hit.id), lexicalRows.map((row) => String(row.id)));
 });
 
 // --- builder sanity ---
@@ -278,4 +400,70 @@ test("searchHiveGraph default limit is 20 when omitted", async () => {
     storage,
     embed: { embed: async () => null },
   });
+});
+
+// --- PRD-018i: embed_model mismatch filtering (NEC-018 AC-018i.3) ---
+
+test("018i.3 vector arm SQL selects embed_model for provenance filtering", () => {
+  const sql = buildHiveGraphVectorSearchSql(makeVector(), SCOPE, 10);
+  assert.match(sql, /v\.embed_model AS embed_model/);
+});
+
+test("018i.3 rows whose embed_model disagrees are excluded and queued for re-embed", async () => {
+  const nectarA = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const nectarB = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
+  const reembed: string[] = [];
+  const storage = new RecordingStorage((sql) => {
+    if (sql.includes("<#>")) {
+      return [
+        { id: nectarA, score: 0.9, embed_model: "model-A" },
+        { id: nectarB, score: 0.8, embed_model: "model-A" },
+      ];
+    }
+    return []; // lexical + hydrate empty
+  });
+  const result = await searchHiveGraph("q", SCOPE, undefined, {
+    storage,
+    embed: { embed: async () => makeVector() },
+    activeEmbedModel: "model-B",
+    onReembedNeeded: (ids) => reembed.push(...ids),
+  });
+  assert.equal(result.hits.length, 0, "cross-space (model-A) rows do not contribute under active model-B");
+  assert.deepEqual(reembed.slice().sort(), [nectarA, nectarB].slice().sort(), "mismatched nectars were queued for re-embed");
+});
+
+test("018i.3 matching embed_model rows still contribute and are not re-embed-queued", async () => {
+  const nectarA = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const reembed: string[] = [];
+  const storage = new RecordingStorage((sql) => {
+    if (sql.includes("<#>")) return [{ id: nectarA, score: 0.9, embed_model: "model-B" }];
+    if (sql.includes(" IN (")) return [hitRow(nectarA)];
+    return [];
+  });
+  const result = await searchHiveGraph("q", SCOPE, undefined, {
+    storage,
+    embed: { embed: async () => makeVector() },
+    activeEmbedModel: "model-B",
+    onReembedNeeded: (ids) => reembed.push(...ids),
+  });
+  assert.ok(result.hits.some((h) => h.id === nectarA), "a row matching the active model contributes");
+  assert.equal(reembed.length, 0);
+});
+
+test("018i.3 a null embed_model (pre-provenance row) is treated as compatible", async () => {
+  const nectarA = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const reembed: string[] = [];
+  const storage = new RecordingStorage((sql) => {
+    if (sql.includes("<#>")) return [{ id: nectarA, score: 0.9 }]; // no embed_model
+    if (sql.includes(" IN (")) return [hitRow(nectarA)];
+    return [];
+  });
+  const result = await searchHiveGraph("q", SCOPE, undefined, {
+    storage,
+    embed: { embed: async () => makeVector() },
+    activeEmbedModel: "model-B",
+    onReembedNeeded: (ids) => reembed.push(...ids),
+  });
+  assert.ok(result.hits.some((h) => h.id === nectarA), "an unstamped row is not excluded");
+  assert.equal(reembed.length, 0);
 });

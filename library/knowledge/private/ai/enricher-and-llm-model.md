@@ -1,6 +1,6 @@
 # Enricher and LLM Model
 
-> Category: AI | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: AI | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The lazy enrichment path that fills titles and descriptions after brooding: why Gemini 2.5 Flash is the canonical model (and what makes it the right choice over Haiku, GPT-4.1, and local Ollama), how the enricher debounces and rate-limits, how failures and model swaps are handled, and how the embeddings layer fits.
 
@@ -105,7 +105,7 @@ Nectar applies a fast pre-LLM diff to decide whether to re-describe:
 3. **If similarity ≥ REDESCRIBE_THRESHOLD** (default 0.85), the change is deemed cosmetic. The new version row inherits the previous version's `title`, `description`, `concepts`, and `embedding`, and `describe_status` is set to `described` with a `describe_model` marker of `inherited-from:<prev_content_hash>`.
 4. **If similarity < threshold**, the change is deemed meaningful and the new version row enters the pending queue.
 
-This is the same intuition Smith uses (`Hash != Described-Against-Hash` triggers re-description; equality skips it), adapted to token similarity rather than raw hash equality so that a reformat (which changes the hash but not the tokens meaningfully) does not trigger re-description. The threshold is configurable and tunable per-repo via `~/.honeycomb/nectar.json`.
+This is the same intuition Smith uses (`Hash != Described-Against-Hash` triggers re-description; equality skips it), adapted to token similarity rather than raw hash equality so that a reformat (which changes the hash but not the tokens meaningfully) does not trigger re-description. The threshold is configurable and tunable per-repo via the `redescribe_threshold` key in `~/.honeycomb/nectar.json`. Resolution precedence is **environment variable > config file > code default**: `NECTAR_REDESCRIBE_THRESHOLD` overrides the file, the file's `redescribe_threshold` overrides the built-in `0.85`, and both fall back to the default when unset. The loader is fail-soft: a malformed file or an unknown key is logged as a warning and ignored (env/defaults still apply), never crashing the daemon. The sibling `nectar_rrf_multiplier` key shares the same loader and precedence (see `data/recall-integration.md`).
 
 ---
 
@@ -140,4 +140,4 @@ Every enricher cycle logs: files described, files inherited, files failed, token
 - **It does not describe symbols.** Symbol-level description is a future possibility that would multiply row counts 10–100×; v1 is file-granular.
 - **It does not run on files the CodeGraph is building.** The two workers are independent; they may run concurrently against the same file without coordination, because they write to different tables (`codebase` vs `hive_graph_versions`).
 - **It does not block recall.** A query during enrichment sees whatever has been described so far. There is no read-lock, no "enrichment in progress" state.
-- **It does not re-describe on model swap automatically.** Existing descriptions are valid until proven otherwise. An operator who swaps models and wants to re-describe everything runs `honeycomb nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`.
+- **It does not re-describe on model swap automatically.** Existing descriptions are valid until proven otherwise. An operator who swaps models and wants to re-describe everything runs `nectar brood --force --model <new>`, which sets all non-skipped rows back to `pending`.

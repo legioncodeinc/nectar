@@ -74,7 +74,8 @@ function toDescribeStatus(value: unknown): DescribeStatus {
   if (typeof value === "string" && (DESCRIBE_STATUSES as readonly string[]).includes(value)) {
     return value as DescribeStatus;
   }
-  throw new Error(`invalid describe_status value from Deep Lake: ${JSON.stringify(value)}`);
+  console.warn(`nectar hive-graph: invalid describe_status value from Deep Lake mapped to failed: ${JSON.stringify(value)}`);
+  return "failed";
 }
 
 function toEmbedding(value: unknown): number[] | null {
@@ -122,6 +123,7 @@ function toVersionRow(row: DeepLakeRow): HiveGraphVersionRow {
     fingerprint: typeof row.fingerprint === "string" ? row.fingerprint : null,
     describedAt: toStr(row.described_at),
     describeModel: toStr(row.describe_model),
+    embedModel: typeof row.embed_model === "string" ? row.embed_model : null,
     describeStatus: toDescribeStatus(row.describe_status),
     observedAt: toStr(row.observed_at),
     orgId: toStr(row.org_id),
@@ -219,6 +221,7 @@ function buildInsertVersionSql(row: HiveGraphVersionRow): string {
     "fingerprint",
     "described_at",
     "describe_model",
+    "embed_model",
     "describe_status",
     "observed_at",
     "org_id",
@@ -244,6 +247,7 @@ function buildInsertVersionSql(row: HiveGraphVersionRow): string {
     row.fingerprint !== null ? sLiteral(row.fingerprint) : "NULL",
     sLiteral(row.describedAt),
     sLiteral(row.describeModel),
+    row.embedModel !== null && row.embedModel !== undefined ? sLiteral(row.embedModel) : "NULL",
     sLiteral(row.describeStatus),
     sLiteral(row.observedAt),
     sLiteral(row.orgId),
@@ -265,6 +269,16 @@ function tenancyPredicate(tenancy: Tenancy): string {
 
 export class DeepLakeHiveGraphStore implements AsyncHiveGraphStore {
   private readonly transport: QueryRunner;
+  /**
+   * Per-nectar append serialization (PRD-018g / NEC-011 AC-018g.3). Deep Lake has
+   * no transaction or unique constraint, so `nextSeq` + `appendVersion` as two
+   * statements is a read-then-write race: two concurrent writers can read the
+   * same MAX(seq) and both append `seq+1`. Chaining every seq-allocating append
+   * for a nectar through one promise makes the allocate-and-append pair atomic
+   * within THIS store instance, so no duplicate `(nectar, seq)` is produced by
+   * writers sharing the store.
+   */
+  private readonly seqChains = new Map<string, Promise<unknown>>();
 
   constructor(options: DeepLakeHiveGraphStoreOptions) {
     this.transport =
@@ -371,6 +385,49 @@ export class DeepLakeHiveGraphStore implements AsyncHiveGraphStore {
   }
 
   /**
+   * Allocate the next monotonic seq for `row.nectar` and append `row` at it,
+   * atomically with respect to other seq-allocating appends for the SAME nectar
+   * through this store (PRD-018g AC-018g.3). Returns the seq actually written.
+   * `row.seq` is ignored; the store owns seq allocation here so the caller never
+   * hand-computes a colliding value. Non-seq appends (`appendVersion`) that a
+   * caller has already sequenced are unaffected.
+   */
+  async appendVersionAtNextSeq(row: HiveGraphVersionRow): Promise<number> {
+    const nectar = row.nectar;
+    const prior = this.seqChains.get(nectar) ?? Promise.resolve();
+    const next = prior.then(
+      () => this.allocateAndAppend(row),
+      () => this.allocateAndAppend(row),
+    );
+    // Keep the chain alive but do not let a rejection poison the next link; the
+    // `.then(_, _)` above already recovers, and we clear the slot once settled.
+    this.seqChains.set(
+      nectar,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    try {
+      return await next;
+    } finally {
+      // Best-effort GC: drop the chain slot when this was the last queued append.
+      const current = this.seqChains.get(nectar);
+      if (current !== undefined) {
+        void current.then(() => {
+          if (this.seqChains.get(nectar) === current) this.seqChains.delete(nectar);
+        });
+      }
+    }
+  }
+
+  private async allocateAndAppend(row: HiveGraphVersionRow): Promise<number> {
+    const seq = await this.nextSeq(row.nectar);
+    await this.appendVersion({ ...row, seq });
+    return seq;
+  }
+
+  /**
    * The next monotonic seq for a nectar: MAX(seq)+1 over every version row,
    * computed client-side by {@link reduceLatestVersion} rather than trusted
    * to an SQL `ORDER BY`/`LIMIT`/`MAX()` clause. See that function's docblock
@@ -474,13 +531,65 @@ export class DeepLakeHiveGraphStore implements AsyncHiveGraphStore {
   }
 
   async latestVersionByPath(tenancy: Tenancy, path: string): Promise<LatestVersion | undefined> {
-    const all = await this.listLatestVersions(tenancy);
-    return all.find((lv) => lv.version.path === path);
+    return this.latestVersionByColumn(tenancy, "path", path, (v) => v.path === path);
   }
 
   async latestVersionByHash(tenancy: Tenancy, contentHash: string): Promise<LatestVersion | undefined> {
-    const all = await this.listLatestVersions(tenancy);
-    return all.find((lv) => lv.version.contentHash === contentHash);
+    return this.latestVersionByColumn(tenancy, "content_hash", contentHash, (v) => v.contentHash === contentHash);
+  }
+
+  /**
+   * By-path / by-hash lookup with predicate pushdown (NEC-042 item 8 /
+   * AC-018l.15). The pre-fix path called {@link listLatestVersions}, which
+   * scans the ENTIRE tenancy (all identities + all version rows) per probe -
+   * O(all rows) on what becomes a per-file-event hot path. Instead:
+   *
+   *   1. push the column predicate down (`WHERE path = ...` / `WHERE
+   *      content_hash = ...`) to find only the candidate nectars that ever
+   *      carried the value;
+   *   2. fetch the full history for JUST those candidates and reduce
+   *      latest-per-nectar client-side with the shared {@link reduceLatestVersion}
+   *      MAX(seq) helper (the client-side reduction is kept, not trusted to an
+   *      SQL ORDER BY, matching the rest of this adapter);
+   *   3. return the nectar whose LATEST version satisfies the predicate, which
+   *      preserves the reference `listLatestVersions().find` semantics (a nectar
+   *      renamed AWAY from the path is not a false positive).
+   */
+  private async latestVersionByColumn(
+    tenancy: Tenancy,
+    column: "path" | "content_hash",
+    value: string,
+    matches: (v: HiveGraphVersionRow) => boolean,
+  ): Promise<LatestVersion | undefined> {
+    const predicate = tenancyPredicate(tenancy);
+    const candidateSql =
+      `SELECT nectar FROM "${HIVE_GRAPH_VERSIONS_TABLE_NAME}" ` +
+      `WHERE ${sqlIdent(column)} = ${sLiteral(value)} AND ${predicate}`;
+    const candidateRows = await this.readTolerant(candidateSql);
+    const nectars = [...new Set(candidateRows.map((r) => toStr(r.nectar)).filter((n) => n !== ""))];
+    if (nectars.length === 0) return undefined;
+
+    const inList = nectars.map((n) => sLiteral(n)).join(", ");
+    const versionsSql = `SELECT * FROM "${HIVE_GRAPH_VERSIONS_TABLE_NAME}" WHERE nectar IN (${inList}) AND ${predicate}`;
+    const versionRows = await this.readTolerant(versionsSql);
+    const rowsByNectar = new Map<string, DeepLakeRow[]>();
+    for (const raw of versionRows) {
+      const nectar = toStr(raw.nectar);
+      const group = rowsByNectar.get(nectar);
+      if (group === undefined) rowsByNectar.set(nectar, [raw]);
+      else group.push(raw);
+    }
+
+    for (const nectar of nectars) {
+      const latest = reduceLatestVersion(rowsByNectar.get(nectar) ?? []);
+      if (latest === undefined || !matches(latest)) continue;
+      const identitySql = `SELECT * FROM "${HIVE_GRAPH_TABLE_NAME}" WHERE nectar = ${sLiteral(nectar)} AND ${predicate}`;
+      const identityRows = await this.readTolerant(identitySql);
+      const identityRaw = identityRows[0];
+      if (identityRaw === undefined) continue;
+      return { identity: toIdentityRow(identityRaw), version: latest };
+    }
+    return undefined;
   }
 
   /**

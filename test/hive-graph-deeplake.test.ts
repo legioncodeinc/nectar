@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { sqlStr, sqlLike, sqlIdent, sLiteral, eLiteral, sqlFloat4Array, sqlNum } from "../dist/hive-graph/sql-guards.js";
 import { buildCreateTableSql, HIVE_GRAPH_TABLE, HIVE_GRAPH_VERSIONS_TABLE } from "../dist/hive-graph/schema.js";
 import { TransportError, HttpDeepLakeTransport } from "../dist/hive-graph/deeplake-transport.js";
-import { isMissingTableError, withHeal } from "../dist/hive-graph/deeplake-heal.js";
+import { isMissingTableError, missingColumnName, withHeal } from "../dist/hive-graph/deeplake-heal.js";
 import {
   loadDeepLakeCredentials,
   DeepLakeCredentialsError,
@@ -129,6 +129,55 @@ test("withHeal does not heal a non-missing-table failure", async () => {
     },
   };
   await assert.rejects(() => withHeal(fakeTransport, HIVE_GRAPH_TABLE, () => fakeTransport.query()));
+});
+
+// --- CodeRabbit PR-18 finding #3: the duplicate-column ALTER race ---
+
+test("withHeal swallows a duplicate-column ALTER failure (a concurrent heal already added it) and still retries the write", async () => {
+  const nectar = "N-CR18-3";
+  let alterAttempts = 0;
+  let insertAttempts = 0;
+  const fakeTransport = {
+    async query(sql: string): Promise<object[]> {
+      if (/^ALTER TABLE "hive_graph_versions" ADD COLUMN embed_model/.test(sql)) {
+        alterAttempts += 1;
+        // A concurrent heal already won the race and added the column; Deep
+        // Lake has no `ADD COLUMN IF NOT EXISTS`, so our ALTER fails even
+        // though the column we wanted now exists.
+        throw new TransportError("query", 'column "embed_model" of relation "hive_graph_versions" already exists');
+      }
+      if (/^INSERT INTO "hive_graph_versions"/.test(sql)) {
+        insertAttempts += 1;
+        if (insertAttempts === 1) throw new TransportError("query", 'column "embed_model" does not exist');
+        return [];
+      }
+      return [];
+    },
+  };
+  const rows = await withHeal(fakeTransport, HIVE_GRAPH_VERSIONS_TABLE, () =>
+    fakeTransport.query(`INSERT INTO "hive_graph_versions" (nectar) VALUES ('${nectar}')`),
+  );
+  assert.deepEqual(rows, [], "the retried write completed despite the duplicate-column ALTER failure");
+  assert.equal(alterAttempts, 1, "exactly one ALTER was attempted (no further retry loop)");
+  assert.equal(insertAttempts, 2, "the write retried exactly once after the (swallowed) heal attempt");
+});
+
+test("withHeal does NOT swallow a non-duplicate ALTER failure (e.g. a permission error) - it propagates unchanged", async () => {
+  let alterAttempts = 0;
+  const fakeTransport = {
+    async query(sql: string): Promise<object[]> {
+      if (/^ALTER TABLE "hive_graph_versions" ADD COLUMN embed_model/.test(sql)) {
+        alterAttempts += 1;
+        throw new TransportError("query", "permission denied for relation hive_graph_versions");
+      }
+      throw new TransportError("query", 'column "embed_model" does not exist');
+    },
+  };
+  await assert.rejects(
+    () => withHeal(fakeTransport, HIVE_GRAPH_VERSIONS_TABLE, () => fakeTransport.query("INSERT INTO x")),
+    /permission denied/,
+  );
+  assert.equal(alterAttempts, 1, "the ALTER was attempted exactly once before the real failure propagated");
 });
 
 // --- deeplake-credentials (unit, uses a temp dir override — never the real ~/.deeplake) ---
@@ -435,6 +484,136 @@ test("appendVersion maps the fingerprint column (value when set, NULL when null)
   assert.ok(/,\s*NULL\b/.test(withoutFp), "a null fingerprint is written as NULL");
 });
 
+// --- PRD-018i: embed_model provenance (NEC-018) ---
+
+test("018i.1 appendVersion writes embed_model when a row carries one, NULL otherwise", async () => {
+  const nectar = mintNectar();
+  const transport = fakeTransport(() => []);
+  const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+
+  await store.appendVersion({
+    ...versionRow(nectar, 0, "src/a.ts", "h0"),
+    embedding: [0.1, 0.2, 0.3],
+    embedModel: "nomic-embed-text-v1.5",
+  });
+  const withModel = transport.calls[0] as string;
+  assert.ok(withModel.includes("embed_model"), "the embed_model column is in the INSERT list");
+  assert.ok(withModel.includes("'nomic-embed-text-v1.5'"), "the model id is written as a quoted literal");
+
+  await store.appendVersion(versionRow(nectar, 1, "src/a.ts", "h1")); // embedModel omitted -> NULL
+  const withoutModel = transport.calls[1] as string;
+  assert.ok(/,\s*NULL\b/.test(withoutModel), "an absent embed_model is written as NULL");
+});
+
+test("018i.1 latestVersion maps embed_model back (value present, null when absent)", async () => {
+  const nectar = mintNectar();
+  const withModel = fakeTransport(() => [
+    rawVersionRow(nectar, 0, "src/a.ts", "h0", { embed_model: "text-embedding-3-small", describe_status: "described" }),
+  ]);
+  const s1 = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport: withModel });
+  assert.equal((await s1.latestVersion(nectar))?.embedModel, "text-embedding-3-small");
+
+  const withoutModel = fakeTransport(() => [rawVersionRow(nectar, 0, "src/a.ts", "h0")]); // no embed_model key
+  const s2 = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport: withoutModel });
+  assert.equal((await s2.latestVersion(nectar))?.embedModel, null, "a pre-upgrade row reads back embed_model null");
+});
+
+test("018i.2 a write against a pre-upgrade table heals the missing embed_model column then retries", async () => {
+  const nectar = mintNectar();
+  let altered = false;
+  let insertAttempts = 0;
+  const transport = {
+    calls: [] as string[],
+    async query(sql: string): Promise<object[]> {
+      this.calls.push(sql);
+      if (/^ALTER TABLE "hive_graph_versions" ADD COLUMN embed_model/.test(sql)) {
+        altered = true;
+        return [];
+      }
+      if (/^INSERT INTO "hive_graph_versions"/.test(sql)) {
+        insertAttempts += 1;
+        if (!altered) throw new TransportError("query", 'column "embed_model" does not exist');
+        return [];
+      }
+      return [];
+    },
+  };
+  const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+  await store.appendVersion({ ...versionRow(nectar, 0, "src/a.ts", "h0"), embedModel: "m" });
+  assert.equal(altered, true, "the missing embed_model column was healed via ALTER TABLE ADD COLUMN");
+  assert.equal(insertAttempts, 2, "the INSERT retried exactly once after the heal");
+});
+
+test("018i.2 the LIVE backend's missing-column error shape heals via ALTER, not CREATE (QA critical)", async () => {
+  // The exact message the live Deep Lake backend returned on 2026-07-03 for an
+  // INSERT naming a column the table does not carry. Its trailing 'of relation
+  // "..." does not exist' text also matches the missing-TABLE regex, so the
+  // classifiers must resolve it as a COLUMN failure (ALTER) and never fire the
+  // CREATE branch. This message shape hid the heal bug the PRD-018 QA caught.
+  const liveMessage =
+    '400: {"error":"Column does not exist: column \\"embed_model\\" of relation \\"hive_graph_versions\\" does not exist","code":"INVALID_REQUEST","request_id":"7276805f"}';
+  assert.equal(missingColumnName(new TransportError("query", liveMessage)), "embed_model");
+  assert.equal(
+    isMissingTableError(new TransportError("query", liveMessage)),
+    false,
+    "the column form must not classify as a missing table",
+  );
+
+  const nectar = mintNectar();
+  let altered = false;
+  let created = false;
+  let insertAttempts = 0;
+  const transport = {
+    async query(sql: string): Promise<object[]> {
+      if (/^ALTER TABLE "hive_graph_versions" ADD COLUMN embed_model/.test(sql)) {
+        altered = true;
+        return [];
+      }
+      if (/^CREATE TABLE/.test(sql)) {
+        created = true;
+        return [];
+      }
+      if (/^INSERT INTO "hive_graph_versions"/.test(sql)) {
+        insertAttempts += 1;
+        if (!altered) throw new TransportError("query", liveMessage);
+        return [];
+      }
+      return [];
+    },
+  };
+  const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+  await store.appendVersion({ ...versionRow(nectar, 0, "src/a.ts", "h0"), embedModel: "m" });
+  assert.equal(altered, true, "healed via ALTER TABLE ADD COLUMN");
+  assert.equal(created, false, "the CREATE TABLE branch must not fire for a missing column");
+  assert.equal(insertAttempts, 2, "the INSERT retried exactly once after the heal");
+});
+
+// --- PRD-018g: collision-safe seq allocation (NEC-011 AC-018g.3) ---
+
+test("018g.3 appendVersionAtNextSeq serializes per nectar so concurrent writers get distinct seqs", async () => {
+  const nectar = mintNectar();
+  const insertedSeqs: number[] = [];
+  const transport = {
+    async query(sql: string): Promise<object[]> {
+      if (/^INSERT INTO "hive_graph_versions"/.test(sql)) {
+        insertedSeqs.push(insertedSeqs.length);
+        return [];
+      }
+      if (/^SELECT seq FROM "hive_graph_versions"/.test(sql)) {
+        return insertedSeqs.map((s) => ({ seq: s }));
+      }
+      return [];
+    },
+  };
+  const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+  const [s1, s2] = await Promise.all([
+    store.appendVersionAtNextSeq(versionRow(nectar, 0, "src/a.ts", "h0")),
+    store.appendVersionAtNextSeq(versionRow(nectar, 0, "src/a.ts", "h1")),
+  ]);
+  assert.notEqual(s1, s2, "the two concurrent appends received distinct seqs");
+  assert.deepEqual([s1, s2].sort((a, b) => a - b), [0, 1], "no duplicate (nectar, seq) pair was produced");
+});
+
 test("touchIdentity issues an UPDATE against hive_graph with the new timestamp", async () => {
   const nectar = mintNectar();
   const transport = fakeTransport(() => []);
@@ -483,16 +662,76 @@ test("listLatestVersions scopes both SELECTs by org_id/workspace_id/project_id a
   assert.equal(forB?.version.seq, 1);
 });
 
-test("latestVersionByPath and latestVersionByHash filter listLatestVersions' reduced result", async () => {
+test("018h-AC-8/9 dirty describe_status maps to failed without aborting tenancy scans", async () => {
+  const dirtyNectar = mintNectar();
+  const cleanNectar = mintNectar();
+  const warnMessages: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (message?: unknown): void => {
+    warnMessages.push(String(message));
+  };
+
+  try {
+    const transport = fakeTransport((sql) => {
+      if (sql.startsWith('SELECT * FROM "hive_graph"') && !sql.includes("hive_graph_versions")) {
+        return [rawIdentityRow(dirtyNectar), rawIdentityRow(cleanNectar)];
+      }
+      if (sql.startsWith('SELECT * FROM "hive_graph_versions"')) {
+        return [
+          rawVersionRow(dirtyNectar, 0, "src/dirty.ts", "h-dirty", { describe_status: "unknown-status" }),
+          rawVersionRow(cleanNectar, 0, "src/clean.ts", "h-clean", { describe_status: "described" }),
+        ];
+      }
+      return [];
+    });
+    const store = new DeepLakeHiveGraphStore({ credentials: FAKE_CREDENTIALS, transport });
+
+    const latest = await store.listLatestVersions(TEN);
+    assert.equal(latest.length, 2, "the dirty row does not abort the latest-version scan");
+    assert.equal(
+      latest.find((lv) => lv.identity.nectar === dirtyNectar)?.version.describeStatus,
+      "failed",
+      "the dirty row is mapped to failed",
+    );
+    assert.equal(latest.find((lv) => lv.identity.nectar === cleanNectar)?.version.describeStatus, "described");
+
+    const described = await store.listLatestDescribedVersions(TEN);
+    assert.deepEqual(
+      described.map((lv) => lv.identity.nectar),
+      [cleanNectar],
+      "the described-version scan skips the dirty failed row and keeps clean rows",
+    );
+    assert.ok(
+      warnMessages.some((message) => message.includes("invalid describe_status value")),
+      "the dirty row is logged for operators",
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("AC-018l.15 latestVersionByPath/byHash push the predicate down instead of scanning the whole tenancy (NEC-042 item 8)", async () => {
   const nectarA = mintNectar();
   const nectarB = mintNectar();
 
   const transport = fakeTransport((sql) => {
-    if (sql.startsWith('SELECT * FROM "hive_graph"') && !sql.includes("hive_graph_versions")) {
-      return [rawIdentityRow(nectarA), rawIdentityRow(nectarB)];
+    // 1) Candidate probe: the pushed-down column predicate (not a full scan).
+    if (sql.startsWith('SELECT nectar FROM "hive_graph_versions"')) {
+      if (sql.includes("path = 'src/b.ts'")) return [{ nectar: nectarB }];
+      if (sql.includes("content_hash = 'hA'")) return [{ nectar: nectarA }];
+      return [];
     }
+    // 2) Full history for ONLY the candidate nectars (bounded by the IN list).
     if (sql.startsWith('SELECT * FROM "hive_graph_versions"')) {
-      return [rawVersionRow(nectarA, 0, "src/a.ts", "hA"), rawVersionRow(nectarB, 0, "src/b.ts", "hB")];
+      if (sql.includes(nectarB)) return [rawVersionRow(nectarB, 0, "src/b.ts", "hB")];
+      if (sql.includes(nectarA)) return [rawVersionRow(nectarA, 0, "src/a.ts", "hA")];
+      return [];
+    }
+    // 3) Identity for the matching nectar.
+    if (sql.startsWith('SELECT * FROM "hive_graph"')) {
+      if (sql.includes(nectarB)) return [rawIdentityRow(nectarB)];
+      if (sql.includes(nectarA)) return [rawIdentityRow(nectarA)];
+      return [];
     }
     return [];
   });
@@ -500,9 +739,22 @@ test("latestVersionByPath and latestVersionByHash filter listLatestVersions' red
 
   const byPath = await store.latestVersionByPath(TEN, "src/b.ts");
   assert.equal(byPath?.identity.nectar, nectarB);
+  assert.ok(
+    (transport.calls as string[]).some((c) => c.includes(`WHERE path = 'src/b.ts'`)),
+    "the by-path lookup pushes a WHERE path = ... predicate down, not a full-tenancy scan",
+  );
 
   const byHash = await store.latestVersionByHash(TEN, "hA");
   assert.equal(byHash?.identity.nectar, nectarA);
+  assert.ok(
+    (transport.calls as string[]).some((c) => c.includes(`WHERE content_hash = 'hA'`)),
+    "the by-hash lookup pushes a WHERE content_hash = ... predicate down",
+  );
+
+  // Every emitted query is still tenancy-scoped (project_id never omitted).
+  for (const sql of transport.calls as string[]) {
+    assert.ok(sql.includes(`project_id = '${TEN.projectId}'`), "project_id predicate present on every lookup query");
+  }
 
   const miss = await store.latestVersionByPath(TEN, "src/does-not-exist.ts");
   assert.equal(miss, undefined);
@@ -572,7 +824,38 @@ test("DeepLakeHiveGraphStore live round-trip: insert identity + append version +
     await store.insertIdentity(identity);
     await store.appendVersion(version);
 
-    const seq = await store.nextSeq(nectar);
+    // Freshly written rows are not always immediately visible to queries on
+    // this backend (documented insert-then-query lag), and visibility is not
+    // monotonic across different query shapes: one read path can see the row
+    // while another still serves a stale segment (including transiently
+    // garbled column values). Poll ALL the read paths together (bounded)
+    // until every one of them serves the fresh row, then assert once.
+    const maxAttempts = 40;
+    const attemptDelayMs = 5000;
+    let seq = 0;
+    let readVersion: Awaited<ReturnType<typeof store.latestVersion>> = null;
+    let byPath: Awaited<ReturnType<typeof store.latestVersionByPath>> = null;
+    let byHash: Awaited<ReturnType<typeof store.latestVersionByHash>> = null;
+    let listHasRow = false;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, attemptDelayMs));
+      }
+      seq = await store.nextSeq(nectar);
+      readVersion = await store.latestVersion(nectar);
+      byPath = await store.latestVersionByPath(tenancy, path);
+      byHash = await store.latestVersionByHash(tenancy, contentHash);
+      const list = await store.listLatestVersions(tenancy);
+      listHasRow = list.some((lv) => lv.identity.nectar === nectar);
+      const allVisible =
+        seq === 1 &&
+        readVersion?.fingerprint === "H1selftestfingerprint" &&
+        byPath?.identity.nectar === nectar &&
+        byHash?.identity.nectar === nectar &&
+        listHasRow;
+      if (allVisible) break;
+    }
+
     assert.equal(seq, 1, "nextSeq is 1 after one appended version");
 
     const readIdentity = await store.getIdentity(nectar);
@@ -580,28 +863,28 @@ test("DeepLakeHiveGraphStore live round-trip: insert identity + append version +
     assert.equal(readIdentity?.nectar, nectar);
     assert.equal(readIdentity?.projectId, tenancy.projectId);
 
-    const readVersion = await store.latestVersion(nectar);
     assert.ok(readVersion, "version round-trips");
     assert.equal(readVersion?.contentHash, contentHash);
     assert.equal(readVersion?.path, path);
     assert.equal(readVersion?.seq, 0);
     assert.equal(readVersion?.fingerprint, "H1selftestfingerprint", "fingerprint round-trips through Deep Lake");
 
-    const byPath = await store.latestVersionByPath(tenancy, path);
     assert.equal(byPath?.identity.nectar, nectar, "latestVersionByPath finds the row");
-
-    const byHash = await store.latestVersionByHash(tenancy, contentHash);
     assert.equal(byHash?.identity.nectar, nectar, "latestVersionByHash finds the row");
-
-    const list = await store.listLatestVersions(tenancy);
-    assert.ok(
-      list.some((lv) => lv.identity.nectar === nectar),
-      "listLatestVersions includes the freshly-written row",
-    );
+    assert.ok(listHasRow, "listLatestVersions includes the freshly-written row");
 
     await assert.rejects(() => store.insertIdentity(identity), /already exists/, "duplicate insertIdentity throws");
   } catch (err) {
-    if (err instanceof TransportError) {
+    // Only genuine connectivity failures may skip. A 4xx `query`-kind error
+    // after credentials loaded is a REAL failure (schema drift, heal bug, bad
+    // SQL) and must fail the release gate, not silently skip it (PRD-018 QA
+    // finding). A 5xx from the backend (e.g. 'failed to get database
+    // connection') is server-side unreachability, the same class as
+    // connection/timeout, and may skip.
+    if (
+      err instanceof TransportError &&
+      (err.kind === "connection" || err.kind === "timeout" || (err.status !== undefined && err.status >= 500))
+    ) {
       t.skip(`Deep Lake unreachable, skipping live round-trip: ${err.message}`);
       return;
     }

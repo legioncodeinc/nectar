@@ -1,6 +1,6 @@
 # Technical Specification of Nectar
 
-> Category: Overview | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Overview | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The technical contract for Nectar: the four hiveantennae operating modes as trigger→action→post-condition tables, the data-model component contract, the guarded recall arm, the three-daemon topology obligations, and the non-goals stated as hard exclusions.
 
@@ -56,7 +56,7 @@ The one-time-per-project full scan that takes a codebase from "no nectars exist"
 
 | | |
 |---|---|
-| **Trigger** | First run against a project with no `hive_graph` rows, or a fresh checkout with no `.honeycomb/nectars.json`. Also invokable explicitly via `honeycomb nectar brood`. |
+| **Trigger** | First run against a project with no `hive_graph` rows, or a fresh checkout with no `.honeycomb/nectars.json`. Also invokable explicitly via `nectar brood`. |
 | **Action** | Discover files via `git ls-files` (CodeGraph discovery reused verbatim). Pre-check each file's content hash against the portable projection; inherit on match. Bucket the rest by size/type (skip-binary, skip-too-large, batch ≤4KB, solo). Describe batches of ~40 small files per Gemini call, large files one-per-call. Embed each description at 768 dims. |
 | **Post-condition** | Every non-skipped file has a nectar with `describe_status ∈ {described, skipped-*}`. `.honeycomb/nectars.json` is regenerated. Daemon switches to live-watch mode. |
 
@@ -92,7 +92,7 @@ The lockfile regeneration step that runs at the end of the other three modes.
 
 | | |
 |---|---|
-| **Trigger** | End of a brood, end of an enricher cycle that wrote new descriptions, or explicit `honeycomb nectar rebuild-projection`. |
+| **Trigger** | End of a brood, end of an enricher cycle that wrote new descriptions, or explicit `nectar rebuild-projection`. |
 | **Action** | Scan `hive_graph_versions` (latest described version per nectar, scoped to the project), denormalize into the projection format, write atomically (temp file + rename). |
 | **Post-condition** | `.honeycomb/nectars.json` reflects current Deep Lake state. The write is atomic so a crashed regeneration leaves the prior projection, not a partial one. |
 
@@ -117,7 +117,7 @@ The contract invariants:
 | "Current state of file X" | Latest version row for X's nectar (`MAX(seq)`). |
 | "History of file X" | All version rows for X's nectar. |
 | Description is nullable until enriched | `describe_status` drives recall filtering; undescribed rows are excluded from semantic recall but not from identity. |
-| Nectars are never deleted by re-association | Deletion is a separate, explicit `honeycomb nectar prune --confirm` with a configurable grace period (default 30 days). |
+| Nectars are never deleted by re-association | Deletion is a separate, explicit `nectar prune --confirm` with a configurable grace period (default 30 days). |
 
 ---
 
@@ -205,7 +205,7 @@ flowchart LR
     enrich --> proj2["projection sync"]
     boot["daemon boot after offline changes"] --> cold[Cold catch-up]
     cold --> enrich
-    explicit["honeycomb nectar rebuild-projection"] --> proj3["projection sync"]
+    explicit["nectar rebuild-projection"] --> proj3["projection sync"]
 ```
 
 Brooding runs once per project and bootstraps the projection. After brooding, the daemon is in live-watch; cold-catch-up handles restarts; projection sync runs at the tail of any mode that produced new descriptions.

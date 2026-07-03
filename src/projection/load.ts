@@ -267,13 +267,32 @@ export function loadProjection(
   return validateProjection(doc, tenancy);
 }
 
-/** Build a content_hash -> nectar index after validation passes (AC-6). */
+/** Build a content_hash -> nectar index after validation passes (AC-6, last-writer-wins presence check). */
 export function buildContentHashIndex(
   doc: PortableProjection,
 ): ReadonlyMap<string, { nectar: string; entry: ProjectionFileEntry }> {
   const index = new Map<string, { nectar: string; entry: ProjectionFileEntry }>();
   for (const [nectar, entry] of Object.entries(doc.files)) {
     index.set(entry.content_hash, { nectar, entry });
+  }
+  return index;
+}
+
+/**
+ * Build a `content_hash -> nectar[]` multi-index (PRD-018i / NEC-037 AC-018i.9):
+ * every projection entry sharing a content hash is retained, in file-declaration
+ * order, so duplicate-content files each keep their own nectar on inherit instead
+ * of collapsing onto one (the last-writer-wins {@link buildContentHashIndex} is
+ * kept for the presence-only precheck).
+ */
+export function buildContentHashMultiIndex(
+  doc: PortableProjection,
+): ReadonlyMap<string, { nectar: string; entry: ProjectionFileEntry }[]> {
+  const index = new Map<string, { nectar: string; entry: ProjectionFileEntry }[]>();
+  for (const [nectar, entry] of Object.entries(doc.files)) {
+    const list = index.get(entry.content_hash);
+    if (list === undefined) index.set(entry.content_hash, [{ nectar, entry }]);
+    else list.push({ nectar, entry });
   }
   return index;
 }

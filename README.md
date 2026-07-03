@@ -86,7 +86,7 @@ Provenance-tracked file identity across repos and teams. Every file's history ch
 - **The re-association ladder.** Five steps, first match wins: path/mtime/size fast path, path match with changed content, exact content-hash match for clean moves, TLSH fuzzy match for move-and-edit, mint fresh. Low-confidence fuzzy matches go to human review, never auto-claimed, because a mis-association corrupts the history chain.
 - **Copy-paste as provenance, not ambiguity.** Copy a file and the copy gets a fresh nectar with a `derived_from_nectar` edge back to the original. The fork relationship survives forever, even after the copy diverges.
 - **A committed lockfile, not a sidecar.** `.honeycomb/nectars.json` is a regenerable projection of Deeplake state. A fresh clone re-derives identity from it with zero LLM calls and zero network.
-- **The 4th arm of hybrid recall.** Nectar plugs into Honeycomb's Reciprocal Rank Fusion recall alongside sessions, memories, and skills, so semantic file hits land in the same answer your agent already trusts.
+- **Hybrid recall you can run today.** `nectar search` runs a per-arm guarded lexical + vector query over described files, fused by Reciprocal Rank Fusion. Folding those hits into Honeycomb's cross-memory recall as a 4th arm alongside sessions, memories, and skills is future work (PRD-013, out of repo).
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
@@ -97,9 +97,9 @@ Provenance-tracked file identity across repos and teams. Every file's history ch
 - 🧬 **Copy-paste provenance.** `derived_from_nectar` + `fork_content_hash` record every fork as a first-class edge.
 - 🗄️ **Two Deeplake tables.** `hive_graph` (one row per logical file) + append-only `hive_graph_versions` (one row per observed state, carrying 768-dim embeddings). *(shipped, PRD-005)*
 - 🛡️ **Supervised daemon.** `nectar daemon` binds `127.0.0.1:3854`, serves `/health`, registers with Doctor, and installs as an OS service on launchd, systemd, and Windows. *(shipped, PRD-002/003/004)*
-- ✍️ **LLM-minted descriptions.** Lazy, batched, cheap: a long-context model describes files on demand, not eagerly, so a full pass on a 2000-file repo lands under $3 and a committed projection makes every subsequent clone free. *(spec stage, PRD-007/010/016)*
-- 🔒 **Portable projection.** `.honeycomb/nectars.json`, regenerated from Deeplake after every brood and enrich. *(in work, PRD-011)*
-- 🔀 **Hybrid recall arm.** A `UNION ALL` arm over described files inside Honeycomb's BM25 + vector RRF pipeline, with silent BM25 fallback when embeddings are off. *(spec stage, PRD-012/013)*
+- ✍️ **LLM-minted descriptions.** Lazy, batched, cheap: a long-context model describes files on demand, not eagerly, so a full pass on a 2000-file repo lands at about $3.05 and a committed projection makes every subsequent clone free. *(shipped, PRD-007/010/016)*
+- 🔒 **Portable projection.** `.honeycomb/nectars.json`, regenerated from Deeplake after every brood and enrich. *(shipped, PRD-011)*
+- 🔀 **Hybrid recall.** `nectar search` (and `POST /api/hive-graph/search`) run a per-arm guarded lexical + vector query over described files, fused by Reciprocal Rank Fusion, with a silent BM25 fallback when embeddings are off. Folding these hits into Honeycomb's cross-memory recall as a 4th arm is future work (PRD-013, out of repo). *(search shipped, PRD-012)*
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
@@ -149,17 +149,36 @@ Straight talk: Nectar does not ship its own dashboard, and that is by design. Th
 
 ## ⌨️ Using the CLI
 
-The `nectar` binary ships with the package. What exists today:
+The `nectar` binary ships with the package. What works today:
 
 ```bash
-nectar daemon             # start the daemon (127.0.0.1:3854, /health)
-nectar install            # register the OS service unit + Doctor registry entry
-nectar uninstall          # deregister the OS service unit
-nectar service-status     # report the OS service unit's running state
+nectar daemon                 # start the daemon (127.0.0.1:3854, /health)
+nectar install                # register the OS service unit + Doctor registry entry
+nectar uninstall              # deregister the OS service unit
+nectar service-status         # report the OS service unit's running state
+nectar brood --dry-run        # preview a full-codebase brood's cost locally (no LLM call, no writes)
+nectar brood                  # run a full-codebase brood against Deeplake (needs the prerequisites below)
+nectar search <query>         # hybrid recall over described files. Flags: --limit N, --json
+nectar rebuild-projection     # regenerate .honeycomb/nectars.json from Deeplake
+nectar prune --confirm        # prune long-missing nectars from the durable store
+nectar review-matches         # review low-confidence identity matches against the durable store
 nectar --help
 ```
 
-Verbs that exist but honestly tell you they are not ready: `brood` (mechanics owned by PRD-007), `rebuild-projection` (PRD-011), and `prune --confirm` / `review-matches` (logic implemented and tested, durable-store wiring pending). They exit non-zero with a clear notice instead of silently no-oping, because a destructive verb that pretends to work is worse than no verb at all.
+`nectar search` reaches a running `nectar daemon` over loopback, so start the daemon first.
+
+### Brood prerequisites
+
+A mutating `nectar brood` (and the boot auto-brood) describes files only when **both** prerequisites are in place:
+
+- `~/.deeplake/credentials.json`, the shared Deeplake credentials `hivemind login` writes.
+- Portkey, enabled via `NECTAR_PORTKEY_ENABLED=1`, `NECTAR_PORTKEY_API_KEY`, and `NECTAR_PORTKEY_CONFIG`.
+
+Without them the daemon still boots and serves `/health`, but brooding stays dormant and says so: a startup log line names the missing pieces, `/health` reports `brooding.reason` (for example `credentials_missing` or `portkey_disabled`), and on an interactive terminal the daemon prints the exact configuration steps. `nectar brood --dry-run` and `nectar search` do not need Portkey.
+
+### Telemetry
+
+Nectar sends anonymous, aggregate usage telemetry (install, first run, and version updates) by default, never file contents or paths. Opt out with `NECTAR_TELEMETRY=0` (it also accepts `off` and `false`, case-insensitive) or the cross-tool `DO_NOT_TRACK` standard.
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 
@@ -170,14 +189,14 @@ Verbs that exist but honestly tell you they are not ready: `brood` (mechanics ow
 # Now gut your directory structure:
 git mv src/auth/session-refresh.ts src/middleware/token-lifecycle.ts
 
-# …then ask recall about it, same as any other memory:
-honeycomb recall "where do we refresh login sessions"
+# …then ask recall about it:
+nectar search "where do we refresh login sessions"
 # → src/middleware/token-lifecycle.ts
 #   "refreshes JWT claims on each authenticated request,
 #    part of the login session lifecycle"
 ```
 
-Same nectar, same description, new path. The identity followed the file, so the memory never went stale. (The recall arm lands with PRD-013; the identity tracking underneath it is the shipped part.)
+Same nectar, same description, new path. The identity followed the file, so the memory never went stale. `nectar search` runs the recall over described files today; folding it into your agent's cross-memory recall as a 4th arm is future work (PRD-013).
 
 <img src="assets/brand/divider-minor.svg" width="100%" height="3">
 

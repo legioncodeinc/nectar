@@ -16,6 +16,13 @@ export interface HealthBody {
   uptimeMs: number;
   brooding: {
     active: boolean;
+    /**
+     * Machine-readable reason brooding is inactive, or null when active/ready
+     * (PRD-018k AC-018k.3). `"credentials_missing"` / `"portkey_disabled"` name
+     * the unmet prerequisite so supervision and humans can both see WHY a booted
+     * daemon describes nothing, rather than inferring it from the provider bits.
+     */
+    reason: string | null;
     filesDescribed: number;
     filesTotal: number;
     lastEventAt: string | null;
@@ -40,6 +47,31 @@ export interface HealthBody {
   portkey: {
     enabled: boolean;
   };
+  watch: {
+    /** True once the update-on-change registration pipeline's NodeFS watcher is running (PRD-018b). */
+    running: boolean;
+    /**
+     * Why the watch leg is not running, when it is not: `"no-credentials"` when
+     * the daemon booted without a durable store (the pipeline is dormant, not
+     * broken - AC-018b.7), `"disabled"` when explicitly turned off, or null when
+     * running (or simply not yet started). Surfaced so a dormant watch leg is
+     * observable rather than silent.
+     */
+    reason: string | null;
+    /** Durable flushes from the sync/async bridge that failed (surfaced, not swallowed - AC-018b.4). */
+    flushFailures: number;
+    /** ISO 8601 timestamp of the most recent durable-flush failure, or null when none has failed. */
+    lastFlushErrorAt: string | null;
+    /**
+     * PRD-018c AC-018c.6/7: the watcher's own liveness, independent of
+     * `reason` (which explains why the watch leg is dormant AT ALL, e.g.
+     * no-credentials). `"running"` mirrors `running=true`; `"restarting"`
+     * surfaces an active error-backoff recovery; `"degraded"` means restart
+     * attempts were exhausted (the periodic resync backstop keeps
+     * reconciling); `"stopped"` is the pre-start/post-shutdown default.
+     */
+    state: "stopped" | "running" | "restarting" | "degraded";
+  };
 }
 
 /**
@@ -54,6 +86,7 @@ export class HealthState {
 
   readonly brooding: HealthBody["brooding"] = {
     active: false,
+    reason: null,
     filesDescribed: 0,
     filesTotal: 0,
     lastEventAt: null,
@@ -74,6 +107,13 @@ export class HealthState {
   };
   readonly embeddings: HealthBody["embeddings"] = { provider: "off" };
   readonly portkey: HealthBody["portkey"] = { enabled: false };
+  readonly watch: HealthBody["watch"] = {
+    running: false,
+    reason: null,
+    flushFailures: 0,
+    lastFlushErrorAt: null,
+    state: "stopped",
+  };
 
   markStarted(atMs: number = Date.now()): void {
     this.startedAtMs = atMs;
@@ -102,6 +142,7 @@ export class HealthState {
    */
   setBroodingState(state: Partial<HealthBody["brooding"]>): void {
     if (state.active !== undefined) this.brooding.active = state.active;
+    if (state.reason !== undefined) this.brooding.reason = state.reason;
     if (state.filesDescribed !== undefined) this.brooding.filesDescribed = state.filesDescribed;
     if (state.filesTotal !== undefined) this.brooding.filesTotal = state.filesTotal;
     if (state.lastEventAt !== undefined) this.brooding.lastEventAt = state.lastEventAt;
@@ -138,6 +179,29 @@ export class HealthState {
     }
   }
 
+  /**
+   * Merge the watch-leg slice (PRD-018b): whether the NodeFS watcher is running
+   * and, when it is not, why. The daemon calls this at start (running once the
+   * pipeline starts after auto-brood settles, or dormant with `"no-credentials"`
+   * when no durable store resolved) and at shutdown (running false). Only the
+   * fields the partial carries are overwritten.
+   */
+  setWatchState(state: Partial<Pick<HealthBody["watch"], "running" | "reason" | "state">>): void {
+    if (state.running !== undefined) this.watch.running = state.running;
+    if (state.reason !== undefined) this.watch.reason = state.reason;
+    if (state.state !== undefined) this.watch.state = state.state;
+  }
+
+  /**
+   * Record a durable-flush failure from the sync/async bridge (PRD-018b
+   * AC-018b.4): bump the count and stamp the time, so a failed durable write is
+   * visible on `/health` rather than silently dropped.
+   */
+  recordWatchFlushFailure(atIso: string = new Date().toISOString()): void {
+    this.watch.flushFailures += 1;
+    this.watch.lastFlushErrorAt = atIso;
+  }
+
   setStatus(status: PipelineStatus): void {
     this.status = status;
   }
@@ -161,6 +225,7 @@ export class HealthState {
       cost: { ...this.cost },
       embeddings: { ...this.embeddings },
       portkey: { ...this.portkey },
+      watch: { ...this.watch },
     };
   }
 }

@@ -1,6 +1,6 @@
 # Identity Model — Engineering User Stories
 
-> Category: Architecture | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Architecture | Version: 1.1 | Date: July 2026 | Status: Draft
 
 Engineering and operator user stories with acceptance criteria for Nectar's identity model, derived from ADR-0001's decision drivers. Scope is implementation and operations, not product behavior; these stories define what a correct implementation and a correct deployment must guarantee.
 
@@ -99,7 +99,7 @@ Stories are grouped by the decision driver they exercise. Acceptance criteria ar
 **Acceptance criteria:** (a) `hive_graph` and `hive_graph_versions` are Deep Lake tables. (b) No SQLite database, JSONL log, or parallel store holds authoritative identity state. (c) A regenerable `(path → mtime → last_hash)` poll cache may exist but is deletable without loss and is not a source of truth.
 
 **US-ID-016** — As a reviewer, I want `.honeycomb/nectars.json` to behave as a projection (regenerable lockfile), not a sidecar (parallel source of truth), so that FR-8 is satisfied.
-**Acceptance criteria:** (a) Deep Lake writes happen before the projection is regenerated. (b) The projection is never the target of a write during normal operation. (c) `honeycomb nectar rebuild-projection` regenerates the file from a Deep Lake scan with no other inputs, byte-identical modulo `generated_at`. (d) A hand-edit to the projection is overwritten on the next regeneration.
+**Acceptance criteria:** (a) Deep Lake writes happen before the projection is regenerated. (b) The projection is never the target of a write during normal operation. (c) `nectar rebuild-projection` regenerates the file from a Deep Lake scan with no other inputs, byte-identical modulo `generated_at`. (d) A hand-edit to the projection is overwritten on the next regeneration.
 
 ---
 
@@ -115,17 +115,17 @@ Stories are grouped by the decision driver they exercise. Acceptance criteria ar
 **Acceptance criteria:** (a) Files whose content hash is not in the projection enter the ladder. (b) The projection's content-hash index serves as the step-3 "known nectars" map. (c) Genuinely new files (no ladder match) are minted fresh nectars.
 
 **US-ID-020** — As an operator, I want a missing or corrupt projection to be recoverable, so that identity is never permanently lost.
-**Acceptance criteria:** (a) Deleting `.honeycomb/nectars.json` does not delete Deep Lake state. (b) `honeycomb nectar rebuild-projection` regenerates the file from Deep Lake. (c) A projection that fails validation is ignored with a warning, and the daemon falls back to full brooding.
+**Acceptance criteria:** (a) Deleting `.honeycomb/nectars.json` does not delete Deep Lake state. (b) `nectar rebuild-projection` regenerates the file from Deep Lake. (c) A projection that fails validation is ignored with a warning, and the daemon falls back to full brooding.
 
 ---
 
 ## Cold catch-up and operator concerns
 
 **US-ID-021** — As an operator, I want cold catch-up (daemon boots after offline move-and-edit) to reconcile disk against Deep Lake conservatively, so that history chains are not corrupted by a mis-association.
-**Acceptance criteria:** (a) Cold catch-up runs the re-association ladder per file. (b) Step 4 fuzzy matches below the confidence threshold are surfaced for human review, not auto-claimed. (c) A mis-association is treated as worse than a new nectar. (d) Low-confidence candidates appear in the dashboard or `honeycomb nectar review-matches`.
+**Acceptance criteria:** (a) Cold catch-up runs the re-association ladder per file. (b) Step 4 fuzzy matches below the confidence threshold are surfaced for human review, not auto-claimed. (c) A mis-association is treated as worse than a new nectar. (d) Low-confidence candidates appear in the dashboard or `nectar review-matches`.
 
 **US-ID-022** — As an operator, I want nectar deletion to be an explicit, conservative, human-triggered operation, so that orphaned nectars (deleted files) are retained as history rather than silently purged.
-**Acceptance criteria:** (a) The re-association ladder never deletes a nectar; step 5 mints new rather than reusing orphans. (b) `honeycomb nectar prune --confirm` removes nectars whose latest path has been missing beyond a grace period (default 30 days). (c) Pruning is never automatic.
+**Acceptance criteria:** (a) The re-association ladder never deletes a nectar; step 5 mints new rather than reusing orphans. (b) `nectar prune --confirm` removes nectars whose latest path has been missing beyond a grace period (default 30 days). (c) Pruning is never automatic.
 
 **US-ID-023** — As an operator, I want the daemon to tolerate TLSH scale concerns on monorepo cold boots, so that cold catch-up does not become pathologically slow.
 **Acceptance criteria:** (a) The fuzzy comparison uses size-bucketing to limit candidate sets. (b) The O(N×M) worst case is bounded by bucketing in v1. (c) A future minhash-LSH pre-filter is a documented extension point, not a v1 requirement.

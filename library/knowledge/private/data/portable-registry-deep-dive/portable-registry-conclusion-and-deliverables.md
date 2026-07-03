@@ -1,6 +1,6 @@
 # Portable Registry: Conclusion and Deliverables
 
-> Category: Data | Version: 1.0 | Date: June 2026 | Status: Draft
+> Category: Data | Version: 1.1 | Date: July 2026 | Status: Draft
 
 The deliverable restated as a single sentence, the four-rule hard contract that bounds what the projection will never do, the commit recommendation versus the gitignore tradeoff, and forward pointers to the source documents that ground the projection's relationship to the schema, the fresh-clone inheritance path, and the brooding and re-association pipelines.
 
@@ -20,7 +20,7 @@ The deliverable restated as a single sentence, the four-rule hard contract that 
 
 ## The deliverable, restated
 
-The portable registry is a **committed, reviewable, regenerable lockfile** that gives a fresh `git clone` offline identity inheritance. It is generated from Deep Lake at the end of every brood and every enricher cycle that wrote new descriptions, committed to the repo like `package-lock.json`, and inherited on clone through content-hash matching — yielding zero LLM calls and zero fuzzy matches when current. It is a projection, not a sidecar: delete it and `honeycomb nectar rebuild-projection` regenerates it from Deep Lake alone.
+The portable registry is a **committed, reviewable, regenerable lockfile** that gives a fresh `git clone` offline identity inheritance. It is generated from Deep Lake at the end of every brood and every enricher cycle that wrote new descriptions, committed to the repo like `package-lock.json`, and inherited on clone through content-hash matching - yielding zero LLM calls and zero fuzzy matches when current. It is a projection, not a sidecar: delete it and `nectar rebuild-projection` regenerates it from Deep Lake alone.
 
 The single sentence: **the projection exists for portability and reviewability, not because Deep Lake is insufficient.**
 
