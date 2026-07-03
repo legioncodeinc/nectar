@@ -87,8 +87,44 @@ export class HttpDeepLakeTransport {
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TRANSPORT_TIMEOUT_MS;
   }
 
-  /** Run one SQL statement against the configured workspace. */
+  /**
+   * Run one SQL statement against the configured workspace.
+   *
+   * Transient failures (HTTP 429 and 5xx, e.g. the backend's intermittent
+   * 'failed to get database connection' 500) are retried with bounded
+   * exponential backoff plus jitter before the TransportError propagates:
+   * a single upstream blip must not abort a minutes-long brood or an
+   * enricher cycle. Non-transient failures (4xx other than 429: schema
+   * errors, bad SQL, auth) fail fast on the first attempt so heal and
+   * fail-soft classification see them unchanged.
+   */
   async query(sql: string): Promise<DeepLakeRow[]> {
+    let lastTransient: TransportError | null = null;
+    for (let attempt = 0; attempt < QUERY_TRANSIENT_MAX_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        const backoff = QUERY_TRANSIENT_BASE_BACKOFF_MS * 2 ** (attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, backoff + Math.random() * backoff));
+      }
+      try {
+        return await this.queryOnce(sql);
+      } catch (err: unknown) {
+        if (
+          err instanceof TransportError &&
+          err.kind === "query" &&
+          err.status !== undefined &&
+          (err.status === 429 || err.status >= 500)
+        ) {
+          lastTransient = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+    // lastTransient is always set when the loop exhausts.
+    throw lastTransient ?? new TransportError("query", "transient retry loop exhausted without an error");
+  }
+
+  private async queryOnce(sql: string): Promise<DeepLakeRow[]> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     let resp: Response;
@@ -125,3 +161,8 @@ export class HttpDeepLakeTransport {
     return raw.rows.map((row) => Object.fromEntries(columns.map((col, i) => [col, row[i]])));
   }
 }
+
+/** Bounded attempts for transient (429/5xx) query failures. */
+export const QUERY_TRANSIENT_MAX_ATTEMPTS = 4;
+/** First-retry backoff; doubles per attempt, with up-to-equal jitter added. */
+export const QUERY_TRANSIENT_BASE_BACKOFF_MS = 500;
