@@ -1,6 +1,6 @@
 # Master PRD Index — Nectar Implementation
 
-> Category: Requirements | Version: 1.1 | Date: July 2026 | Status: Active
+> Category: Requirements | Version: 1.2 | Date: July 2026 | Status: Active
 
 The ordered list of PRDs required to take Nectar from spec to a shipped, supervised, doctor-watched daemon that composes with Honeycomb's recall, renders a Hive Graph page on the dashboard, and supports swappable embeddings + model providers. **This is an index for review, not a PRD itself.**
 
@@ -195,6 +195,16 @@ Each PRD lists: **Spec source** (Nectar corpus doc(s)), **Conforms to** (Honeyco
 **Spec source:** doctor `ADR-0001-hive-telemetry-transport-and-single-source-of-truth.md` + `ADR-0002-service-registration-static-registry-plus-runtime-sqlite.md`, honeycomb `prd-071-service-checkin-and-sqlite-telemetry` (the sibling contract), `ADR-0003` (the topology that makes nectar a supervised workload daemon).
 **Conforms to:** `src/doctor-registry.ts` (`registerWithDoctor()` / `buildNectarRegistryEntry()`, the writer to extend), `src/health.ts` + `src/server.ts` (the `PipelineStatus` / `/health` source), the PRD-006/007/016 pipeline paths (counter wiring is DEFAULT, confirm before implementation).
 **Sub-PRDs:** 017a (registry DB-path extension + runtime check-in and heartbeat), 017b (metrics emission), 017c (log emission, bounded + rotated).
+
+---
+
+### PRD-018 - Pre-release close-out (added 2026-07-03, from the 2026-07-02 pre-release audit)
+
+**Description for next step:** The close-out program that takes Nectar from "typecheck clean, 451/452 tests pass" to a releasable daemon whose three mission legs (brood an entire codebase, update it upon change with NodeFS, recall it as needed) all work and are verified by tests. Source of truth is `NECTAR-ISSUES.md` (NEC-001 through NEC-042, consolidated from the six review reports in `library/notes/2026-07-02-*.md`); every issue is owned by exactly one of twelve sub-PRDs, each carrying its own acceptance criteria, files-touched list, and tests-to-add plan. Headliners: the lock-rollback double-daemon bug (NEC-002, verified by live repro), the never-instantiated update-on-change pipeline (NEC-001/006, the missing mission leg), the possibly-inverted semantic ranking (NEC-005), brooding durability under mid-run kill (NEC-003), and a public-docs truth pass (NEC-004/040). One additive schema change program-wide: a nullable `embed_model` column on `hive_graph_versions` (018i).
+
+**Spec source:** `NECTAR-ISSUES.md` (the consolidated issue list), the six review notes in `library/notes/` dated 2026-07-02, and the knowledge-corpus contracts each fix must restore conformance to.
+**Conforms to:** the shipped `src/` implementation cited file:line throughout the sub-PRDs; the corpus contracts in `ai/brooding-pipeline.md`, `ai/identity-and-reassociation.md`, `ai/enricher-and-llm-model.md`, `data/hive-graph-schema.md`, `data/portable-registry.md`, `data/recall-integration.md`.
+**Sub-PRDs:** 018a (daemon lock + lifecycle), 018b (wire update-on-change, mission leg 2), 018c (watcher robustness + ignore parity), 018d (re-association ladder correctness), 018e (brooding durability + scale), 018f (brooding batch-call robustness), 018g (enricher correctness + concurrency), 018h (recall ranking + error honesty), 018i (embeddings + projection integrity, the sole schema change), 018j (API security + registry hardening), 018k (first-run experience + config file), 018l (docs truth pass + low-severity cleanup). Index: `backlog/prd-018-pre-release-close-out/prd-018-pre-release-close-out-index.md`.
 
 ---
 
