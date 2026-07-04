@@ -1,6 +1,6 @@
 {
   "name": "@legioncodeinc/nectar",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Nectar: a semantic memory layer over a source tree. The hiveantennae daemon mints a stable identity (a nectar) and an LLM-minted description for every file, served through the hybrid recall Honeycomb already uses.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
