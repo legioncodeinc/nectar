@@ -5,7 +5,6 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { join } from "node:path";
 import {
   activeProjectsHealth,
   isPathologicalRoot,
@@ -113,12 +112,31 @@ test("a-AC-6 a binding that resolves to $HOME / a filesystem root / System32 is 
 });
 
 test("isPathologicalRoot: $HOME, POSIX root, Windows drive root, and System32 are guarded; a normal path is not", () => {
+  // The guard is a pure function of (path, platform): win32-shaped fixtures
+  // must produce the same verdict regardless of the HOST the suite runs on.
   assert.equal(isPathologicalRoot("/home/op", { home: "/home/op", platform: "linux" }), true);
   assert.equal(isPathologicalRoot("/", { platform: "linux" }), true);
-  assert.equal(isPathologicalRoot("C:\\", { platform: "win32" }), true);
-  assert.equal(isPathologicalRoot("C:\\Windows\\System32", { platform: "win32", env: { WINDIR: "C:\\Windows" } }), true);
+  assert.equal(isPathologicalRoot("C:\\", { platform: "win32", home: "C:\\Users\\op" }), true);
+  assert.equal(isPathologicalRoot("C:\\Windows\\System32", { platform: "win32", env: { WINDIR: "C:\\Windows" }, home: "C:\\Users\\op" }), true);
   assert.equal(isPathologicalRoot("/work/my-repo", { home: "/home/op", platform: "linux" }), false);
-  assert.equal(isPathologicalRoot(join("/home/op", "projects", "x"), { home: "/home/op", platform: "linux" }), false);
+  assert.equal(isPathologicalRoot("/home/op/projects/x", { home: "/home/op", platform: "linux" }), false);
+});
+
+test("isPathologicalRoot per-platform semantics: System32 is Windows-only, POSIX $HOME stays case-sensitive, win32 folds case", () => {
+  // The System32 leg must NOT false-positive on POSIX: a directory that merely
+  // spells /Windows/System32 is a legitimate bindable folder there.
+  assert.equal(isPathologicalRoot("/Windows/System32", { platform: "linux", home: "/home/op", env: { WINDIR: "C:\\Windows" } }), false);
+  assert.equal(isPathologicalRoot("C:\\Windows\\System32", { platform: "win32", home: "C:\\Users\\op" }), true, "win32 falls back to C:/Windows when WINDIR is unset");
+
+  // POSIX is case-sensitive: /home/OP is NOT the same directory as /home/op.
+  assert.equal(isPathologicalRoot("/home/OP", { home: "/home/op", platform: "linux" }), false);
+  // win32 folds case: c:\ and a differently-cased System32 are still guarded.
+  assert.equal(isPathologicalRoot("c:\\", { platform: "win32", home: "C:\\Users\\op" }), true);
+  assert.equal(isPathologicalRoot("c:\\WINDOWS\\system32", { platform: "win32", env: { WINDIR: "C:\\Windows" }, home: "C:\\Users\\op" }), true);
+
+  // A trailing separator on the bound path does not evade the $HOME guard.
+  assert.equal(isPathologicalRoot("/home/op/", { home: "/home/op", platform: "linux" }), true);
+  assert.equal(isPathologicalRoot("C:\\Users\\op\\", { platform: "win32", home: "C:\\Users\\op" }), true);
 });
 
 test("de-duplicates bindings by projectId (first binding wins) and skips blank ids/paths", () => {

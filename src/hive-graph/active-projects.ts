@@ -11,7 +11,8 @@
  * Pure functions of their inputs (bindings snapshot, brooding state, home /
  * platform / env), so the whole resolution is unit-testable without disk.
  */
-import { parse, resolve } from "node:path";
+import { homedir } from "node:os";
+import { posix, win32 } from "node:path";
 import type { FolderBinding } from "./project-scope.js";
 import { effectiveBrooding, type BroodingState, type EffectiveBrooding } from "../registration/brooding-state.js";
 
@@ -50,40 +51,67 @@ export interface PathologicalRootOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
-/** Normalize a path for comparison: absolute, forward-slashed, no trailing slash, case-folded on win32. */
+/**
+ * The path module for the TARGET platform's conventions. The guard is a pure
+ * function of `(path, platform)`, so a win32-shaped fixture (`C:\`) evaluated
+ * in a test running on POSIX must still use win32 semantics, and vice versa,
+ * instead of the HOST's `node:path` default (which made the guard's verdicts
+ * host-dependent: `path.parse("C:\\").root` is `""` on POSIX, so a drive root
+ * was not recognized as a filesystem root when the suite ran on macOS/Linux).
+ */
+function pathModuleFor(platform: NodeJS.Platform): typeof posix | typeof win32 {
+  return platform === "win32" ? win32 : posix;
+}
+
+/**
+ * Normalize a path for comparison under the target platform's conventions:
+ * forward-slashed, no trailing separator, and case-folded ONLY on win32
+ * (POSIX is case-sensitive; `$HOME` must not be compared case-insensitively
+ * there). Backslashes are treated as separators only for win32 shapes; on
+ * POSIX a backslash is a legal filename character.
+ */
 function normalizeForCompare(p: string, platform: NodeJS.Platform): string {
-  const forward = resolve(p).replace(/\\/g, "/").replace(/\/+$/, "");
-  const trimmed = forward === "" ? "/" : forward;
+  const pathMod = pathModuleFor(platform);
+  const withForwardSlashes = platform === "win32" ? p.replace(/\\/g, "/") : p;
+  const normalized = pathMod.normalize(withForwardSlashes).replace(/\\/g, "/").replace(/\/+$/, "");
+  const trimmed = normalized === "" ? "/" : normalized;
   return platform === "win32" ? trimmed.toLowerCase() : trimmed;
 }
 
 /**
  * True when `rootPath` resolves to a guarded root that must never be brooded,
  * even when explicitly bound (defense in depth against a mis-bind, PRD-019a):
- * the user's `$HOME`, a filesystem/drive root (`/`, `C:\`), or `%WINDIR%\System32`.
+ * the user's `$HOME`, a filesystem/drive root (`/`, `C:\`), or, on Windows
+ * only, `%WINDIR%\System32`. Evaluated under the TARGET platform's path
+ * conventions (injectable for tests), so verdicts do not vary by test host.
  */
 export function isPathologicalRoot(rootPath: string, options: PathologicalRootOptions = {}): boolean {
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
-  const resolved = resolve(rootPath);
+  const pathMod = pathModuleFor(platform);
+  // Resolve relative inputs against the HOST cwd (the only meaningful anchor),
+  // but parse/compare under the TARGET conventions.
+  const resolved = pathMod.isAbsolute(rootPath) ? rootPath : pathMod.resolve(rootPath);
   const norm = normalizeForCompare(resolved, platform);
 
-  // Filesystem / drive root: `path.parse().root` equals the path itself.
-  const rootOfPath = normalizeForCompare(parse(resolved).root === "" ? resolved : parse(resolved).root, platform);
-  if (parse(resolved).root !== "" && norm === rootOfPath) return true;
-  // POSIX belt-and-suspenders for an empty/`/` resolve.
+  // Filesystem / drive root: the parsed root equals the whole path (`/`,
+  // `C:\`, `//server/share` degenerate forms). Parsed under the TARGET
+  // platform so `C:\` is a drive root even when the test host is POSIX.
+  const parsedRoot = pathMod.parse(resolved).root;
+  if (parsedRoot !== "" && norm === normalizeForCompare(parsedRoot, platform)) return true;
+  // Belt-and-suspenders for an empty/`/` normalization result.
   if (norm === "/" || norm === "") return true;
 
-  // $HOME.
-  if (options.home !== undefined || platform !== undefined) {
-    const home = options.home;
-    if (home !== undefined && home.trim() !== "" && norm === normalizeForCompare(home, platform)) return true;
-  }
+  // $HOME (case-sensitive comparison on POSIX; folded only on win32).
+  const home = options.home ?? homedir();
+  if (home !== undefined && home.trim() !== "" && norm === normalizeForCompare(home, platform)) return true;
 
-  // %WINDIR%\System32 (Windows Scheduled Task default cwd).
-  const windir = env.WINDIR ?? env.windir;
-  const systemRoot = windir !== undefined && windir.trim() !== "" ? windir : platform === "win32" ? "C:/Windows" : undefined;
-  if (systemRoot !== undefined) {
+  // %WINDIR%\System32 (the Windows Scheduled Task default cwd). WINDOWS-ONLY:
+  // a POSIX daemon must never false-positive on a directory that merely spells
+  // /Windows/System32, and env.WINDIR is meaningless off-Windows.
+  if (platform === "win32") {
+    const windir = env.WINDIR ?? env.windir;
+    const systemRoot = windir !== undefined && windir.trim() !== "" ? windir : "C:/Windows";
     const sys32 = normalizeForCompare(`${systemRoot.replace(/\\/g, "/")}/System32`, platform);
     if (norm === sys32) return true;
   }
