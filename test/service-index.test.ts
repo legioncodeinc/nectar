@@ -183,6 +183,23 @@ test("install on darwin writes the launchd plist to ~/Library/LaunchAgents and b
   assert.equal(calls[2]?.args[0], "kickstart");
 });
 
+test("c-AC-2 install renders APIARY_HOME into launchd when the plan pins a custom root", async () => {
+  const fs = fakeFs();
+  const svc = createServiceModule({
+    execPath: "/usr/local/bin/nectar",
+    fs,
+    runner: okRunner(),
+    environment: linuxEnv({ platform: "darwin", home: "/Users/op", apiaryHome: "/custom/root" }),
+  });
+  const result = await svc.install();
+  assert.equal(result.ok, true);
+  const unitPath = "/Users/op/Library/LaunchAgents/com.legioncode.nectar.plist";
+  const plist = fs.written.get(unitPath) ?? "";
+  assert.match(plist, /<key>APIARY_HOME<\/key>/);
+  assert.match(plist, /<string>\/custom\/root<\/string>/);
+  assert.ok(fs.dirs.includes("/custom/root/nectar/logs"), "launchd log dir follows the pinned root");
+});
+
 test("AC-018l.9 the macOS (launchd) install creates the log directory the plist writes to (NEC-042 item 2)", async () => {
   const fs = fakeFs();
   const svc = createServiceModule({
@@ -193,9 +210,9 @@ test("AC-018l.9 the macOS (launchd) install creates the log directory the plist 
   });
   const result = await svc.install();
   assert.equal(result.ok, true);
-  // The plist writes stdout/stderr to <home>/.honeycomb/nectar; that dir must exist.
+  // The plist writes stdout/stderr to <home>/.apiary/nectar/logs; that dir must exist.
   assert.ok(
-    fs.dirs.includes("/Users/op/.honeycomb/nectar"),
+    fs.dirs.includes("/Users/op/.apiary/nectar/logs"),
     `the launchd log directory was mkdirp'd (saw: ${JSON.stringify(fs.dirs)})`,
   );
 });
@@ -228,7 +245,7 @@ test("install on win32 stages the schtasks XML beside the workspace, then Create
   assert.equal(result.ok, true);
   assert.match(result.message, /registered as a schtasks service/);
 
-  const stagedXml = "C:/Users/op/.honeycomb/nectar/nectar-task.xml";
+  const stagedXml = "C:/Users/op/.apiary/nectar/nectar-task.xml";
   assert.ok(fs.written.has(stagedXml), "the schtasks XML is staged beside the workspace (unitPath is empty for schtasks)");
   assert.match(fs.written.get(stagedXml) ?? "", /<Task /);
   // Decision #32 migration: the legacy task name is deleted first.
@@ -250,7 +267,29 @@ test("uninstall on win32 deletes the task and removes the staged XML", async () 
   const result = await svc.uninstall();
   assert.equal(result.ok, true);
   assert.deepEqual(calls[0]?.args, ["/Delete", "/TN", "nectar", "/F"]);
-  assert.deepEqual(fs.removed, ["C:/Users/op/.honeycomb/nectar/nectar-task.xml"]);
+  assert.deepEqual(fs.removed, ["C:/Users/op/.apiary/nectar/nectar-task.xml"]);
+});
+
+test("c-AC-5 win32 system-scope install pins APIARY_HOME into the sc binPath when provided", async () => {
+  const fs = fakeFs();
+  const calls: { command: string; args: readonly string[] }[] = [];
+  const svc = createServiceModule({
+    execPath: "C:/Program Files/nectar/nectar.js",
+    fs,
+    runner: okRunner(calls),
+    environment: linuxEnv({
+      platform: "win32",
+      home: "C:/Users/op",
+      privileged: true,
+      preferSystemScope: true,
+      apiaryHome: "C:/Pinned/Home",
+    }),
+  });
+  const result = await svc.install();
+  assert.equal(result.ok, true);
+  const create = calls.find((call) => call.command === "sc" && call.args[0] === "create");
+  assert.ok(create, "sc create command was issued");
+  assert.ok(create?.args.some((arg) => arg.includes("APIARY_HOME=C:/Pinned/Home")));
 });
 
 test("serviceStatus classifies systemd is-active output and never throws on an unsupported platform", async () => {

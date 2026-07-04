@@ -51,14 +51,20 @@ import {
 import { mountHiveGraphApi, type MountHiveGraphOptions } from "./api/hive-graph-api.js";
 import { createBroodGuard, type BroodGuard } from "./brood-guard.js";
 import type { Timer } from "./poll-loop.js";
+import { ActiveProjectsController } from "./active-projects-runtime.js";
+import type { ProjectContextFactory } from "./project-supervisor.js";
+import type { ActiveProjectResolution } from "./hive-graph/active-projects.js";
 import {
   createLogTap,
   createNullTelemetry,
   createTelemetry,
+  TELEMETRY_DB_FILE_NAME,
+  TELEMETRY_DIR_NAME,
   telemetryDbPathForRuntimeDir,
   type LogSink,
   type Telemetry,
 } from "./telemetry/index.js";
+import { assertNoLegacyDaemonRunning, resolveStateReadPath, runStateMigration } from "./state-migration.js";
 import {
   HiveantennaeWorker,
   type JobHandler,
@@ -126,6 +132,12 @@ async function raceWithTimeout(work: Promise<unknown>, ms: number): Promise<bool
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+function hasExplicitRuntimeDirOverride(options: AssembleOptions): boolean {
+  if (options.runtimeDir !== undefined) return true;
+  const envRuntimeDir = process.env["NECTAR_RUNTIME_DIR"];
+  return envRuntimeDir !== undefined && envRuntimeDir.trim() !== "";
 }
 
 export interface AssembleOptions extends RuntimeConfigOverrides {
@@ -258,6 +270,33 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
    * directly on the returned daemon.
    */
   readonly hiveGraphApi?: MountHiveGraphOptions;
+
+  // ── PRD-019a: the multi-root, dormant-by-default active-project supervisor ───
+  /**
+   * When supplied, the daemon is DORMANT BY DEFAULT and multi-root: instead of
+   * the single-root `projectRoot` brood/watch wiring above, it stands up one
+   * brood + watch context per active project (resolved from the shared
+   * `~/.deeplake/projects.json` bindings AND the nectar-owned brooding state),
+   * reconciling on the poll cadence and on demand (the 019b toggle API calls
+   * {@link AssembledDaemon.reconcileActiveProjects}). Zero active projects => no
+   * context is constructed and `/health` reports `activeProjects: 0` with reason
+   * `no-active-projects` (never a brood of the cwd / `$HOME` / `System32`).
+   *
+   * Absent => the legacy single-root path stands (the explicit `projectRoot`
+   * override the tests and a power-user `NECTAR_PROJECT_ROOT` use).
+   */
+  readonly activeProjects?: {
+    /** Resolve the current active set (reads bindings + the brooding-state file). */
+    resolve(): ActiveProjectResolution;
+    /** Build a running brood + watch context for a project. */
+    factory: ProjectContextFactory;
+    /** Reconcile cadence override (default: `config.pollIntervalMs`). */
+    reconcileIntervalMs?: number;
+    /** Injected timer for the reconcile loop (deterministic tests). */
+    timer?: Timer;
+    /** Observe a context start/stop failure. */
+    onError?: (scope: "start" | "stop", projectId: string, err: unknown) => void;
+  };
 }
 
 /**
@@ -427,6 +466,12 @@ export interface AssembledDaemon {
    */
   registration(): RegistrationPipeline | null;
   /**
+   * PRD-019a: force an immediate reconcile of the active-project set (the 019b
+   * toggle API calls this after persisting a brooding change). A no-op resolving
+   * to `undefined`-equivalent when the multi-root supervisor is not wired.
+   */
+  reconcileActiveProjects(): Promise<void>;
+  /**
    * How many times the daemon has requested the boot cold-catch-up resync
    * (AC-018b.5): exactly once per successful `start()` once boot settles, and
    * zero when the watch leg is dormant. Lets a test assert the "requested
@@ -466,7 +511,8 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     health.setBroodingState({ reason: broodPrereqs.ready ? null : broodPrereqs.reason });
   }
 
-  const telemetryDbPath = options.telemetryDbPath ?? telemetryDbPathForRuntimeDir(config.runtimeDir);
+  const runtimeDirOverride = hasExplicitRuntimeDirOverride(options);
+  let telemetryDbPath = options.telemetryDbPath ?? telemetryDbPathForRuntimeDir(config.runtimeDir);
 
   // A no-op placeholder until the first start() actually opens the SQLite store
   // (constructing/importing the daemon must stay side-effect free, unchanged).
@@ -517,6 +563,21 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
   // API `/build` handler both go through it, and the enricher pauses while it is
   // active, so at most one brood runs per daemon and the enricher never races it.
   const broodGuard = createBroodGuard();
+
+  // PRD-019a: the multi-root, dormant-by-default active-project supervisor. Built
+  // only when the caller wires the active-projects seam (the shipped daemon does,
+  // via `runDaemon`); absent, the legacy single-root path below stands unchanged.
+  const activeProjectsController: ActiveProjectsController | null =
+    options.activeProjects !== undefined
+      ? new ActiveProjectsController({
+          resolve: options.activeProjects.resolve,
+          factory: options.activeProjects.factory,
+          setHealth: (slice) => health.setActiveProjects(slice),
+          intervalMs: options.activeProjects.reconcileIntervalMs ?? config.pollIntervalMs,
+          ...(options.activeProjects.timer !== undefined ? { timer: options.activeProjects.timer } : {}),
+          ...(options.activeProjects.onError !== undefined ? { onError: options.activeProjects.onError } : {}),
+        })
+      : null;
 
   // ── PRD-016: the enricher steady-state loop ─────────────────────────────────
   // The loop reads/writes the SYNCHRONOUS EnricherStore seam; its per-cycle stats
@@ -680,8 +741,11 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
         log({ level: "error", scope: "registration.bridge", op, err: String(err) });
       },
     });
+    const pendingReviewsPath = runtimeDirOverride
+      ? join(config.runtimeDir, "pending-reviews.json")
+      : resolveStateReadPath("pending-reviews.json", { runtimeDir: config.runtimeDir });
     const reviews: PendingReviewStore =
-      options.registrationReviews ?? new FilePendingReviewStore(join(config.runtimeDir, "pending-reviews.json"));
+      options.registrationReviews ?? new FilePendingReviewStore(pendingReviewsPath);
     const registrationMetrics: PipelineMetricsSink = {
       incrementFilesRegistered: () => telemetry.metrics.incrementFilesRegistered(),
       incrementNectarsMinted: () => telemetry.metrics.incrementNectarsMinted(),
@@ -772,6 +836,28 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
         throw new NonLoopbackOpenApiError(config.host);
       }
 
+      if (!runtimeDirOverride) {
+        assertNoLegacyDaemonRunning({
+          runtimeDir: config.runtimeDir,
+          pidFilePath: config.pidFilePath,
+          lockFilePath: config.lockFilePath,
+        });
+        runStateMigration({
+          config: {
+            runtimeDir: config.runtimeDir,
+            host: config.host,
+            port: config.port,
+            pidFilePath: config.pidFilePath,
+          },
+          log,
+        });
+        if (options.telemetryDbPath === undefined) {
+          telemetryDbPath = resolveStateReadPath(join(TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME), {
+            runtimeDir: config.runtimeDir,
+          });
+        }
+      }
+
       // Step 5 (PRD-002a): acquire the single-instance lock BEFORE the bind, and
       // remember the identity we stamped so the rollback path releases only what
       // THIS instance acquired (PRD-018a NEC-002).
@@ -857,6 +943,18 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
         await startRegistrationPipeline();
       })();
 
+      // PRD-019a: publish the current active-project resolution to /health
+      // immediately (so a dormant daemon reads activeProjects:0 with reason
+      // no-active-projects right away), then arm the reconcile loop.
+      if (activeProjectsController !== null) {
+        try {
+          activeProjectsController.publishHealth();
+        } catch (err) {
+          log({ level: "error", scope: "active-projects", msg: "initial publish failed", err: String(err) });
+        }
+        activeProjectsController.start();
+      }
+
       return boundPort;
     })();
 
@@ -898,6 +996,15 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     // sees `closed` and never starts the watcher during teardown.
     registration?.service.stop();
     if (registration !== null) health.setWatchState({ running: false });
+    // PRD-019a: stop the reconcile loop and tear down every running project
+    // context (watcher stopped + bridge writes drained) before the lock releases.
+    if (activeProjectsController !== null) {
+      try {
+        await activeProjectsController.stop();
+      } catch (err) {
+        log({ level: "error", scope: "active-projects", msg: "stop failed", err: String(err) });
+      }
+    }
 
     // AC-018a.10/11 (NEC-033): await the in-flight worker tick and bootSettled
     // under a bounded timeout so a shutdown that catches the worker busy drains
@@ -965,6 +1072,10 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     awaitBoot: () => bootSettled,
     group: (path) => router.group(path),
     registration: () => registration,
+    reconcileActiveProjects: async () => {
+      if (activeProjectsController === null) return;
+      await activeProjectsController.reconcileNow();
+    },
     registrationBootResyncCount: () => bootResyncCount,
   };
 

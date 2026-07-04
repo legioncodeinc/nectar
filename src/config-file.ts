@@ -1,5 +1,5 @@
 /**
- * The `~/.honeycomb/nectar.json` per-repo config-file loader (PRD-018k / NEC-041).
+ * The `<fleet-root>/nectar/nectar.json` per-repo config-file loader (PRD-018k / NEC-041).
  *
  * Two knowledge docs promise a per-repo config file carrying tunables the
  * enricher and the recall path read: the enricher's redescribe threshold
@@ -19,11 +19,11 @@
  * zero runtime dependencies (AGENTS.md).
  */
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { RUNTIME_DIR_NAME } from "./config.js";
+import { nectarStateDir } from "./apiary-root.js";
+import { resolveStateReadPath } from "./state-migration.js";
 
-/** The config file name within the runtime dir (`~/.honeycomb/nectar.json`). */
+/** The config file name within nectar's runtime dir (`~/.apiary/nectar/nectar.json`). */
 export const NECTAR_CONFIG_FILE_NAME = "nectar.json";
 
 /** Environment override for the enricher redescribe threshold (wins over the file). */
@@ -62,17 +62,19 @@ export interface NectarTunables {
 
 /** Options for {@link loadNectarFileConfig} / {@link resolveNectarTunables} (all injectable for tests). */
 export interface NectarConfigOptions {
-  /** Override the runtime dir holding `nectar.json` (default: `~/.honeycomb`). */
+  /** Override the runtime dir holding `nectar.json` (default: `<fleet-root>/nectar`). */
   readonly dir?: string;
+  /** Test seam: override the legacy runtime dir fallback path. */
+  readonly legacyDir?: string;
   /** Env bag for the precedence layer (default: `process.env`). */
   readonly env?: NodeJS.ProcessEnv;
   /** Warning sink (default: NDJSON to stderr). Fail-soft warnings route here. */
   readonly warn?: (message: string) => void;
 }
 
-/** The full `~/.honeycomb/nectar.json` path, honoring the test dir override. */
+/** The full runtime config-file path, honoring the test dir override. */
 export function nectarConfigPath(options: NectarConfigOptions = {}): string {
-  const dir = options.dir ?? join(homedir(), RUNTIME_DIR_NAME);
+  const dir = options.dir ?? nectarStateDir(options.env ?? process.env);
   return join(dir, NECTAR_CONFIG_FILE_NAME);
 }
 
@@ -86,14 +88,22 @@ function asFiniteNumber(value: unknown): number | undefined {
 }
 
 /**
- * Load and validate `~/.honeycomb/nectar.json`. Never throws: a missing file
+ * Load and validate nectar's runtime `nectar.json`. Never throws: a missing file
  * returns `{}` silently; a malformed/non-object file or a wrong-typed known
  * value warns and is dropped; an unknown key warns and is skipped. Only the
  * two spec'd tunables are read.
  */
 export function loadNectarFileConfig(options: NectarConfigOptions = {}): NectarFileConfig {
   const warn = options.warn ?? defaultWarn;
-  const path = nectarConfigPath(options);
+  const runtimeDir = options.dir ?? nectarStateDir(options.env ?? process.env);
+  const path =
+    options.dir !== undefined
+      ? join(runtimeDir, NECTAR_CONFIG_FILE_NAME)
+      : resolveStateReadPath(NECTAR_CONFIG_FILE_NAME, {
+          runtimeDir,
+          env: options.env ?? process.env,
+          legacyDir: options.legacyDir,
+        });
   if (!existsSync(path)) return {};
 
   let parsed: unknown;

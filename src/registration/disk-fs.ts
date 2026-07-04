@@ -16,7 +16,7 @@
 import { lstatSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync, type Dirent } from "node:fs";
 import { join, relative } from "node:path";
 import { containedPath, isSafeRelPath, realpathContained } from "./paths-safe.js";
-import type { IgnorePredicate } from "./ignore.js";
+import { createDefaultIgnore, type IgnorePredicate } from "./ignore.js";
 import type { RegistrationFs, StatResult } from "./service.js";
 
 /**
@@ -45,7 +45,11 @@ const defaultReadDirSync: ReadDirSync = (dir) => readdirSync(dir, { withFileType
 
 export function createDiskRegistrationFs(
   root: string,
-  isIgnored: IgnorePredicate = () => false,
+  // PRD-019d / d-AC-7: an omitted predicate still drops the always-ignored
+  // segments (`.git` / `node_modules` / `.honeycomb`) plus any `graph-ignore.json`
+  // prefixes, rather than ignoring nothing - defense in depth against a caller
+  // that forgets to pass the shared predicate.
+  isIgnored: IgnorePredicate = createDefaultIgnore(root),
   readDirSync: ReadDirSync = defaultReadDirSync,
 ): RegistrationFs {
   return {

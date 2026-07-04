@@ -8,7 +8,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -266,6 +266,56 @@ test("distinct_id: without install-id, a UUID is minted once, persisted, and sta
     assert.equal(readLedger(dir).distinctId, id1, "the minted UUID is persisted in the ledger");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a-AC-5 install-id read prefers <fleet-root>/install-id when both new and legacy files exist", async () => {
+  const root = tmpStateDir();
+  const rec = recorder();
+  try {
+    const fleetRoot = join(root, "apiary");
+    const legacyDir = join(root, "legacy");
+    mkdirSync(fleetRoot, { recursive: true });
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(fleetRoot, INSTALL_ID_FILE_NAME), "new-root-id\n", "utf8");
+    writeFileSync(join(legacyDir, INSTALL_ID_FILE_NAME), "legacy-id\n", "utf8");
+
+    const outcome = await emitInstalled({
+      fetch: rec.fetch,
+      posthogKey: "phc_test_key",
+      env: { APIARY_HOME: fleetRoot },
+      version: "1.2.3",
+      apiaryRootDir: fleetRoot,
+      legacyRuntimeDir: legacyDir,
+    });
+    assert.equal(outcome.sent, true);
+    assert.equal(rec.calls[0]!.body["distinct_id"], "new-root-id");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a-AC-5 install-id read falls back to legacy ~/.honeycomb/install-id when fleet-root file is absent", async () => {
+  const root = tmpStateDir();
+  const rec = recorder();
+  try {
+    const fleetRoot = join(root, "apiary");
+    const legacyDir = join(root, "legacy");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, INSTALL_ID_FILE_NAME), "legacy-id\n", "utf8");
+
+    const outcome = await emitInstalled({
+      fetch: rec.fetch,
+      posthogKey: "phc_test_key",
+      env: { APIARY_HOME: fleetRoot },
+      version: "1.2.3",
+      apiaryRootDir: fleetRoot,
+      legacyRuntimeDir: legacyDir,
+    });
+    assert.equal(outcome.sent, true);
+    assert.equal(rec.calls[0]!.body["distinct_id"], "legacy-id");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

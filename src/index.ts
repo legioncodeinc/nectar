@@ -9,6 +9,14 @@
 export { assembleDaemon } from "./daemon.js";
 export type { AssembleOptions, AssembledDaemon, RegistrationPipeline } from "./daemon.js";
 export {
+  resolveApiaryRoot,
+  nectarStateDir,
+  legacyRuntimeDir,
+  APIARY_ROOT_DIR_NAME,
+  NECTAR_STATE_DIR_NAME,
+  LEGACY_RUNTIME_DIR_NAME,
+} from "./apiary-root.js";
+export {
   resolveConfig,
   DEFAULT_HOST,
   DEFAULT_PORT,

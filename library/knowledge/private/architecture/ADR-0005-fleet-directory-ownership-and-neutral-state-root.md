@@ -19,12 +19,15 @@ The canonical resolution chain every product implements (mirrored, never importe
 
 ```
 resolveFleetRoot(env, platform, home = os.homedir()):
-  1. env.APIARY_HOME set and non-blank            -> APIARY_HOME
-     (the installer's --home= pin is delivered as APIARY_HOME in the service environment)
-  2. platform is linux AND env.XDG_STATE_HOME set and non-blank
+  1. env.APIARY_HOME set, non-blank, and ABSOLUTE -> APIARY_HOME
+     (the installer's --home= pin is delivered as APIARY_HOME in the service environment;
+      the installer resolves a relative --home= against ITS cwd at capture time)
+  2. platform is linux AND env.XDG_STATE_HOME set, non-blank, and ABSOLUTE
                                                   -> join(XDG_STATE_HOME, "apiary")
   3. otherwise                                    -> join(home, ".apiary")
 ```
+
+Security amendment (2026-07-04, from the W3 security audits): env roots are honored ONLY when absolute; a relative value is ignored and the chain falls through. Honoring a relative value would anchor the fleet root, and everything derived from it (machine keys, trust roots, registry pidPaths), on `process.cwd()`, the exact footgun this ADR exists to prevent; the XDG Base Directory spec likewise requires ignoring relative values. Absoluteness is checked with `path.win32.isAbsolute` (a strict superset of the posix check) so a relative value is never mistaken for absolute on any host.
 
 Per-product state is `resolveFleetRoot() + "/<product>"`; the shared surface (registry.json, device.json, install-id) sits at the root itself.
 
@@ -34,6 +37,8 @@ Per-product state is `resolveFleetRoot() + "/<product>"`; the shared surface (re
 - **Write side (every product's installer):** write your registry entry to `~/.apiary/registry.json` when the fleet root directory exists; otherwise write to the legacy `~/.honeycomb/doctor.daemons.json`. Deterministic, no cross-product coordination required at write time.
 - **Read side (doctor):** read new-first. When both files exist, the new file wins per daemon `name`; legacy-only entries merge additively. doctor never writes merged results back to the legacy file.
 - **Window close:** the legacy fallback (read side and write side) is removed only when every supported install path ships its migration. That removal is the close-out gate tracked in the superproject execution ledger (`library/ledger/EXECUTION_LEDGER-apiary-state-root.md`).
+
+**4. Registry path strings: resolved absolute paths (confirmed 2026-07-04).** Entries written to the registry carry RESOLVED absolute `pidPath` / `telemetryDbPath` values (the writer's own `resolveFleetRoot` output), never tilde-literals. Rationale: a `~`-literal is expanded by the READER under the reader's home, which diverges from the writer's resolved root the moment `APIARY_HOME` or XDG overrides apply; nectar's entry builder already writes resolved absolute paths. Read-side, doctor continues to expand legacy tilde-literal entries during the compatibility window (existing behavior for old writers), and its telemetry trust coercion validates containment against its own resolved per-product trust roots plus the legacy root.
 
 ## Context
 

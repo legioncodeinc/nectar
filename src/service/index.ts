@@ -39,6 +39,10 @@ import {
 } from "./platform.js";
 import { renderUnit, launchdLogDir } from "./templates.js";
 
+function serviceStateDir(plan: Pick<ServicePlan, "home" | "apiaryHome">): string {
+  return plan.apiaryHome !== undefined ? `${plan.apiaryHome}/nectar` : `${plan.home}/.apiary/nectar`;
+}
+
 /** A coarse, classified service status (what `nectar service-status` reports). */
 export type ServiceStatus = "running" | "not-running" | "unknown";
 
@@ -217,15 +221,15 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
       if (needsFile) {
         try {
           if (p.manager === "schtasks" && unitTarget === "") {
-            unitTarget = `${p.home}/.honeycomb/nectar/nectar-task.xml`;
+            unitTarget = `${serviceStateDir(p)}/nectar-task.xml`;
           }
           fs.mkdirp(dirname(unitTarget));
           fs.writeFile(unitTarget, renderUnit(p));
           // NEC-042 item 2 / AC-018l.9: launchd writes stdout/stderr into
-          // `<home>/.honeycomb/nectar`, but the plist lives under LaunchAgents,
+          // `<home>/.apiary/nectar/logs`, but the plist lives under LaunchAgents,
           // so mkdirp(dirname(unitTarget)) above only created LaunchAgents. Create
           // the log directory too, or the daemon's macOS logs are silently lost.
-          if (p.manager === "launchd") fs.mkdirp(launchdLogDir(p.home));
+          if (p.manager === "launchd") fs.mkdirp(launchdLogDir(p));
         } catch (error) {
           return {
             ok: false,
@@ -272,7 +276,7 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
 
       const { allOk, firstFailure, firstFailureResult } = await runAll(runner, uninstallCommands(p, uid));
 
-      const stagedXml = p.manager === "schtasks" ? `${p.home}/.honeycomb/nectar/nectar-task.xml` : "";
+      const stagedXml = p.manager === "schtasks" ? `${serviceStateDir(p)}/nectar-task.xml` : "";
       try {
         if (p.unitPath !== "") fs.removeFile(p.unitPath);
         if (stagedXml !== "") fs.removeFile(stagedXml);

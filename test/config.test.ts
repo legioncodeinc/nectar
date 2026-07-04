@@ -6,6 +6,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { resolveConfig, DEFAULT_PORT, DEFAULT_POLL_INTERVAL_MS } from "../dist/config.js";
 import { ConfigError } from "../dist/errors.js";
 
@@ -74,5 +75,16 @@ test("EX-2 an explicit override bypasses env parsing (an ephemeral port 0 overri
   withEnv("NECTAR_PORT", "3854abc", () => {
     // The override short-circuits envInt, so a garbage env var does not throw here.
     assert.equal(resolveConfig({ port: 0 }).port, 0);
+  });
+});
+
+test("a-AC-2 resolveConfig default runtimeDir follows APIARY_HOME/nectar when APIARY_HOME is set", () => {
+  withEnv("APIARY_HOME", "/custom/root", () => {
+    withEnv("NECTAR_RUNTIME_DIR", undefined, () => {
+      const cfg = resolveConfig();
+      assert.equal(cfg.runtimeDir, join("/custom/root", "nectar"));
+      assert.equal(cfg.pidFilePath, join("/custom/root", "nectar", "nectar.pid"));
+      assert.equal(cfg.lockFilePath, join("/custom/root", "nectar", "nectar.lock"));
+    });
   });
 });

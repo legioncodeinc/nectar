@@ -2,7 +2,7 @@
  * Shared `node:sqlite` plumbing for nectar's local telemetry database
  * (PRD-017, doctor ADR-0001 / ADR-0002).
  *
- * ONE physical file (`~/.honeycomb/telemetry/nectar.sqlite` by default),
+ * ONE physical file (`~/.apiary/nectar/telemetry/nectar.sqlite` by default),
  * three tables, per the pinned Contract B shared with doctor:
  *   - `service_status`  single row (id=1, latest-wins): binding time, last-seen,
  *     health, and Deep Lake connectivity (PRD-017a).
@@ -25,7 +25,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { RUNTIME_DIR_NAME } from "../config.js";
+import { nectarStateDir } from "../apiary-root.js";
 
 /** The subdirectory of the runtime dir the telemetry database lives under. */
 export const TELEMETRY_DIR_NAME = "telemetry";
@@ -37,9 +37,9 @@ export function telemetryDbPathForRuntimeDir(runtimeDir: string): string {
   return join(runtimeDir, TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME);
 }
 
-/** The default telemetry DB path: `~/.honeycomb/telemetry/nectar.sqlite`. */
-export function defaultTelemetryDbPath(home: string = homedir()): string {
-  return telemetryDbPathForRuntimeDir(join(home, RUNTIME_DIR_NAME));
+/** The default telemetry DB path: `<fleet-root>/nectar/telemetry/nectar.sqlite`. */
+export function defaultTelemetryDbPath(home: string = homedir(), env: NodeJS.ProcessEnv = process.env): string {
+  return telemetryDbPathForRuntimeDir(nectarStateDir(env, { home }));
 }
 
 /**

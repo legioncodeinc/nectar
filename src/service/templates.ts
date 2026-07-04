@@ -24,13 +24,14 @@ export const NECTAR_RUN_COMMAND = "daemon" as const;
 
 /**
  * The directory the launchd unit writes stdout/stderr logs into
- * (`<home>/.honeycomb/nectar`). Single-sourced here so the install path
+ * (`<fleet-root>/nectar/logs`). Single-sourced here so the install path
  * (`service/index.ts`) creates exactly the directory the plist references,
  * rather than the daemon silently losing its logs on macOS (NEC-042 item 2 /
  * AC-018l.9). Forward slashes match the plist's own path style.
  */
-export function launchdLogDir(home: string): string {
-  return `${home}/.honeycomb/nectar`;
+export function launchdLogDir(plan: Pick<ServicePlan, "home" | "apiaryHome">): string {
+  const stateDir = plan.apiaryHome !== undefined ? `${plan.apiaryHome}/nectar` : `${plan.home}/.apiary/nectar`;
+  return `${stateDir}/logs`;
 }
 
 /**
@@ -85,8 +86,17 @@ export function escapeXml(value: string): string {
 export function renderLaunchdPlist(plan: ServicePlan): string {
   const node = escapeXml(process.execPath);
   const exec = escapeXml(plan.execPath);
-  const logDir = escapeXml(launchdLogDir(plan.home));
+  const logDir = escapeXml(launchdLogDir(plan));
   const label = escapeXml(plan.label);
+  const envBlock =
+    plan.apiaryHome === undefined
+      ? ""
+      : `\t<key>EnvironmentVariables</key>
+\t<dict>
+\t\t<key>APIARY_HOME</key>
+\t\t<string>${escapeXml(plan.apiaryHome)}</string>
+\t</dict>
+`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -99,6 +109,7 @@ export function renderLaunchdPlist(plan: ServicePlan): string {
 		<string>${exec}</string>
 		<string>${NECTAR_RUN_COMMAND}</string>
 	</array>
+${envBlock}
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
@@ -130,6 +141,11 @@ export function renderSystemdUnit(plan: ServicePlan): string {
   // tokens; the run subcommand is a fixed literal with no spaces.
   const node = quoteSystemdToken(process.execPath);
   const exec = quoteSystemdToken(plan.execPath);
+  const envLine =
+    plan.apiaryHome === undefined
+      ? ""
+      : `Environment=${quoteSystemdToken(`APIARY_HOME=${plan.apiaryHome}`)}
+`;
   return `[Unit]
 Description=nectar - semantic memory layer daemon
 Documentation=https://get.theapiary.sh
@@ -142,6 +158,7 @@ Type=simple
 ExecStart=${node} ${exec} ${NECTAR_RUN_COMMAND}
 Restart=always
 RestartSec=${RESTART_SEC}
+${envLine}
 
 [Install]
 WantedBy=default.target
@@ -160,8 +177,18 @@ WantedBy=default.target
  * Scheduler rejects sub-minute intervals.
  */
 export function renderScheduledTaskXml(plan: ServicePlan): string {
-  const node = escapeXml(process.execPath);
-  const exec = escapeXml(plan.execPath);
+  const node = process.execPath;
+  const exec = plan.execPath;
+  const windowsCommand =
+    plan.apiaryHome === undefined
+      ? { command: node, args: `"${exec}" ${NECTAR_RUN_COMMAND}` }
+      : {
+          command: "cmd.exe",
+          args: `/d /s /c "set ""APIARY_HOME=${plan.apiaryHome.replaceAll('"', '""')}"" && ` +
+            `""${node.replaceAll('"', '""')}"" ""${exec.replaceAll('"', '""')}"" ${NECTAR_RUN_COMMAND}"`,
+        };
+  const command = escapeXml(windowsCommand.command);
+  const args = escapeXml(windowsCommand.args);
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -196,8 +223,8 @@ export function renderScheduledTaskXml(plan: ServicePlan): string {
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>${node}</Command>
-      <Arguments>"${exec}" ${NECTAR_RUN_COMMAND}</Arguments>
+      <Command>${command}</Command>
+      <Arguments>${args}</Arguments>
     </Exec>
   </Actions>
 </Task>

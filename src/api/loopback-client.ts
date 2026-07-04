@@ -15,6 +15,7 @@
  */
 import { request } from "node:http";
 import type { HiveGraphSearchResult } from "../hive-graph/search-types.js";
+import type { ProjectsView } from "../projects-control.js";
 
 /** Raised when the loopback request cannot reach the daemon (not running / refused / timed out). */
 export class DaemonUnreachableError extends Error {
@@ -102,4 +103,80 @@ export function searchViaDaemon(options: LoopbackSearchOptions): Promise<HiveGra
 
     req.end(payload);
   });
+}
+
+/** Generic loopback JSON request to the daemon (PRD-019b projects endpoints). */
+function daemonJsonRequest<T>(
+  host: string,
+  port: number,
+  method: "GET" | "POST",
+  path: string,
+  payload: string | undefined,
+  timeoutMs: number,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const headers: Record<string, string | number> = {};
+    if (payload !== undefined) {
+      headers["content-type"] = "application/json; charset=utf-8";
+      headers["content-length"] = Buffer.byteLength(payload);
+    }
+    const req = request({ host, port, method, path, headers, timeout: timeoutMs }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        const status = res.statusCode ?? 0;
+        if (status < 200 || status >= 300) {
+          reject(new DaemonSearchError(`daemon returned HTTP ${status}: ${text.slice(0, 200)}`, status));
+          return;
+        }
+        try {
+          resolve(JSON.parse(text) as T);
+        } catch {
+          reject(new DaemonSearchError("daemon returned a non-JSON response", status));
+        }
+      });
+    });
+    req.on("error", (err: NodeJS.ErrnoException) => reject(new DaemonUnreachableError(err.message)));
+    req.on("timeout", () => {
+      req.destroy(new DaemonUnreachableError(`request to ${host}:${port} timed out after ${timeoutMs}ms`));
+    });
+    if (payload !== undefined) req.end(payload);
+    else req.end();
+  });
+}
+
+export interface LoopbackDaemonTarget {
+  readonly host: string;
+  readonly port: number;
+  readonly timeoutMs?: number;
+}
+
+/** GET the active-project + brooding view from the daemon (`nectar projects`, PRD-019b). */
+export function projectsViaDaemon(target: LoopbackDaemonTarget): Promise<ProjectsView> {
+  return daemonJsonRequest<ProjectsView>(
+    target.host,
+    target.port,
+    "GET",
+    "/api/hive-graph/projects",
+    undefined,
+    target.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
+}
+
+/** The body accepted by `POST /api/hive-graph/projects/brooding` (PRD-019b). */
+export type BroodingToggleBody =
+  | { readonly projectId: string; readonly brooding: "on" | "off" }
+  | { readonly global: "on" | "paused" };
+
+/** POST a brooding toggle to the daemon and return the new view (`nectar brooding`, PRD-019b). */
+export function setBroodingViaDaemon(target: LoopbackDaemonTarget, body: BroodingToggleBody): Promise<ProjectsView> {
+  return daemonJsonRequest<ProjectsView>(
+    target.host,
+    target.port,
+    "POST",
+    "/api/hive-graph/projects/brooding",
+    JSON.stringify(body),
+    target.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
 }
