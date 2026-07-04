@@ -7,7 +7,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { get } from "node:http";
@@ -151,7 +151,7 @@ test("concurrent start() calls share one startup and return the same bound port"
   }
 });
 
-// ── PRD-018k / NEC-041: the ~/.honeycomb/nectar.json config-file loader ─────────
+// ── PRD-018k / NEC-041: the <fleet-root>/nectar/nectar.json config-file loader ──
 
 function writeNectarJson(dir: string, body: string): void {
   writeFileSync(join(dir, NECTAR_CONFIG_FILE_NAME), body, "utf8");
@@ -227,6 +227,41 @@ test("AC-018k.9 an unknown key in nectar.json is ignored with a warning; known k
     assert.ok(warnings.some((w) => w.includes("unknown key") && w.includes("made_up_key")), "the unknown key is warned about");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a-AC-5 loadNectarFileConfig falls back to legacy nectar.json when the new path is absent", () => {
+  const root = mkdtempSync(join(tmpdir(), "nectar-cfg-migration-"));
+  try {
+    const fleetRoot = join(root, "apiary");
+    const runtimeDir = join(fleetRoot, "nectar");
+    const legacyDir = join(root, "legacy");
+    mkdirSync(runtimeDir, { recursive: true });
+    mkdirSync(legacyDir, { recursive: true });
+    writeNectarJson(legacyDir, JSON.stringify({ redescribe_threshold: 0.31 }));
+
+    const cfg = loadNectarFileConfig({ env: { APIARY_HOME: fleetRoot }, legacyDir, warn: () => {} });
+    assert.equal(cfg.redescribeThreshold, 0.31);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a-AC-5 loadNectarFileConfig prefers the new nectar.json over legacy when both are present", () => {
+  const root = mkdtempSync(join(tmpdir(), "nectar-cfg-migration-"));
+  try {
+    const fleetRoot = join(root, "apiary");
+    const runtimeDir = join(fleetRoot, "nectar");
+    const legacyDir = join(root, "legacy");
+    mkdirSync(runtimeDir, { recursive: true });
+    mkdirSync(legacyDir, { recursive: true });
+    writeNectarJson(runtimeDir, JSON.stringify({ redescribe_threshold: 0.82 }));
+    writeNectarJson(legacyDir, JSON.stringify({ redescribe_threshold: 0.31 }));
+
+    const cfg = loadNectarFileConfig({ env: { APIARY_HOME: fleetRoot }, legacyDir, warn: () => {} });
+    assert.equal(cfg.redescribeThreshold, 0.82);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

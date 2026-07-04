@@ -25,19 +25,19 @@
  * stub that scripts/bake-posthog-key.mjs rewrites in dist/ at release time
  * (plain tsc build, so there is no esbuild define mechanism here).
  *
- * distinct_id is anonymous: the honeycomb installer's ~/.honeycomb/install-id
- * when present (so the funnel correlates across the product family), else a
- * random UUID minted once and persisted in the ledger file under nectar's
- * runtime dir (~/.honeycomb by default, resolveConfig's RUNTIME_DIR_NAME).
+ * distinct_id is anonymous: installer-minted `<fleet-root>/install-id` when
+ * present (legacy fallback: `~/.honeycomb/install-id`), else a random UUID
+ * minted once and persisted in the ledger file under nectar's runtime dir.
  * Never an email, an account id, a hostname, or a path.
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { arch, homedir, platform } from "node:os";
+import { arch, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { RUNTIME_DIR_NAME } from "../config.js";
+import { legacyRuntimeDir, nectarStateDir, resolveApiaryRoot } from "../apiary-root.js";
+import { resolveStateReadPath } from "../state-migration.js";
 import { POSTHOG_HOST, POSTHOG_KEY } from "./posthog-key.js";
 
 /** The pinned PostHog capture path. The full ingest URL is `${host}${POSTHOG_CAPTURE_PATH}`. */
@@ -112,11 +112,11 @@ export interface UsageFetchRequestInit {
 /** The injectable fetch seam so tests record the POST instead of hitting PostHog. */
 export type UsageFetch = (url: string, init: UsageFetchRequestInit) => Promise<UsageFetchResponse>;
 
-/** The injectable seams. Production defaults are the global fetch, process.env, and ~/.honeycomb. */
+/** The injectable seams. Production defaults are the global fetch, process.env, and `<fleet-root>/nectar`. */
 export interface UsageEmitDeps {
   readonly fetch?: UsageFetch;
   readonly env?: NodeJS.ProcessEnv;
-  /** Override the state dir (tests point this at a temp dir). Default: `~/.honeycomb`. */
+  /** Override the state dir (tests point this at a temp dir). Default: `<fleet-root>/nectar`. */
   readonly dir?: string;
   /** Override the baked key (tests force the keyed branch without a bake). */
   readonly posthogKey?: string;
@@ -125,6 +125,10 @@ export interface UsageEmitDeps {
   readonly timeoutMs?: number;
   /** Override the reported version (default: read from package.json). */
   readonly version?: string;
+  /** Test seam: override the resolved fleet root for install-id reads. */
+  readonly apiaryRootDir?: string;
+  /** Test seam: override the legacy runtime dir for install-id reads. */
+  readonly legacyRuntimeDir?: string;
 }
 
 /** The on-disk ledger: the fallback distinct id, the dedupe entries, and the last-seen version. */
@@ -162,9 +166,9 @@ export function captureUrl(host: string): string {
   return `${host.replace(/\/+$/, "")}${POSTHOG_CAPTURE_PATH}`;
 }
 
-/** The default state dir: nectar's runtime dir convention (shared `~/.honeycomb`). */
-function defaultStateDir(): string {
-  return join(homedir(), RUNTIME_DIR_NAME);
+/** The default state dir: nectar's runtime dir (`<fleet-root>/nectar`). */
+function defaultStateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return nectarStateDir(env);
 }
 
 /**
@@ -184,10 +188,10 @@ export function readPackageVersion(): string {
   }
 }
 
-/** Load the ledger, treating a missing or corrupt file as a fresh one (fail-soft). */
-function loadLedger(dir: string): UsageLedger {
+/** Load one ledger file, treating a missing/corrupt payload as fresh (fail-soft). */
+function loadLedgerFile(path: string): UsageLedger {
   try {
-    const raw = readFileSync(join(dir, USAGE_LEDGER_FILE_NAME), "utf8");
+    const raw = readFileSync(path, "utf8");
     const parsed = JSON.parse(raw) as Partial<UsageLedger>;
     return {
       ...(typeof parsed.distinctId === "string" ? { distinctId: parsed.distinctId } : {}),
@@ -199,20 +203,47 @@ function loadLedger(dir: string): UsageLedger {
   }
 }
 
+/** Load the ledger from new-first path resolution during the migration window. */
+function loadLedger(dir: string, env: NodeJS.ProcessEnv, useLegacyFallback: boolean): UsageLedger {
+  const path = useLegacyFallback
+    ? resolveStateReadPath(USAGE_LEDGER_FILE_NAME, { runtimeDir: dir, env })
+    : join(dir, USAGE_LEDGER_FILE_NAME);
+  return loadLedgerFile(path);
+}
+
 /** Persist the ledger, creating the state dir (0o700) when needed. Throws on IO failure; callers swallow. */
 function saveLedger(dir: string, ledger: UsageLedger): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, USAGE_LEDGER_FILE_NAME), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 }
 
-/** Read the installer's anonymous install-id when present and non-empty, else undefined. */
-function readInstallId(dir: string): string | undefined {
+/** Read one install-id candidate file when present and non-empty. */
+function readInstallIdFile(path: string): string | undefined {
   try {
-    const raw = readFileSync(join(dir, INSTALL_ID_FILE_NAME), "utf8").trim();
+    const raw = readFileSync(path, "utf8").trim();
     return raw.length > 0 ? raw : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Read install-id with new-root-first ordering and a legacy fallback. */
+function readInstallId(
+  stateDir: string,
+  env: NodeJS.ProcessEnv,
+  useLegacyFallback: boolean,
+  apiaryRootDir: string | undefined,
+  legacyDir: string | undefined,
+): string | undefined {
+  if (!useLegacyFallback) return readInstallIdFile(join(stateDir, INSTALL_ID_FILE_NAME));
+  const resolvedApiaryRoot = apiaryRootDir ?? resolveApiaryRoot(env);
+  const resolvedLegacyDir = legacyDir ?? legacyRuntimeDir();
+  return (
+    readInstallIdFile(join(resolvedApiaryRoot, INSTALL_ID_FILE_NAME)) ??
+    readInstallIdFile(join(resolvedLegacyDir, INSTALL_ID_FILE_NAME)) ??
+    // Compatibility seam for tests that inject an explicit temporary state dir.
+    readInstallIdFile(join(stateDir, INSTALL_ID_FILE_NAME))
+  );
 }
 
 /** The dedupe ledger key: plain event name, except updated which dedupes per version. */
@@ -240,13 +271,21 @@ export async function emitUsageEvent(event: UsageEventName, deps: UsageEmitDeps 
   if (isOptedOut(deps.env ?? process.env)) return { sent: false, skipped: "opted_out" };
 
   try {
-    const dir = deps.dir ?? defaultStateDir();
+    const env = deps.env ?? process.env;
+    const dir = deps.dir ?? defaultStateDir(env);
     const version = deps.version ?? readPackageVersion();
-    const ledger = loadLedger(dir);
+    const useLegacyFallback = deps.dir === undefined;
+    const ledger = loadLedger(dir, env, useLegacyFallback);
 
     // distinct_id preference: the installer's install-id when present, else a
     // UUID minted once and persisted in the ledger so it stays stable.
-    let distinctId = readInstallId(dir);
+    let distinctId = readInstallId(
+      dir,
+      env,
+      useLegacyFallback,
+      deps.apiaryRootDir,
+      deps.legacyRuntimeDir,
+    );
     if (distinctId === undefined) {
       if (ledger.distinctId === undefined) {
         ledger.distinctId = randomUUID();
@@ -333,9 +372,11 @@ export interface DaemonStartTelemetry {
  */
 export async function recordDaemonStart(deps: UsageEmitDeps = {}): Promise<DaemonStartTelemetry> {
   try {
-    const dir = deps.dir ?? defaultStateDir();
+    const env = deps.env ?? process.env;
+    const dir = deps.dir ?? defaultStateDir(env);
     const version = deps.version ?? readPackageVersion();
-    const lastSeen = loadLedger(dir).lastSeenVersion;
+    const useLegacyFallback = deps.dir === undefined;
+    const lastSeen = loadLedger(dir, env, useLegacyFallback).lastSeenVersion;
 
     const firstRun = await emitUsageEvent("nectar_first_run", deps);
 
@@ -346,7 +387,7 @@ export async function recordDaemonStart(deps: UsageEmitDeps = {}): Promise<Daemo
 
     if (lastSeen !== version) {
       // Reload: the emits above may have persisted dedupe entries or a distinct id.
-      const ledger = loadLedger(dir);
+      const ledger = loadLedger(dir, env, useLegacyFallback);
       ledger.lastSeenVersion = version;
       try {
         saveLedger(dir, ledger);

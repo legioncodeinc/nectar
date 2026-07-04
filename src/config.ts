@@ -10,9 +10,10 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ConfigError } from "./errors.js";
+import { LEGACY_RUNTIME_DIR_NAME, nectarStateDir } from "./apiary-root.js";
 
-/** The `~/.honeycomb` runtime dir convention shared with honeycomb + doctor. */
-export const RUNTIME_DIR_NAME = ".honeycomb";
+/** Legacy runtime dir basename retained for migration and fallback reads. */
+export const RUNTIME_DIR_NAME = LEGACY_RUNTIME_DIR_NAME;
 
 /** nectar's loopback port. 3850 honeycomb, 3851 embeddings, 3852 doctor status, 3853 hive are occupied (PRD-001b). */
 export const DEFAULT_PORT = 3854;
@@ -34,7 +35,7 @@ export function isLoopbackHost(host: string): boolean {
 /** Worker poll floor: the enricher's 30s cadence (ai/enricher-and-llm-model.md). */
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
-/** Distinct from honeycomb's `daemon.pid`/`daemon.lock` so both daemons coexist in ~/.honeycomb (PRD-002d). */
+/** Distinct from honeycomb's `daemon.pid`/`daemon.lock` so both daemons can coexist during migration. */
 export const DEFAULT_PID_FILE_NAME = "nectar.pid";
 export const DEFAULT_LOCK_FILE_NAME = "nectar.lock";
 
@@ -111,7 +112,7 @@ export function resolveConfig(overrides: RuntimeConfigOverrides = {}): RuntimeCo
   const runtimeDir =
     overrides.runtimeDir ??
     envStr("NECTAR_RUNTIME_DIR") ??
-    join(homedir(), RUNTIME_DIR_NAME);
+    nectarStateDir(process.env, { home: homedir() });
 
   const host = overrides.host ?? envStr("NECTAR_HOST") ?? DEFAULT_HOST;
   const port = overrides.port ?? envInt("NECTAR_PORT", { min: MIN_PORT, max: MAX_PORT }) ?? DEFAULT_PORT;

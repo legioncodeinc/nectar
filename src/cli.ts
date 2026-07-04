@@ -29,11 +29,18 @@ import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
-import { assembleDaemon, type AssembledDaemon, type AssembleOptions, type BootProjectionLoad } from "./daemon.js";
+import { assembleDaemon, type AssembledDaemon, type AssembleOptions } from "./daemon.js";
 import { resolveConfig } from "./config.js";
 import { mountHiveGraphApi } from "./api/hive-graph-api.js";
 import { buildHiveGraphApiOptions } from "./api/daemon-api-wiring.js";
-import { searchViaDaemon, DaemonUnreachableError, DaemonSearchError } from "./api/loopback-client.js";
+import {
+  searchViaDaemon,
+  projectsViaDaemon,
+  setBroodingViaDaemon,
+  DaemonUnreachableError,
+  DaemonSearchError,
+} from "./api/loopback-client.js";
+import type { ProjectsView } from "./projects-control.js";
 import type { HiveGraphSearchResult, HiveGraphHit } from "./hive-graph/search-types.js";
 import { createServiceModule, serviceStatus } from "./service/index.js";
 import { registerWithDoctor } from "./doctor-registry.js";
@@ -47,6 +54,20 @@ import { broodPrereqsFromEnv, formatFirstRunGuidance } from "./brood-prereqs.js"
 import { resolveNectarTunables } from "./config-file.js";
 import { resolveProjectScope, type ProjectScopeSource } from "./hive-graph/project-scope.js";
 import { createDiskRegistrationFs } from "./registration/disk-fs.js";
+import { createSharedIgnore, type IgnorePredicate } from "./registration/ignore.js";
+import { createProjectContext } from "./registration/project-context.js";
+import type { WatcherState } from "./registration/fs-watch.js";
+import type { RunningContext } from "./project-supervisor.js";
+import type { ResolvedProject } from "./hive-graph/active-projects.js";
+import {
+  readActiveProjects,
+  buildProjectsView,
+  persistProjectBrooding,
+  persistGlobalBrooding,
+  type ProjectsControlOptions,
+} from "./projects-control.js";
+import { broodingStatePath } from "./registration/brooding-state.js";
+import { mountProjectsApi } from "./api/projects-api.js";
 import { StoreBridge } from "./registration/store-bridge.js";
 import { runPrune } from "./registration/prune-cli.js";
 import { runReviewMatches, type ReviewDecision } from "./registration/review-cli.js";
@@ -55,9 +76,8 @@ import {
   type PendingReviewStore,
   type PendingReviewCandidate,
 } from "./registration/review-store.js";
-import { rebuildProjectionAsync, projectionFinalPath, ProjectionWriter } from "./projection/write.js";
-import { DEFAULT_PROJECTION_REL_PATH } from "./projection/format.js";
-import type { InheritRow } from "./projection/inherit.js";
+import { resolveStateReadPath } from "./state-migration.js";
+import { rebuildProjectionAsync, ProjectionWriter } from "./projection/write.js";
 import { resolvePortkeyConfig, type PortkeyEnabled } from "./portkey/config.js";
 import { activeEmbedModelId, resolveEmbeddingsConfig, validateEmbedDimension } from "./embeddings/config.js";
 import { resolveEmbedProvider, type EmbedProvider } from "./embeddings/provider.js";
@@ -70,8 +90,6 @@ import {
   parseBroodArgs,
   planBrood,
   formatDryRunReport,
-  discoverFiles,
-  prepareFiles,
   runBroodAsync,
   type BroodConfig,
   type BroodRunOptions,
@@ -92,6 +110,11 @@ Usage:
   nectar search <query> [flags] Manual hive-graph search (PRD-012). Thin loopback client of the
                                 daemon search endpoint (POST /api/hive-graph/search). Requires a
                                 running 'nectar daemon'. Flags: --limit N, --json
+  nectar projects [--json]      List the active projects + brooding state (PRD-019). Thin loopback
+                                client of GET /api/hive-graph/projects. Requires a running daemon.
+  nectar brooding <on|off> [--project <id>|--all] [--global-pause|--global-resume]
+                                Turn brooding on/off per project or globally (PRD-019). Thin loopback
+                                client of POST /api/hive-graph/projects/brooding. Requires a running daemon.
   nectar prune [--confirm]      Prune long-missing nectars from the durable store (PRD-006d)
   nectar review-matches         Review low-confidence step-4 matches against the durable store (PRD-006d)
   nectar rebuild-projection     Regenerate .honeycomb/nectars.json from Deep Lake (PRD-011)
@@ -180,6 +203,22 @@ async function runServiceStatus(): Promise<number> {
   });
   process.stdout.write(`${status}\n`);
   return status === "unknown" ? 1 : 0;
+}
+
+/**
+ * PRD-019d: build the ONE shared ignore predicate (segments UNION graph-ignore
+ * UNION gitignore semantics, with the git-absent `.gitignore` parser fallback)
+ * for a CLI command's resolved root, so every CLI discovery path excludes
+ * exactly the set the daemon watch path does - including on a non-git root.
+ */
+function sharedIgnoreFor(root: string): IgnorePredicate {
+  return createSharedIgnore(root).isIgnored;
+}
+
+/** Read a running project's watcher liveness off the daemon's `/health` active-projects slice (PRD-019b view). */
+function daemonWatcherState(daemon: AssembledDaemon, projectId: string): WatcherState {
+  const entry = daemon.health.snapshot().activeProjects.projects.find((p) => p.projectId === projectId);
+  return (entry?.watcher ?? "stopped") as WatcherState;
 }
 
 /** Read an env var, treating unset OR blank/whitespace-only as absent (mirrors config.ts). */
@@ -299,11 +338,13 @@ function runBroodDryRun(): number {
     );
     return 1;
   }
+  const isIgnored = sharedIgnoreFor(ctx.projectRoot);
   const config: BroodConfig = {
     store: new InMemoryHiveGraphStore(),
     tenancy: ctx.tenancy,
     root: ctx.projectRoot,
-    fs: createDiskRegistrationFs(ctx.projectRoot),
+    isIgnored,
+    fs: createDiskRegistrationFs(ctx.projectRoot, isIgnored),
   };
   const plan = planBrood(config);
   process.stdout.write(
@@ -539,12 +580,14 @@ async function runBroodMutating(options: BroodRunOptions): Promise<number> {
     return 1;
   }
   const { embedProvider, embedModelId } = resolveCliBroodEmbedDeps();
+  const isIgnored = sharedIgnoreFor(ctx.projectRoot);
   return runBroodMutatingVerb({
     config: {
       store: ctx.store,
       tenancy: ctx.tenancy,
       root: ctx.projectRoot,
-      fs: createDiskRegistrationFs(ctx.projectRoot),
+      isIgnored,
+      fs: createDiskRegistrationFs(ctx.projectRoot, isIgnored),
     },
     deps: { portkey, embedProvider, embedModelId },
     options,
@@ -598,7 +641,7 @@ async function withDurableBridge(
 async function runPruneCommand(args: readonly string[]): Promise<number> {
   const confirm = args.includes("--confirm");
   return withDurableBridge("prune", async (bridge, ctx) => {
-    const fs = createDiskRegistrationFs(ctx.projectRoot);
+    const fs = createDiskRegistrationFs(ctx.projectRoot, sharedIgnoreFor(ctx.projectRoot));
     return runPruneVerb({
       store: bridge,
       tenancy: ctx.tenancy,
@@ -616,7 +659,11 @@ async function runPruneCommand(args: readonly string[]): Promise<number> {
  */
 async function runReviewMatchesCommand(): Promise<number> {
   const config = resolveConfig();
-  const reviews = new FilePendingReviewStore(join(config.runtimeDir, "pending-reviews.json"));
+  const hasRuntimeDirOverride = (process.env["NECTAR_RUNTIME_DIR"] ?? "").trim() !== "";
+  const reviewsPath = hasRuntimeDirOverride
+    ? join(config.runtimeDir, "pending-reviews.json")
+    : resolveStateReadPath("pending-reviews.json", { runtimeDir: config.runtimeDir });
+  const reviews = new FilePendingReviewStore(reviewsPath);
   const decider = interactiveReviewDecider();
   try {
     return await withDurableBridge("review-matches", (bridge, ctx) =>
@@ -760,54 +807,162 @@ async function runSearchCommand(args: readonly string[]): Promise<number> {
   }
 }
 
-/**
- * Build the boot projection load seam for the live daemon (PRD-011b AC-6): if a
- * project context resolves, the daemon validates `.honeycomb/nectars.json` on
- * boot and inherits hash-matched files into the durable Deep Lake store. All
- * work is deferred to lazy providers so nothing scans disk or hits the network
- * until AFTER the daemon is accepting requests; fail-soft throughout (a missing
- * credentials file just skips the pre-warm). Returns undefined when no context
- * resolves, so `nectar daemon` still starts on a bare machine.
- */
-function resolveBootProjection(): BootProjectionLoad | undefined {
-  const ctx = resolveProjectionContext();
-  if (!ctx.ok) return undefined;
-  const { store, tenancy, projectRoot } = ctx;
-  return {
-    tenancy,
-    filePath: projectionFinalPath(projectRoot, DEFAULT_PROJECTION_REL_PATH),
-    diskHashes: () => {
-      const discovery = discoverFiles({ root: projectRoot, fs: createDiskRegistrationFs(projectRoot) });
-      const prepared = prepareFiles(createDiskRegistrationFs(projectRoot), discovery.files);
-      return new Map(prepared.map((p) => [p.file.relPath, p.contentHash] as const));
-    },
-    existingNectars: async () => {
-      const latest = await store.listLatestVersions(tenancy);
-      return new Set(latest.map((lv) => lv.identity.nectar));
-    },
-    write: async (rows: readonly InheritRow[]) => {
-      for (const row of rows) {
-        if ((await store.getIdentity(row.identity.nectar)) === undefined) {
-          await store.insertIdentity(row.identity);
-        }
-        await store.appendVersion(row.version);
-      }
-    },
-  };
+// ── PRD-019b: `nectar projects` + `nectar brooding` ─────────────────────────
+
+/** Render the projects view as a human-readable table (default, non-`--json`). */
+export function renderProjectsTable(view: ProjectsView): string {
+  const lines: string[] = [];
+  lines.push(`global brooding: ${view.globalBrooding}`);
+  if (view.projects.length === 0) {
+    lines.push("No active projects. Add one by selecting a directory in the Hive dashboard.");
+  } else {
+    lines.push(`${view.projects.length} project${view.projects.length === 1 ? "" : "s"}:`);
+    for (const p of view.projects) {
+      const label = p.name.trim() !== "" ? `${p.name} (${p.projectId})` : p.projectId;
+      lines.push(`  - ${label}`);
+      lines.push(`      path: ${p.path}`);
+      lines.push(`      brooding: ${p.brooding}   watcher: ${p.watcher}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
 }
+
+/** `nectar projects [--json]`: the read side of `GET /api/hive-graph/projects`. */
+async function runProjectsCommand(args: readonly string[]): Promise<number> {
+  const json = args.includes("--json");
+  const config = resolveConfig();
+  try {
+    const view = await projectsViaDaemon({ host: config.host, port: config.port });
+    if (json) process.stdout.write(`${JSON.stringify(view)}\n`);
+    else process.stdout.write(renderProjectsTable(view));
+    return 0;
+  } catch (err: unknown) {
+    if (err instanceof DaemonUnreachableError) {
+      process.stderr.write(
+        `nectar projects: the nectar daemon is not reachable on ${config.host}:${config.port} (${err.message}).\n` +
+          "Start it with 'nectar daemon'.\n",
+      );
+      return 2;
+    }
+    process.stderr.write(`nectar projects: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
+/** The parsed `nectar brooding` invocation (PRD-019b). */
+export type BroodingInvocation =
+  | { readonly kind: "errors"; readonly errors: readonly string[] }
+  | { readonly kind: "global"; readonly global: "on" | "paused" }
+  | { readonly kind: "project"; readonly projectId: string; readonly brooding: "on" | "off" }
+  | { readonly kind: "all"; readonly brooding: "on" | "off" };
+
+/**
+ * Parse `nectar brooding <on|off> [--project <id>|--all]` and the global flags
+ * `--global-pause` / `--global-resume`. The global flags are standalone (no
+ * on|off positional); the on|off form requires exactly one of `--project <id>`
+ * or `--all`.
+ */
+export function parseBroodingArgs(args: readonly string[]): BroodingInvocation {
+  const errors: string[] = [];
+  let positional: string | undefined;
+  let projectId: string | undefined;
+  let all = false;
+  let globalPause = false;
+  let globalResume = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? "";
+    if (arg === "--all") {
+      all = true;
+    } else if (arg === "--global-pause") {
+      globalPause = true;
+    } else if (arg === "--global-resume") {
+      globalResume = true;
+    } else if (arg === "--project") {
+      const raw = args[i + 1];
+      if (raw === undefined || raw.startsWith("--")) errors.push("--project requires a value");
+      else {
+        projectId = raw;
+        i++;
+      }
+    } else if (arg.startsWith("--project=")) {
+      projectId = arg.slice("--project=".length);
+    } else if (arg.startsWith("--")) {
+      errors.push(`unknown flag '${arg}'`);
+    } else if (positional === undefined) {
+      positional = arg;
+    } else {
+      errors.push(`unexpected argument '${arg}'`);
+    }
+  }
+
+  if (globalPause && globalResume) errors.push("use only one of --global-pause / --global-resume");
+  const isGlobal = globalPause || globalResume;
+
+  if (isGlobal) {
+    if (positional !== undefined) errors.push("the global flags do not take an on|off argument");
+    if (projectId !== undefined || all) errors.push("the global flags cannot combine with --project / --all");
+    if (errors.length > 0) return { kind: "errors", errors };
+    return { kind: "global", global: globalPause ? "paused" : "on" };
+  }
+
+  if (positional !== "on" && positional !== "off") {
+    errors.push("expected 'on' or 'off': nectar brooding <on|off> [--project <id>|--all]");
+  }
+  if (projectId !== undefined && all) errors.push("use only one of --project / --all");
+  if (projectId === undefined && !all) errors.push("specify --project <id> or --all");
+  if (errors.length > 0) return { kind: "errors", errors };
+
+  const brooding = positional as "on" | "off";
+  if (all) return { kind: "all", brooding };
+  return { kind: "project", projectId: projectId as string, brooding };
+}
+
+/** `nectar brooding ...`: the write side of `POST /api/hive-graph/projects/brooding`. */
+async function runBroodingCommand(args: readonly string[]): Promise<number> {
+  const invocation = parseBroodingArgs(args);
+  if (invocation.kind === "errors") {
+    for (const err of invocation.errors) process.stderr.write(`nectar brooding: ${err}\n`);
+    return 2;
+  }
+  const config = resolveConfig();
+  const target = { host: config.host, port: config.port };
+  try {
+    let view: ProjectsView;
+    if (invocation.kind === "global") {
+      view = await setBroodingViaDaemon(target, { global: invocation.global });
+    } else if (invocation.kind === "project") {
+      view = await setBroodingViaDaemon(target, { projectId: invocation.projectId, brooding: invocation.brooding });
+    } else {
+      // --all: set every currently-bound project to the requested state.
+      const current = await projectsViaDaemon(target);
+      view = current;
+      for (const p of current.projects) {
+        view = await setBroodingViaDaemon(target, { projectId: p.projectId, brooding: invocation.brooding });
+      }
+    }
+    process.stdout.write(renderProjectsTable(view));
+    return 0;
+  } catch (err: unknown) {
+    if (err instanceof DaemonUnreachableError) {
+      process.stderr.write(
+        `nectar brooding: the nectar daemon is not reachable on ${config.host}:${config.port} (${err.message}).\n` +
+          "Start it with 'nectar daemon'.\n",
+      );
+      return 2;
+    }
+    process.stderr.write(`nectar brooding: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
+// The single-root `resolveBootProjection` boot pre-warm was removed with the
+// PRD-019a multi-root rewire: the PRD-011b projection load + inherit now runs
+// PER PROJECT inside `createProjectContext.start()` (`registration/project-context.ts`),
+// so each activated root validates its own `.honeycomb/nectars.json`.
 
 /** The resolved-and-ok shape of {@link resolveProjectionContext}. */
 type ResolvedContext = Extract<ReturnType<typeof resolveProjectionContext>, { readonly ok: true }>;
-
-/** Resolve the Deep Lake project context, swallowing a missing-creds error into `undefined`. */
-function safeResolveContext(): ResolvedContext | undefined {
-  try {
-    const result = resolveProjectionContext();
-    return result.ok ? result : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /** A metrics sink that delegates to the daemon's CURRENT telemetry (fresh per start()), for the live build brood path. */
 function daemonMetricsProxy(daemon: AssembledDaemon): PipelineMetricsSink {
@@ -840,7 +995,7 @@ function buildLiveDurableWiring(
   ctx: ResolvedContext,
   portkey: PortkeyEnabled,
 ): LiveDurableWiring {
-  const fs = createDiskRegistrationFs(ctx.projectRoot);
+  const fs = createDiskRegistrationFs(ctx.projectRoot, sharedIgnoreFor(ctx.projectRoot));
   const readContent: ContentReader = {
     read: (path: string): string | null => {
       const stat = fs.statPath(path);
@@ -869,7 +1024,6 @@ function buildLiveDurableWiring(
 }
 
 async function runDaemon(): Promise<void> {
-  const ctx = safeResolveContext();
   const portkey = resolvePortkeyConfig();
   const embeddingsConfig = resolveEmbeddingsConfig({});
   // AC-018i.7: catch a wrong NECTAR_EMBEDDINGS_OUTPUT_DIMENSION at config
@@ -883,67 +1037,87 @@ async function runDaemon(): Promise<void> {
   });
   const embedModel = activeEmbedModelId(embeddingsConfig);
 
-  let bootProjection: BootProjectionLoad | undefined;
+  // PRD-019a: resolve the shared Deep Lake credentials WITHOUT pinning a single
+  // project (the daemon is multi-root now). Creds absent -> the daemon boots,
+  // serves /health, and stays dormant (no durable store to brood into).
+  let loadedCredentials: ReturnType<typeof loadDeepLakeCredentials> | undefined;
   try {
-    bootProjection = resolveBootProjection();
+    loadedCredentials = loadDeepLakeCredentials();
   } catch {
-    // fail-soft: a boot pre-warm is best-effort and never blocks the daemon start.
-    bootProjection = undefined;
+    loadedCredentials = undefined;
   }
+  // Const snapshots so the deferred factory / view closures narrow correctly.
+  const creds = loadedCredentials;
+  const durableStore = creds !== undefined ? new DeepLakeHiveGraphStore({ credentials: creds }) : undefined;
 
-  // Durable brood + enrich run live only when Deep Lake creds resolve AND a
-  // Portkey describe transport is configured: an LLM-less daemon genuinely
-  // cannot brood or enrich, so it stays dormant (honest, and no false-fail
-  // marking of pending rows). This is the bridge that closes the Wave D dormancy.
-  const live: LiveDurableWiring | undefined =
-    ctx !== undefined && portkey.enabled ? buildLiveDurableWiring(ctx, portkey) : undefined;
-
-  // PRD-018k / NEC-023: resolve the brood prerequisites so a dormant daemon
-  // surfaces WHY on /health and in the startup log (and, on a TTY, prints the
-  // guided first-run steps below). PRD-018k / NEC-041: resolve the per-repo
-  // tunables (`~/.honeycomb/nectar.json`, env-over-file) once at boot.
-  const broodPrereqs = broodPrereqsFromEnv({ credentialsPresent: ctx !== undefined, credentialsPath: credentialsPath() });
+  // PRD-018k / NEC-023: brood prerequisites so a dormant daemon surfaces WHY.
+  const broodPrereqs = broodPrereqsFromEnv({ credentialsPresent: creds !== undefined, credentialsPath: credentialsPath() });
   const tunables = resolveNectarTunables();
+
+  // PRD-019a: the active-project supervisor seam. `resolve` reads the shared
+  // `~/.deeplake/projects.json` bindings + the nectar-owned brooding state; the
+  // factory stands up one brood + watch context per active project, each rooted
+  // at its own bound path and scoped to its own tenancy project id. Live brood
+  // (describe) deps are attached only when Portkey is configured.
+  const controlOptions: ProjectsControlOptions =
+    creds !== undefined ? { expect: { org: creds.orgId, workspace: creds.workspaceId } } : {};
+  const broodDeps =
+    creds !== undefined && portkey.enabled
+      ? { portkey: portkey as PortkeyEnabled, embedProvider, embedModelId: embedModel }
+      : undefined;
+
+  const activeProjects =
+    durableStore !== undefined && creds !== undefined
+      ? {
+          resolve: () => readActiveProjects(controlOptions).resolution,
+          factory: (project: ResolvedProject): RunningContext =>
+            createProjectContext({
+              project,
+              tenancy: { orgId: creds.orgId, workspaceId: creds.workspaceId, projectId: project.projectId },
+              store: durableStore,
+              ...(broodDeps !== undefined ? { broodDeps } : {}),
+              log: (line) => process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), ...line })}\n`),
+            }),
+        }
+      : undefined;
+
+  // The daemon-level enricher stays scoped to the PRIMARY active project at boot
+  // (the common single-project case); per-project enrichment for additional
+  // active projects is a documented follow-up. Absent creds/Portkey/active set
+  // -> the enricher stays dormant (honest).
+  const primary = durableStore !== undefined ? readActiveProjects(controlOptions).resolution.active[0] : undefined;
+  const primaryTenancy: Tenancy | undefined =
+    primary !== undefined && creds !== undefined
+      ? { orgId: creds.orgId, workspaceId: creds.workspaceId, projectId: primary.projectId }
+      : undefined;
+  const live: LiveDurableWiring | undefined =
+    durableStore !== undefined && creds !== undefined && primary !== undefined && primaryTenancy !== undefined && portkey.enabled
+      ? buildLiveDurableWiring(
+          { ok: true, tenancy: primaryTenancy, projectRoot: primary.path, store: durableStore, scopeSource: "binding", credentials: creds },
+          portkey,
+        )
+      : undefined;
 
   const options: AssembleOptions = {
     broodPrereqs,
-    ...(bootProjection !== undefined ? { bootProjection } : {}),
-    // PRD-018b: when Deep Lake creds resolve, start the update-on-change watch
-    // pipeline against the durable store (the watch leg needs no LLM - it appends
-    // pending version rows the enricher describes later). Absent creds -> the
-    // watch leg stays dormant and /health says so (AC-018b.7).
-    ...(ctx !== undefined
-      ? { tenancy: ctx.tenancy, projectRoot: ctx.projectRoot, registrationStore: ctx.store }
-      : {}),
-    ...(live !== undefined && ctx !== undefined
+    ...(activeProjects !== undefined ? { activeProjects } : {}),
+    ...(live !== undefined && primaryTenancy !== undefined && primary !== undefined
       ? {
-          asyncBroodStore: ctx.store,
-          // AC-018i.1: stamp embed_model on auto-brood-embedded rows.
-          broodDepsAsync: { portkey: live.portkey, embedProvider, embedModelId: embedModel },
+          tenancy: primaryTenancy,
+          projectRoot: primary.path,
           enricherStore: live.enricher,
           enricherCycle: {
             readContent: live.readContent,
             portkey: live.portkey,
             embedProvider,
-            // PRD-018k / NEC-041 AC-018k.6: source the redescribe threshold from
-            // ~/.honeycomb/nectar.json (env-over-file), falling back to the code
-            // default when neither the env var nor the file supplies one.
             ...(tunables.redescribeThreshold !== undefined
               ? { config: { redescribeThreshold: tunables.redescribeThreshold } }
               : {}),
-            // AC-018i.1: stamp embed_model on enricher-embedded rows.
             embedModel,
-            // AC-018g.6: re-seed the working set each cycle from the durable store.
-            refreshWorkingSet: () => live.enricher.refresh(ctx.tenancy),
-            // AC-018g.9: prior-content cache backs the cosmetic-change gate.
+            refreshWorkingSet: () => live.enricher.refresh(primaryTenancy),
             priorContentCache: createPriorContentCache(),
-            // AC-018g.11/.12: trigger #2 - a debounced projection write after a
-            // cycle that wrote descriptions, sourced from the enricher mirror.
-            projectionWriter: new ProjectionWriter({ projectRoot: ctx.projectRoot }),
-            projectionDoc: () => live.enricher.buildProjectionDoc(ctx.tenancy),
-            // Surface the underlying describe-batch error; without this the
-            // persistent-failure alert can trip with nothing in the logs to
-            // diagnose (2026-07-03 production soak stall).
+            projectionWriter: new ProjectionWriter({ projectRoot: primary.path }),
+            projectionDoc: () => live.enricher.buildProjectionDoc(primaryTenancy),
             onDescribeError: (err: unknown, paths: readonly string[]) => {
               process.stderr.write(
                 `nectar enricher: describe batch failed (${paths.length} file(s), first: ${paths[0] ?? "?"}): ` +
@@ -957,25 +1131,49 @@ async function runDaemon(): Promise<void> {
 
   const daemon = assembleDaemon(options);
 
-  // PRD-008: attach the /api/hive-graph handlers once, after assembleDaemon,
-  // mirroring mountGraphApi. When Deep Lake creds resolve the group is filled,
-  // and the LIVE build endpoint broods (when Portkey is configured); otherwise
-  // the group stays scaffolded + protected but unfilled (an honest 501 scaffold).
+  // PRD-019b: the projects + brooding-control endpoints (consumed by Hive's
+  // dashboard). Persisting a toggle triggers an immediate active-set reconcile.
   try {
-    if (ctx !== undefined) {
+    if (activeProjects !== undefined) {
+      mountProjectsApi(daemon, {
+        view: () => {
+          const { resolution, cache } = readActiveProjects(controlOptions);
+          return buildProjectsView(resolution, cache, (id) => daemonWatcherState(daemon, id));
+        },
+        setProject: (projectId, brooding) => {
+          persistProjectBrooding(projectId, brooding, controlOptions);
+        },
+        setGlobal: (global) => {
+          persistGlobalBrooding(global, controlOptions);
+        },
+        reconcile: () => daemon.reconcileActiveProjects(),
+        // b-AC-6: the HTTP body carries only this path + a stable reason; the
+        // raw persist failure is logged server-side here.
+        stateFilePath: broodingStatePath(),
+        onPersistError: (err) =>
+          process.stderr.write(
+            `nectar daemon: brooding-state persist failed: ${err instanceof Error ? err.message : String(err)}\n`,
+          ),
+      });
+    }
+  } catch {
+    // fail-soft: a wiring failure never blocks the daemon from serving /health.
+  }
+
+  // PRD-008: the hive-graph search/build/status API, scoped to the PRIMARY active
+  // project at boot (single-scope; the multi-scope dashboard surface is 019c).
+  try {
+    if (creds !== undefined && durableStore !== undefined && primary !== undefined && primaryTenancy !== undefined) {
       mountHiveGraphApi(
         daemon,
         buildHiveGraphApiOptions({
-          credentials: ctx.credentials,
-          tenancy: ctx.tenancy,
-          projectRoot: ctx.projectRoot,
-          store: ctx.store,
+          credentials: creds,
+          tenancy: primaryTenancy,
+          projectRoot: primary.path,
+          store: durableStore,
           costSpentUsd: () => daemon.health.snapshot().cost.broodTotalUsd,
-          // PRD-018k / NEC-041 AC-018k.7: thread the loaded recall multiplier into
-          // the live search deps (the config surface reaches the recall path).
           ...(tunables.recallMultiplier !== undefined ? { recallMultiplier: tunables.recallMultiplier } : {}),
           brood: { portkey, embedProvider, metrics: daemonMetricsProxy(daemon) },
-          // AC-018g.2: share the daemon's brood guard with the API /build handler.
           broodGuard: daemon.broodGuard,
         }),
       );
@@ -1002,8 +1200,8 @@ async function runDaemon(): Promise<void> {
   // Hydrate the durable enricher's working set from Deep Lake in the BACKGROUND
   // (never blocks readiness; fail-soft). The enricher loop sees an empty working
   // set until this settles, then picks up the seeded pending rows on its next cycle.
-  if (live !== undefined && ctx !== undefined) {
-    void live.enricher.hydrate(ctx.tenancy).catch((err: unknown) => {
+  if (live !== undefined && primaryTenancy !== undefined) {
+    void live.enricher.hydrate(primaryTenancy).catch((err: unknown) => {
       process.stderr.write(
         `nectar daemon: enricher hydrate failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`,
       );
@@ -1060,6 +1258,14 @@ async function main(argv: readonly string[]): Promise<number> {
 
   if (command === "search") {
     return runSearchCommand(argv.slice(1));
+  }
+
+  if (command === "projects") {
+    return runProjectsCommand(argv.slice(1));
+  }
+
+  if (command === "brooding") {
+    return runBroodingCommand(argv.slice(1));
   }
 
   // `project` currently exposes only its `--rebuild-projection` flag (PRD-011c);

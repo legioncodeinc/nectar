@@ -65,6 +65,11 @@ test("win32 system scope (privileged + requested) uses sc, not schtasks", () => 
   assert.equal(plan.scope, "system");
 });
 
+test("c-AC-2 resolveServicePlan carries a pinned APIARY_HOME into the plan", () => {
+  const plan = resolveServicePlan(env({ platform: "darwin", apiaryHome: "/custom/root" }));
+  assert.equal(plan.apiaryHome, "/custom/root");
+});
+
 test("an unsupported platform throws rather than silently degrading", () => {
   assert.throws(() => resolveServicePlan(env({ platform: "aix" as NodeJS.Platform })), /unsupported platform/);
   assert.equal(normalizePlatform("aix" as NodeJS.Platform), null);

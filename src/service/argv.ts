@@ -79,7 +79,11 @@ export function installCommands(plan: ServicePlan, uid: number): readonly Servic
       ];
     }
     case "sc": {
-      const binPath = `"${process.execPath}" "${plan.execPath}" daemon`;
+      const binPath =
+        plan.apiaryHome === undefined
+          ? `"${process.execPath}" "${plan.execPath}" daemon`
+          : `cmd.exe /d /s /c "set ""APIARY_HOME=${plan.apiaryHome.replaceAll('"', '""')}"" && ` +
+            `""${process.execPath.replaceAll('"', '""')}"" ""${plan.execPath.replaceAll('"', '""')}"" daemon"`;
       return [
         { command: "sc", args: ["create", WINDOWS_TASK_NAME, `binPath=${binPath}`, "start=", "auto"] },
         { command: "sc", args: ["start", WINDOWS_TASK_NAME] },

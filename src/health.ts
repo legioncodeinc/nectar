@@ -47,6 +47,27 @@ export interface HealthBody {
   portkey: {
     enabled: boolean;
   };
+  /**
+   * PRD-019a: the active-project set the daemon broods + watches. A daemon with
+   * no bound, brooding-enabled projects is DORMANT: `count` is 0 and `reason` is
+   * `"no-active-projects"` (never a brood of the cwd / `$HOME` / `System32`).
+   * Each entry carries the resolved tenancy project id, the bound path, its
+   * effective brooding state, and its watcher liveness. `refused` lists bound
+   * roots that resolved to a guarded path (`$HOME` / filesystem root / System32)
+   * with reason `"pathological-root"`.
+   */
+  activeProjects: {
+    count: number;
+    /** `"no-active-projects"` when zero are active, `"global-paused"` when the global switch is paused, else null. */
+    reason: string | null;
+    projects: Array<{
+      projectId: string;
+      path: string;
+      brooding: "active" | "paused" | "global-paused";
+      watcher: "stopped" | "running" | "restarting" | "degraded";
+    }>;
+    refused: Array<{ projectId: string; path: string; reason: string }>;
+  };
   watch: {
     /** True once the update-on-change registration pipeline's NodeFS watcher is running (PRD-018b). */
     running: boolean;
@@ -107,6 +128,12 @@ export class HealthState {
   };
   readonly embeddings: HealthBody["embeddings"] = { provider: "off" };
   readonly portkey: HealthBody["portkey"] = { enabled: false };
+  readonly activeProjects: HealthBody["activeProjects"] = {
+    count: 0,
+    reason: "no-active-projects",
+    projects: [],
+    refused: [],
+  };
   readonly watch: HealthBody["watch"] = {
     running: false,
     reason: null,
@@ -202,6 +229,18 @@ export class HealthState {
     this.watch.lastFlushErrorAt = atIso;
   }
 
+  /**
+   * Replace the active-project slice (PRD-019a). The reconcile driver calls this
+   * after every reconcile cycle with the resolved set + per-project watcher
+   * liveness, so `/health` reflects exactly what the daemon broods and watches.
+   */
+  setActiveProjects(state: HealthBody["activeProjects"]): void {
+    this.activeProjects.count = state.count;
+    this.activeProjects.reason = state.reason;
+    this.activeProjects.projects = state.projects.map((p) => ({ ...p }));
+    this.activeProjects.refused = state.refused.map((r) => ({ ...r }));
+  }
+
   setStatus(status: PipelineStatus): void {
     this.status = status;
   }
@@ -225,6 +264,12 @@ export class HealthState {
       cost: { ...this.cost },
       embeddings: { ...this.embeddings },
       portkey: { ...this.portkey },
+      activeProjects: {
+        count: this.activeProjects.count,
+        reason: this.activeProjects.reason,
+        projects: this.activeProjects.projects.map((p) => ({ ...p })),
+        refused: this.activeProjects.refused.map((r) => ({ ...r })),
+      },
       watch: { ...this.watch },
     };
   }

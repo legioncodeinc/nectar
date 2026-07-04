@@ -71,6 +71,12 @@ export interface ServiceEnvironment {
    * we prefer a user unit unless the operator explicitly asked for a system one.
    */
   readonly preferSystemScope?: boolean;
+  /**
+   * Optional installer-pinned fleet root. When set, templates/argv render
+   * `APIARY_HOME` into the service environment so runtime path resolution
+   * matches install-time intent.
+   */
+  readonly apiaryHome?: string;
 }
 
 /** The fully-resolved plan: which manager, which scope, and the unit's on-disk location. */
@@ -91,6 +97,15 @@ export interface ServicePlan {
   readonly execPath: string;
   /** The home dir (units reference it for logs / working dir). */
   readonly home: string;
+  /** Optional installer-pinned fleet root written into service env. */
+  readonly apiaryHome?: string;
+}
+
+function nonBlank(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (trimmed === "") return undefined;
+  return trimmed;
 }
 
 /** Gather the real {@link ServiceEnvironment} at the edge (the one impure call site). */
@@ -101,6 +116,7 @@ export function resolveServiceContext(execPath: string, preferSystemScope = fals
     privileged: isPrivileged(),
     execPath,
     preferSystemScope,
+    apiaryHome: nonBlank(process.env.APIARY_HOME),
   };
 }
 
@@ -214,5 +230,6 @@ export function resolveServicePlan(env: ServiceEnvironment): ServicePlan {
     label: SERVICE_LABEL,
     execPath: env.execPath,
     home: env.home,
+    ...(env.apiaryHome !== undefined ? { apiaryHome: env.apiaryHome } : {}),
   };
 }

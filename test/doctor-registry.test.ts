@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import {
   DEFAULT_RESTART_GIVE_UP_THRESHOLD,
   DEFAULT_RESTART_COOLDOWN_MS,
   DoctorRegistryError,
+  defaultDoctorRegistryPath,
   buildNectarRegistryEntry,
   registerWithDoctor,
 } from "../dist/doctor-registry.js";
@@ -20,13 +21,38 @@ function tmpDir() {
   return mkdtempSync(join(tmpdir(), "nectar-registry-"));
 }
 
-const config = { host: "127.0.0.1", port: 3854, pidFilePath: "/home/op/.honeycomb/nectar.pid" };
+test("c-AC-3 defaultDoctorRegistryPath writes to <fleet-root>/registry.json when the fleet root exists", () => {
+  const dir = tmpDir();
+  try {
+    const fleetRoot = join(dir, ".apiary-root");
+    const legacyHome = join(dir, "home");
+    mkdirSync(fleetRoot, { recursive: true });
+    const path = defaultDoctorRegistryPath(legacyHome, { APIARY_HOME: fleetRoot });
+    assert.equal(path, join(fleetRoot, "registry.json"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("c-AC-3 defaultDoctorRegistryPath falls back to legacy registry when the fleet root is absent", () => {
+  const dir = tmpDir();
+  try {
+    const fleetRoot = join(dir, ".apiary-root-missing");
+    const home = join(dir, "home");
+    const path = defaultDoctorRegistryPath(home, { APIARY_HOME: fleetRoot });
+    assert.equal(path, join(home, ".honeycomb", "doctor.daemons.json"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const config = { host: "127.0.0.1", port: 3854, pidFilePath: "/home/op/.apiary/nectar/nectar.pid" };
 
 test("buildNectarRegistryEntry resolves healthUrl/pidPath from config and doctor's defaults", () => {
   const entry = buildNectarRegistryEntry(config);
   assert.equal(entry.name, NECTAR_DAEMON_NAME);
   assert.equal(entry.healthUrl, "http://127.0.0.1:3854/health");
-  assert.equal(entry.pidPath, "/home/op/.honeycomb/nectar.pid");
+  assert.equal(entry.pidPath, "/home/op/.apiary/nectar/nectar.pid");
   assert.equal(entry.probeIntervalMs, DEFAULT_PROBE_INTERVAL_MS);
   assert.equal(entry.startupGraceMs, DEFAULT_STARTUP_GRACE_MS);
   assert.equal(entry.restartGiveUpThreshold, DEFAULT_RESTART_GIVE_UP_THRESHOLD);
@@ -54,7 +80,7 @@ test("AC-018a.9 the registry entry nectar install writes marks the OS unit as re
 
 test("buildNectarRegistryEntry declares the absolute telemetry SQLite DB path, colocated with pidPath's runtime dir (AC-1 / AC-017a.1.1)", () => {
   const entry = buildNectarRegistryEntry(config);
-  assert.equal(entry.telemetryDbPath, join("/home/op/.honeycomb", TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME));
+  assert.equal(entry.telemetryDbPath, join("/home/op/.apiary/nectar", TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME));
 });
 
 test("telemetryDbPath is overridable, mirroring the other per-daemon override fields", () => {

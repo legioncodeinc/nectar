@@ -35,6 +35,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createDiskGitignore, type DiskGitignore } from "./gitignore.js";
 
 /** A predicate over a repo-relative (forward-slashed) path: true means "drop, never register". */
 export type IgnorePredicate = (relPath: string) => boolean;
@@ -224,6 +225,15 @@ export interface SharedIgnoreOptions {
    * Defaults to a no-op.
    */
   readonly onGitError?: (reason: string) => void;
+  /**
+   * PRD-019d: the dependency-free `.gitignore` matcher consulted ONLY when git
+   * is GENUINELY ABSENT (no `.git`, no `git` on PATH). Default: a disk-backed
+   * matcher over `root`'s `.gitignore` / nested `.gitignore` / `.git/info/exclude`.
+   * Injectable for tests. Not consulted when git is present (the snapshot is
+   * authoritative) nor when git is present-but-erroring (that degradation stays
+   * loud via {@link onGitError}; the parser must not silently mask it).
+   */
+  readonly gitignoreFallback?: DiskGitignore;
 }
 
 /**
@@ -239,6 +249,16 @@ export function createSharedIgnore(root: string, opts: SharedIgnoreOptions = {})
   const gitLsFiles = opts.gitLsFiles ?? runGitLsFiles;
   const gitCheckIgnore = opts.gitCheckIgnore ?? runGitCheckIgnore;
   const onGitError = opts.onGitError ?? (() => {});
+  // PRD-019d: the git-absent gitignore fallback, built lazily so a git-present
+  // workspace never reads `.gitignore` off disk (the snapshot already reflects it).
+  let gitignoreFallbackInstance: DiskGitignore | undefined;
+  function gitignoreFallback(relPath: string): boolean {
+    if (opts.gitignoreFallback !== undefined) return opts.gitignoreFallback(relPath);
+    if (gitignoreFallbackInstance === undefined) {
+      gitignoreFallbackInstance = createDiskGitignore(root, opts.readFile ? { readFile: opts.readFile } : {});
+    }
+    return gitignoreFallbackInstance(relPath);
+  }
 
   /** Tracked+untracked-not-ignored snapshot; null when git is absent or no snapshot has ever succeeded. */
   let eligible: Set<string> | null = null;
@@ -280,7 +300,15 @@ export function createSharedIgnore(root: string, opts: SharedIgnoreOptions = {})
   refresh(); // NEC-007 point 1: warm the cache once at construction.
 
   function isGitIgnored(relPath: string): boolean {
-    if (eligible === null) return false; // no usable snapshot (git absent, or errored with nothing cached yet)
+    if (eligible === null) {
+      // PRD-019d: git GENUINELY ABSENT (no error recorded) - consult the
+      // dependency-free `.gitignore` parser so a bound non-git subtree is not
+      // gitignore-blind. Git present-but-ERRORING (lastError set, nothing
+      // cached) keeps the pre-019d behavior: the degradation stays loud via
+      // `onGitError` and is NOT silently masked by the parser (d-AC-5).
+      if (lastError === null) return gitignoreFallback(relPath);
+      return false; // errored with nothing cached yet
+    }
     if (eligible.has(relPath)) return false; // definitely NOT ignored
     // Cache miss against a real (possibly stale) snapshot: either genuinely
     // ignored, or created since the last refresh. The per-path fallback keeps

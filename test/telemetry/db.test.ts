@@ -18,13 +18,13 @@ function tmpDir() {
 }
 
 test("telemetryDbPathForRuntimeDir nests the db under telemetry/nectar.sqlite", () => {
-  const p = telemetryDbPathForRuntimeDir("/home/op/.honeycomb");
-  assert.equal(p, join("/home/op/.honeycomb", TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME));
+  const p = telemetryDbPathForRuntimeDir("/home/op/.apiary/nectar");
+  assert.equal(p, join("/home/op/.apiary/nectar", TELEMETRY_DIR_NAME, TELEMETRY_DB_FILE_NAME));
 });
 
-test("defaultTelemetryDbPath nests under <home>/.honeycomb/telemetry/nectar.sqlite", () => {
+test("defaultTelemetryDbPath nests under <home>/.apiary/nectar/telemetry/nectar.sqlite", () => {
   const p = defaultTelemetryDbPath("/home/op");
-  assert.equal(p, join("/home/op", ".honeycomb", "telemetry", "nectar.sqlite"));
+  assert.equal(p, join("/home/op", ".apiary", "nectar", "telemetry", "nectar.sqlite"));
 });
 
 test("openTelemetryDb creates the directory and the file, and is idempotent to re-open", () => {

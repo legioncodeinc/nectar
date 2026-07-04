@@ -74,6 +74,18 @@ test("sc (Windows system-scope) create + start; stop + delete; query", () => {
   assert.deepEqual(statusCommand(p, 0).args, ["query", "nectar"]);
 });
 
+test("c-AC-5 sc binPath carries APIARY_HOME when the plan pins a root", () => {
+  const p = plan({
+    platform: "win32",
+    home: "C:/Users/op",
+    privileged: true,
+    preferSystemScope: true,
+    apiaryHome: "C:/Pinned/Home",
+  });
+  const create = installCommands(p, 0)[0];
+  assert.ok(create?.args.some((arg) => arg.includes("APIARY_HOME=C:/Pinned/Home")));
+});
+
 test("legacy dereg (decision #32 migration) targets the pre-rename unit names on every platform", () => {
   const mac = plan({ platform: "darwin", home: "/Users/op" });
   assert.deepEqual(legacyUninstallCommands(mac, 501)[0]?.args, ["bootout", "gui/501/com.hivenectar.daemon"]);

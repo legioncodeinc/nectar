@@ -2,7 +2,8 @@
  * nectar's registry entry in doctor's daemon registry (PRD-003c).
  *
  * nectar becomes a supervised daemon by appending ONE entry to doctor's
- * registry file (`~/.honeycomb/doctor.daemons.json`, the schema PRD-004a
+ * registry file (`<fleet-root>/registry.json` when the fleet root exists,
+ * else legacy `~/.honeycomb/doctor.daemons.json`, the schema PRD-004a
  * specifies, mirrored read-side in `doctor/src/registry.ts`). That entry
  * carries nectar's `healthUrl`, `pidPath`, `probeIntervalMs`, `startupGraceMs`,
  * and restart thresholds. At the next doctor boot, doctor reads the
@@ -31,7 +32,7 @@
  *
  * PRD-017a extends this entry with `telemetryDbPath`: the absolute path to
  * nectar's runtime telemetry SQLite database (`telemetry/db.ts`,
- * `~/.honeycomb/telemetry/nectar.sqlite` by default), per doctor's
+ * `~/.apiary/nectar/telemetry/nectar.sqlite` by default), per doctor's
  * `ADR-0002-service-registration-static-registry-plus-runtime-sqlite.md`. It is
  * derived from `config.pidFilePath`'s directory (the same resolved runtime dir
  * `healthUrl`/`pidPath` already come from), so a test-overridden runtime dir
@@ -42,9 +43,10 @@
  * Built-ins only: node:fs, node:os, node:path.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { legacyRuntimeDir, resolveApiaryRoot } from "./apiary-root.js";
 import type { RuntimeConfig } from "./config.js";
 import { TELEMETRY_DB_FILE_NAME, TELEMETRY_DIR_NAME } from "./telemetry/db.js";
 
@@ -106,9 +108,11 @@ export class DoctorRegistryError extends Error {
   }
 }
 
-/** The default registry file location, alongside the other `~/.honeycomb` artifacts. */
-export function defaultDoctorRegistryPath(home: string = homedir()): string {
-  return join(home, ".honeycomb", "doctor.daemons.json");
+/** The default registry file location per the ADR compatibility-window contract. */
+export function defaultDoctorRegistryPath(home: string = homedir(), env: NodeJS.ProcessEnv = process.env): string {
+  const fleetRoot = resolveApiaryRoot(env, { home });
+  if (existsSync(fleetRoot)) return join(fleetRoot, "registry.json");
+  return join(legacyRuntimeDir(home), "doctor.daemons.json");
 }
 
 /**
