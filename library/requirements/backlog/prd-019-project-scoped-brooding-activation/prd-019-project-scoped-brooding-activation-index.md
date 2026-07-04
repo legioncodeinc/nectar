@@ -18,7 +18,7 @@ Schema v2 paths on disk:
 > **Status:** Backlog
 > **Priority:** P0 (data-safety regression: the daemon ingests unintended directories)
 > **Effort:** L (8-20h)
-> **Schema changes:** None in Deeplake. Adds one nectar-owned local state file (`~/.nectar/projects.json`) recording per-project brooding on/off. Consumes the existing shared `~/.deeplake/projects.json` folder bindings (the same surface Hive's folder-picker + Honeycomb's `bindFolderToProject` already write).
+> **Schema changes:** None in Deeplake. Adds one nectar-owned local state file (`~/.apiary/nectar/projects.json`) recording per-project brooding on/off. Consumes the existing shared `~/.deeplake/projects.json` folder bindings (the same surface Hive's folder-picker + Honeycomb's `bindFolderToProject` already write).
 
 ---
 
@@ -65,7 +65,7 @@ PRD-019 turns the bound-folder set into nectar's **activation contract**: the da
 | Sub-PRD | Scope | Status |
 |---|---|---|
 | [`prd-019a-active-project-resolution-and-dormant-daemon`](./prd-019a-active-project-resolution-and-dormant-daemon.md) | Replace `projectRoot = process.cwd()` with an active-project set resolved from `~/.deeplake/projects.json`; make the daemon multi-root and dormant-by-default; surface "no active projects" on `/health`; refuse pathological roots. | Draft |
-| [`prd-019b-brooding-on-off-control`](./prd-019b-brooding-on-off-control.md) | Per-project + global brooding on/off, persisted in `~/.nectar/projects.json`; nectar API endpoints + CLI verbs to read/toggle; `/health` reflects each project's brooding state. | Draft |
+| [`prd-019b-brooding-on-off-control`](./prd-019b-brooding-on-off-control.md) | Per-project + global brooding on/off, persisted in `~/.apiary/nectar/projects.json`; nectar API endpoints + CLI verbs to read/toggle; `/health` reflects each project's brooding state. | Draft |
 | [`prd-019c-hive-dashboard-project-activation`](./prd-019c-hive-dashboard-project-activation.md) | The nectar "needs a project" empty state (reusing `FolderPicker`) and the per-project brooding toggle + status on Hive's Projects/Hive-Graph surface, wired through hive's aggregation `wire` to nectar's 019b endpoints. | Draft |
 | [`prd-019d-ignore-contract-hardening`](./prd-019d-ignore-contract-hardening.md) | Pass the shared ignore predicate on every CLI discovery path; make the git-absent walk fallback honor a real `.gitignore` parse so a non-git / git-erroring root is not gitignore-blind. | Draft |
 
@@ -91,17 +91,17 @@ These were flagged defaults; the operator has now confirmed each. Implementation
 
 | Item | Decision | Rationale |
 |---|---|---|
-| Nectar-owned brooding-state file | `~/.nectar/projects.json` | Nectar is a separately-installable product (ADR-0002); `~/.honeycomb` may not exist if honeycomb is not installed, so nectar's own state lives under its own `~/.nectar/` directory (created on first write), never in the shared `~/.deeplake/projects.json`. |
+| Nectar-owned brooding-state file | `~/.apiary/nectar/projects.json` (revised per fleet ADR-0003, mirrored locally as nectar ADR-0005, on 2026-07-04; originally recorded as `~/.nectar/projects.json`) | Nectar is a separately-installable product (ADR-0002); `~/.honeycomb` may not exist if honeycomb is not installed, so nectar's own state lives under its own per-product subdirectory of the neutral fleet root (created on first write), never in the shared `~/.deeplake/projects.json`. |
 | New active project's initial brooding state | **ON** (adding a project starts sourcing it) | The ask is "brood only active projects"; adding a project activates it immediately. |
 | Global brooding switch default | **ON** (per-project state governs) | The global switch is an emergency pause, not the primary control; per-project toggles are the day-to-day control. |
-| Reconcile trigger | Poll `~/.deeplake/projects.json` + `~/.nectar/projects.json` on the existing worker cadence, plus an explicit reconcile on the 019b toggle API call | No new watch dependency; reuses the daemon's poll loop. |
+| Reconcile trigger | Poll `~/.deeplake/projects.json` + `~/.apiary/nectar/projects.json` on the existing worker cadence, plus an explicit reconcile on the 019b toggle API call | No new watch dependency; reuses the daemon's poll loop. |
 | Pathological-root guard | Refuse to activate a bound root that resolves to `$HOME`, a filesystem root, or `%WINDIR%\System32` | Defense in depth even for an explicitly bound folder. |
 
 ---
 
 ## Data model changes
 
-None in Deeplake. Nectar adds one local, nectar-owned JSON file, `~/.nectar/projects.json`, recording per-project brooding on/off and the global switch (schema owned by 019b). It reads (never writes) the shared `~/.deeplake/projects.json` bindings. `~/.nectar/` is a new nectar-owned directory (created on first write), decoupled from the `~/.honeycomb` runtime dir so nectar's state never depends on honeycomb being installed.
+None in Deeplake. Nectar adds one local, nectar-owned JSON file, `~/.apiary/nectar/projects.json`, recording per-project brooding on/off and the global switch (schema owned by 019b). It reads (never writes) the shared `~/.deeplake/projects.json` bindings. `~/.apiary/nectar/` is nectar's own per-product subdirectory of the neutral fleet root (fleet ADR-0003 / nectar ADR-0005; created on first write), decoupled from the legacy `~/.honeycomb` runtime dir so nectar's state never depends on honeycomb being installed.
 
 ---
 

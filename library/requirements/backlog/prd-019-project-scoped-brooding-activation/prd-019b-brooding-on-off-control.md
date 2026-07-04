@@ -17,7 +17,7 @@ Add a nectar-owned brooding-state store and a small control surface over it.
 
 ### State file
 
-`~/.nectar/projects.json` (nectar-owned; NOT the shared `~/.deeplake/projects.json`, per ADR-0002). `~/.nectar/` is a NEW nectar-owned directory created on first write, decoupled from the `~/.honeycomb` runtime dir (`RUNTIME_DIR_NAME`, `src/config.ts:15`) so nectar's state never depends on honeycomb being installed. Fail-soft loader/writer built on `node:fs` only (zero runtime dependencies, matching `src/config-file.ts`):
+`~/.apiary/nectar/projects.json` (nectar-owned; NOT the shared `~/.deeplake/projects.json`, per ADR-0002; location revised per fleet ADR-0003 / nectar ADR-0005 on 2026-07-04). `~/.apiary/nectar/` is nectar's own per-product subdirectory of the neutral fleet root, created on first write, decoupled from the legacy `~/.honeycomb` runtime dir (`RUNTIME_DIR_NAME`, `src/config.ts:15`) so nectar's state never depends on honeycomb being installed. Fail-soft loader/writer built on `node:fs` only (zero runtime dependencies, matching `src/config-file.ts`):
 
 ```jsonc
 {
@@ -45,7 +45,7 @@ The 019a reconcile loop treats only `"active"` projects as brood/watch targets.
 - `POST /api/hive-graph/projects/brooding` with a zod-validated body, one of:
   - `{ projectId, brooding: "on" | "off" }` - set a single project.
   - `{ global: "on" | "paused" }` - set the global switch.
-  On success it persists to `~/.nectar/projects.json` and triggers an immediate 019a reconcile, then returns the new effective state. Fail-soft: a write failure returns a redacted error and leaves the prior state intact.
+  On success it persists to `~/.apiary/nectar/projects.json` and triggers an immediate 019a reconcile, then returns the new effective state. Fail-soft: a write failure returns a redacted error and leaves the prior state intact.
 
 Both routes sit behind the same permission gate as the rest of `/api/hive-graph/*` (PRD-018j hardening) and are local-loopback only.
 
@@ -62,12 +62,12 @@ Turning a project OFF stops new discovery and stops its watcher (019a). Already-
 
 | ID | Criterion |
 |---|---|
-| b-AC-1 | Given no `~/.nectar/projects.json` (and no `~/.nectar/` dir), when the store loads, then `globalBrooding` is `on` and a newly-seen bound project's brooding defaults to `on`, with no crash on the missing file/dir; the first write creates `~/.nectar/`. |
-| b-AC-2 | Given a malformed or non-object `~/.nectar/projects.json`, when the store loads, then it warns and falls back to defaults (never throws), matching `config-file.ts`. |
+| b-AC-1 | Given no `~/.apiary/nectar/projects.json` (and no `~/.apiary/nectar/` dir), when the store loads, then `globalBrooding` is `on` and a newly-seen bound project's brooding defaults to `on`, with no crash on the missing file/dir; the first write creates `~/.apiary/nectar/`. |
+| b-AC-2 | Given a malformed or non-object `~/.apiary/nectar/projects.json`, when the store loads, then it warns and falls back to defaults (never throws), matching `config-file.ts`. |
 | b-AC-3 | Given an active project, when `POST /api/hive-graph/projects/brooding { projectId, brooding: "off" }` succeeds, then the file records `off`, an immediate reconcile stops that project's watch + brood, and no new nectars are minted for it; the binding and existing Deeplake rows are untouched. |
 | b-AC-4 | Given a paused project, when it is set back to `on`, then a reconcile resumes its watch + brood and a cold-catch-up resync runs (019a start path). |
 | b-AC-5 | Given `POST .../brooding { global: "paused" }`, when it succeeds, then no project broods regardless of per-project state and `GET /projects` + `/health` report `global-paused`; setting `{ global: "on" }` restores each project to its own state. |
-| b-AC-6 | Given a write to `~/.nectar/projects.json` fails (e.g. disk error), when the toggle API is called, then it returns a redacted error, the in-memory + on-disk prior state is preserved, and the reconcile is not run against a half-written file. |
+| b-AC-6 | Given a write to `~/.apiary/nectar/projects.json` fails (e.g. disk error), when the toggle API is called, then it returns a redacted error, the in-memory + on-disk prior state is preserved, and the reconcile is not run against a half-written file. |
 | b-AC-7 | Given the CLI `nectar brooding off --project <id>`, when it runs against a live daemon, then it produces the same persisted + reconciled effect as the API, and `nectar projects` reflects it. |
 
 ## Implementation notes
