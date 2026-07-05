@@ -62,6 +62,7 @@ import type { HiveGraphStore, AsyncHiveGraphStore } from "./hive-graph/store.js"
 import { DeepLakeHiveGraphStore } from "./hive-graph/deeplake-store.js";
 import { InMemoryHiveGraphStore } from "./hive-graph/memory-store.js";
 import { loadDeepLakeCredentials, credentialsPath } from "./hive-graph/deeplake-credentials.js";
+import { LiveActiveProjects } from "./hive-graph/live-active-projects.js";
 import { broodPrereqsFromEnv, formatFirstRunGuidance } from "./brood-prereqs.js";
 import { resolveNectarTunables } from "./config-file.js";
 import { resolveProjectScope, type ProjectScopeSource } from "./hive-graph/project-scope.js";
@@ -1303,33 +1304,56 @@ async function runDaemon(): Promise<void> {
   // factory stands up one brood + watch context per active project, each rooted
   // at its own bound path and scoped to its own tenancy project id. Live brood
   // (describe) deps are attached only when Portkey is configured.
-  const controlOptions: ProjectsControlOptions =
+  //
+  // W1-N remediation (live-reload of bindings/credentials without a restart):
+  // the seam is wired UNCONDITIONALLY (not gated on a boot-time credentials
+  // snapshot) and delegates to `LiveActiveProjects`, which re-resolves
+  // `~/.deeplake/credentials.json` on EVERY reconcile tick. So a daemon that
+  // booted BEFORE login, then had a project bound afterward, activates that
+  // project on its next tick (or immediately, when the credentials watch fires a
+  // reconcile the moment credentials appear) - no daemon restart. The tenancy
+  // `expect` guard is derived fresh from the currently-resolved credentials, so
+  // it is never frozen at boot. Absent creds -> an empty resolution (dormant).
+  const liveControlOptions: Omit<ProjectsControlOptions, "expect"> = {};
+  const liveActive = new LiveActiveProjects({
+    loadCredentials: () => {
+      try {
+        return loadDeepLakeCredentials();
+      } catch {
+        return undefined;
+      }
+    },
+    createStore: (credentials) => new DeepLakeHiveGraphStore({ credentials }),
+    buildContext: ({ project, credentials, store }): RunningContext =>
+      createProjectContext({
+        project,
+        tenancy: { orgId: credentials.orgId, workspaceId: credentials.workspaceId, projectId: project.projectId },
+        store,
+        ...(portkey.enabled
+          ? { broodDeps: { portkey: portkey as PortkeyEnabled, embedProvider, embedModelId: embedModel } }
+          : {}),
+        log: (line) => process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), ...line })}\n`),
+      }),
+    controlOptions: liveControlOptions,
+    onError: (err) =>
+      process.stderr.write(
+        `nectar daemon: active-project resolve failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`,
+      ),
+  });
+  const activeProjects = {
+    resolve: () => liveActive.resolve(),
+    factory: (project: ResolvedProject): RunningContext => liveActive.factory(project),
+  };
+
+  // The daemon-level enricher + hive-graph API stay scoped to the PRIMARY active
+  // project resolved at boot (the common single-project case); per-project
+  // enrichment for additional active projects is a documented follow-up. These
+  // read the BOOT-time tenancy snapshot (creds at boot); the multi-root brood +
+  // watch supervisor above is the credentials-live path that removes the dormancy
+  // bug. Absent creds/Portkey/active set -> the enricher stays dormant (honest).
+  const bootControlOptions: ProjectsControlOptions =
     creds !== undefined ? { expect: { org: creds.orgId, workspace: creds.workspaceId } } : {};
-  const broodDeps =
-    creds !== undefined && portkey.enabled
-      ? { portkey: portkey as PortkeyEnabled, embedProvider, embedModelId: embedModel }
-      : undefined;
-
-  const activeProjects =
-    durableStore !== undefined && creds !== undefined
-      ? {
-          resolve: () => readActiveProjects(controlOptions).resolution,
-          factory: (project: ResolvedProject): RunningContext =>
-            createProjectContext({
-              project,
-              tenancy: { orgId: creds.orgId, workspaceId: creds.workspaceId, projectId: project.projectId },
-              store: durableStore,
-              ...(broodDeps !== undefined ? { broodDeps } : {}),
-              log: (line) => process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), ...line })}\n`),
-            }),
-        }
-      : undefined;
-
-  // The daemon-level enricher stays scoped to the PRIMARY active project at boot
-  // (the common single-project case); per-project enrichment for additional
-  // active projects is a documented follow-up. Absent creds/Portkey/active set
-  // -> the enricher stays dormant (honest).
-  const primary = durableStore !== undefined ? readActiveProjects(controlOptions).resolution.active[0] : undefined;
+  const primary = durableStore !== undefined ? readActiveProjects(bootControlOptions).resolution.active[0] : undefined;
   const primaryTenancy: Tenancy | undefined =
     primary !== undefined && creds !== undefined
       ? { orgId: creds.orgId, workspaceId: creds.workspaceId, projectId: primary.projectId }
@@ -1348,13 +1372,17 @@ async function runDaemon(): Promise<void> {
     // pre-login fleet posture is honest; the watch below flips it healthy the
     // moment credentials appear (a-AC-2), no restart needed.
     //
-    // ACCEPTED DEVIATION (W1-N, ledger 2026-07-04): credentials appearing after
-    // boot flip /health healthy and reconcile active projects, but the
-    // creds-dependent subsystems assembled above from this boot-time snapshot
-    // (the durable store, brood wiring, enricher loop) are NOT hot-attached;
-    // they stay dormant until the next daemon restart. Same posture as
-    // honeycomb. If hot-attach ever lands, it belongs in the credentialsWatch
-    // onChange path in daemon.ts.
+    // W1-N remediation (live-reload without a daemon restart): the multi-root
+    // brood + watch supervisor (the `activeProjects` seam below) now re-resolves
+    // credentials + `projects.json` on EVERY reconcile tick via
+    // `LiveActiveProjects`, so credentials appearing after boot (and any project
+    // bound afterward) DO hot-attach - the daemon starts brooding/watching the
+    // newly-active project on its next tick, or immediately when the credentials
+    // watch fires `reconcileActiveProjects`. Remaining boot-snapshot scope: the
+    // PRIMARY-project enricher loop + hive-graph API assembled below still read
+    // the boot-time creds (a documented single-project follow-up), so those two
+    // subsystems alone stay dormant until the next restart when creds arrive
+    // late. The dormancy-until-restart bug (no brooding at all) is fixed.
     storageCredentialsPresent: creds !== undefined,
     credentialsWatch: {
       probe: () => {
@@ -1366,7 +1394,7 @@ async function runDaemon(): Promise<void> {
         }
       },
     },
-    ...(activeProjects !== undefined ? { activeProjects } : {}),
+    activeProjects,
     ...(live !== undefined && primaryTenancy !== undefined && primary !== undefined
       ? {
           tenancy: primaryTenancy,
@@ -1400,17 +1428,17 @@ async function runDaemon(): Promise<void> {
   // PRD-019b: the projects + brooding-control endpoints (consumed by Hive's
   // dashboard). Persisting a toggle triggers an immediate active-set reconcile.
   try {
-    if (activeProjects !== undefined) {
+    {
       mountProjectsApi(daemon, {
         view: () => {
-          const { resolution, cache } = readActiveProjects(controlOptions);
+          const { resolution, cache } = readActiveProjects(bootControlOptions);
           return buildProjectsView(resolution, cache, (id) => daemonWatcherState(daemon, id));
         },
         setProject: (projectId, brooding) => {
-          persistProjectBrooding(projectId, brooding, controlOptions);
+          persistProjectBrooding(projectId, brooding, bootControlOptions);
         },
         setGlobal: (global) => {
-          persistGlobalBrooding(global, controlOptions);
+          persistGlobalBrooding(global, bootControlOptions);
         },
         reconcile: () => daemon.reconcileActiveProjects(),
         // b-AC-6: the HTTP body carries only this path + a stable reason; the
