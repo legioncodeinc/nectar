@@ -102,7 +102,11 @@ export function formatFirstRunGuidance(status: BroodPrereqStatus): string {
     "To enable it, configure these prerequisites, then restart the daemon:",
   ];
   if (status.reason === "credentials_missing") {
-    lines.push("  1. Sign in so ~/.deeplake/credentials.json exists (the shared Deep Lake credentials).");
+    // Point at the Hive dashboard first: on a fleet install that is where sign-in lives, and it
+    // is the path a non-technical operator can actually follow. The credentials file it produces
+    // (~/.deeplake/credentials.json) is the same one a solo install signs in to directly.
+    lines.push("  1. Sign in from the Hive dashboard (http://127.0.0.1:3853/) so ~/.deeplake/credentials.json");
+    lines.push("     exists (the shared Deeplake credentials).");
     lines.push("  2. Enable Portkey so descriptions can be generated:");
   } else {
     lines.push("  1. Enable Portkey so descriptions can be generated:");
