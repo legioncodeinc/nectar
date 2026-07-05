@@ -26,7 +26,9 @@ import { createExecFileRunner, type CommandResult, type CommandRunner } from "./
 import {
   installCommands,
   legacyUninstallCommands,
+  startCommands,
   statusCommand,
+  stopCommands,
   uninstallCommands,
   type ServiceCommand,
 } from "./argv.js";
@@ -52,6 +54,24 @@ export interface ServiceResult {
   readonly ok: boolean;
   /** A human-readable, secret-free result line. */
   readonly message: string;
+}
+
+/**
+ * The outcome of {@link ServiceModule.uninstall}, additionally classified so a
+ * caller (the lifecycle's `uninstall` verb) can tell a genuine removal failure
+ * from the unit simply having been absent already (PRD-003b b-AC-2 / AC-9): a
+ * boot-resurrecting unit left behind by a swallowed "it was probably already
+ * gone" error is exactly the failure mode this classification exists to catch.
+ */
+export interface ServiceUninstallResult extends ServiceResult {
+  /**
+   * True when the manager reported the unit was not registered/found rather
+   * than a real error (permission denied, manager unreachable, etc.). A
+   * true `alreadyAbsent` is a friendly no-op; `ok` stays false either way
+   * since nothing was actually removed by THIS call - callers should only
+   * treat `alreadyAbsent === false` as requiring a hard failure.
+   */
+  readonly alreadyAbsent: boolean;
 }
 
 /** Per-command timeout for a service-manager shell-out (these are fast, local commands). */
@@ -147,6 +167,37 @@ function lastNonEmptyLine(text: string): string | null {
 }
 
 /**
+ * True when a failed uninstall command's result indicates the unit was
+ * already absent (not currently registered) rather than a genuine removal
+ * failure. Each service manager reports "not found" differently; `sc.exe`'s
+ * numeric `ERROR_SERVICE_DOES_NOT_EXIST` (1060) and launchd's `ESRCH`-derived
+ * exit code (3) are locale-independent, so they are checked directly. Every
+ * manager additionally falls back to a broad, case-insensitive text match
+ * over stdout/stderr/detail. Anything that does not match is conservatively
+ * treated as a GENUINE failure (never silently swallowed) - this is the
+ * classification b-AC-2 / AC-9 depend on.
+ */
+function isAlreadyAbsentFailure(manager: ServicePlan["manager"], result: CommandResult | null): boolean {
+  if (result === null) return false;
+  const text = `${result.detail ?? ""} ${result.stderr} ${result.stdout}`.toLowerCase();
+  const genericAbsent = /does not exist|cannot find|no such process|not[- ]loaded|could not find|not found/;
+  switch (manager) {
+    case "launchd":
+      return result.code === 3 || genericAbsent.test(text);
+    case "systemd":
+      return genericAbsent.test(text);
+    case "schtasks":
+      return genericAbsent.test(text);
+    case "sc":
+      return result.code === 1060 || genericAbsent.test(text);
+    default: {
+      const unreachable: never = manager;
+      return unreachable;
+    }
+  }
+}
+
+/**
  * Run an ordered list of commands, stopping at nothing (every result is recorded)
  * but reporting the first hard failure (and its result, for {@link describeFailure}).
  * Never throws (the runner never does).
@@ -167,10 +218,17 @@ async function runAll(
   return { allOk: firstFailure === null, firstFailure, firstFailureResult };
 }
 
-/** The service module surface: install / uninstall the OS service unit. */
+/** The service module surface: install / uninstall / start / stop the OS service unit. */
 export interface ServiceModule {
   install(): Promise<ServiceResult>;
-  uninstall(): Promise<ServiceResult>;
+  /** Remove the CURRENT-label unit, classified so a genuine failure is never mistaken for a no-op. */
+  uninstall(): Promise<ServiceUninstallResult>;
+  /** Start an already-registered unit (PRD-003b b-AC-1). */
+  start(): Promise<ServiceResult>;
+  /** Stop a running unit without removing it (PRD-003b b-AC-1). */
+  stop(): Promise<ServiceResult>;
+  /** Best-effort deregister the legacy-labelled unit + remove its unit file (PRD-003b b-AC-2). */
+  deregisterLegacy(): Promise<ServiceResult>;
 }
 
 /**
@@ -263,13 +321,14 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
       };
     },
 
-    async uninstall(): Promise<ServiceResult> {
+    async uninstall(): Promise<ServiceUninstallResult> {
       let p: ServicePlan;
       try {
         p = plan();
       } catch (error) {
         return {
           ok: false,
+          alreadyAbsent: false,
           message: `Could not unregister the nectar service: ${error instanceof Error ? error.message : "unknown error"}.`,
         };
       }
@@ -291,22 +350,101 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
 
       if (!allOk) {
         const detail = describeFailure(firstFailureResult);
+        const alreadyAbsent = isAlreadyAbsentFailure(p.manager, firstFailureResult);
         log({
-          level: "warn",
+          level: alreadyAbsent ? "info" : "warn",
           scope: "service",
           msg: "uninstall_command_failed",
           command: firstFailure?.command,
           detail,
+          alreadyAbsent,
         });
+        if (alreadyAbsent) {
+          return {
+            ok: false,
+            alreadyAbsent: true,
+            message: `nectar ${p.manager} unit was already absent (nothing to remove).`,
+          };
+        }
         return {
           ok: false,
-          message: `Removed the nectar unit file; a deregister command (${firstFailure?.command ?? "unknown"}) reported an error (often because it was already gone): ${detail}.`,
+          alreadyAbsent: false,
+          message: `Could not remove the nectar ${p.manager} unit (${firstFailure?.command ?? "unknown"}): ${detail}.`,
         };
       }
       log({ level: "info", scope: "service", msg: "uninstalled", manager: p.manager, scope2: p.scope });
       return {
         ok: true,
+        alreadyAbsent: false,
         message: `nectar service unregistered (${p.manager}, ${scopePhrase(p)}). It will not start on next boot.`,
+      };
+    },
+
+    async start(): Promise<ServiceResult> {
+      let p: ServicePlan;
+      try {
+        p = plan();
+      } catch (error) {
+        return {
+          ok: false,
+          message: `Could not start the nectar service: ${error instanceof Error ? error.message : "unknown error"}.`,
+        };
+      }
+      const { allOk, firstFailure, firstFailureResult } = await runAll(runner, startCommands(p, uid));
+      if (!allOk) {
+        return {
+          ok: false,
+          message: `The nectar ${p.manager} unit did not start (${firstFailure?.command ?? "unknown"}): ${describeFailure(firstFailureResult)}.`,
+        };
+      }
+      log({ level: "info", scope: "service", msg: "started", manager: p.manager });
+      return { ok: true, message: `nectar started via ${p.manager} (${scopePhrase(p)}).` };
+    },
+
+    async stop(): Promise<ServiceResult> {
+      let p: ServicePlan;
+      try {
+        p = plan();
+      } catch (error) {
+        return {
+          ok: false,
+          message: `Could not stop the nectar service: ${error instanceof Error ? error.message : "unknown error"}.`,
+        };
+      }
+      const { allOk, firstFailure, firstFailureResult } = await runAll(runner, stopCommands(p, uid));
+      if (!allOk) {
+        return {
+          ok: false,
+          message: `The nectar ${p.manager} unit did not stop cleanly (${firstFailure?.command ?? "unknown"}): ${describeFailure(firstFailureResult)}.`,
+        };
+      }
+      log({ level: "info", scope: "service", msg: "stopped", manager: p.manager });
+      return { ok: true, message: `nectar stopped via ${p.manager} (${scopePhrase(p)}).` };
+    },
+
+    async deregisterLegacy(): Promise<ServiceResult> {
+      let p: ServicePlan;
+      try {
+        p = plan();
+      } catch (error) {
+        return {
+          ok: false,
+          message: `Could not deregister the legacy nectar service: ${error instanceof Error ? error.message : "unknown error"}.`,
+        };
+      }
+      // Best-effort: legacy commands fail harmlessly when no legacy unit exists.
+      const { allOk } = await runAll(runner, legacyUninstallCommands(p, uid));
+      try {
+        const legacyPath = legacyUnitPath(p);
+        if (legacyPath !== "") fs.removeFile(legacyPath);
+      } catch {
+        // Best-effort cleanup only; a remove failure never fails the uninstall.
+      }
+      return {
+        ok: true,
+        message: allOk
+          ? `legacy nectar unit deregistered (${p.manager}).`
+          : `legacy nectar unit deregister attempted (${p.manager}); it was likely already absent.`,
       };
     },
   };
@@ -351,7 +489,7 @@ export {
   legacyUnitPath,
 } from "./platform.js";
 export { NECTAR_RUN_COMMAND, RESTART_SEC, WINDOWS_RESTART_INTERVAL, renderUnit } from "./templates.js";
-export { installCommands, uninstallCommands, legacyUninstallCommands, statusCommand } from "./argv.js";
+export { installCommands, uninstallCommands, legacyUninstallCommands, startCommands, stopCommands, statusCommand } from "./argv.js";
 export type { ServiceCommand } from "./argv.js";
 export { createExecFileRunner } from "./command-runner.js";
 export type { CommandRunner, CommandResult, CommandRunOptions } from "./command-runner.js";

@@ -52,6 +52,7 @@ import { mountHiveGraphApi, type MountHiveGraphOptions } from "./api/hive-graph-
 import { createBroodGuard, type BroodGuard } from "./brood-guard.js";
 import type { Timer } from "./poll-loop.js";
 import { ActiveProjectsController } from "./active-projects-runtime.js";
+import { CredentialsWatch } from "./credentials-watch.js";
 import type { ProjectContextFactory } from "./project-supervisor.js";
 import type { ActiveProjectResolution } from "./hive-graph/active-projects.js";
 import {
@@ -169,6 +170,33 @@ export interface AssembleOptions extends RuntimeConfigOverrides {
   readonly broodPrereqs?: BroodPrereqStatus;
   /** Embeddings config overrides (default: resolve from `process.env`). Lets a test set the health `embeddings.provider` label without env. */
   readonly embeddings?: EmbeddingsConfigOverrides;
+
+  // ── PRD-003a: solo-vs-fleet login deferral (the degraded-until-login posture) ──
+  /**
+   * The durable-store credentials presence at boot (PRD-003a a-AC-1). When
+   * `false`, `/health` boots 503 degraded with `storage.reason:
+   * "credentials-missing"` while the daemon stays up; when `true`, it boots ok.
+   * Absent (undefined) leaves the legacy `ok` posture unchanged - so every
+   * existing caller/test that never sets it is unaffected.
+   */
+  readonly storageCredentialsPresent?: boolean;
+  /**
+   * A credentials watch (PRD-003a a-AC-2): when set, `start()` arms a poll loop
+   * that re-resolves credentials on the poll cadence and flips `/health` between
+   * degraded and healthy WITHOUT a restart the moment
+   * `~/.deeplake/credentials.json` appears (or disappears). `shutdown()` stops
+   * it. Absent -> no watch (the pre-003a behavior).
+   */
+  readonly credentialsWatch?: {
+    /** Re-resolve whether valid credentials are present (production: `loadDeepLakeCredentials`). */
+    probe(): boolean;
+    /** Poll cadence override (default: `config.pollIntervalMs`). */
+    intervalMs?: number;
+    /** Injected timer for the watch loop (deterministic tests). */
+    timer?: Timer;
+    /** Observe a probe error. */
+    onError?: (err: unknown) => void;
+  };
 
   // ── Wave C daemon wiring (PRD-007 / PRD-011 / PRD-016) ──────────────────────
   /** Project tenancy shared by the enricher loop, the auto-brood trigger, and the boot projection load (default: an empty placeholder — an empty store yields no work). */
@@ -511,6 +539,18 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
     health.setBroodingState({ reason: broodPrereqs.ready ? null : broodPrereqs.reason });
   }
 
+  // PRD-003a a-AC-1: set the durable-store reachability posture at assembly, so
+  // a credentials-missing boot serves 503 degraded immediately (before the first
+  // watch tick). Only applied when the caller declares it; absent leaves the
+  // legacy `ok` default untouched (every pre-003a test path is unaffected).
+  if (options.storageCredentialsPresent !== undefined) {
+    health.setStorageState(
+      options.storageCredentialsPresent
+        ? { reachable: true, reason: null }
+        : { reachable: false, reason: "credentials-missing" },
+    );
+  }
+
   const runtimeDirOverride = hasExplicitRuntimeDirOverride(options);
   let telemetryDbPath = options.telemetryDbPath ?? telemetryDbPathForRuntimeDir(config.runtimeDir);
 
@@ -576,6 +616,35 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
           intervalMs: options.activeProjects.reconcileIntervalMs ?? config.pollIntervalMs,
           ...(options.activeProjects.timer !== undefined ? { timer: options.activeProjects.timer } : {}),
           ...(options.activeProjects.onError !== undefined ? { onError: options.activeProjects.onError } : {}),
+        })
+      : null;
+
+  // PRD-003a a-AC-2: the credentials watch. On each poll it re-resolves whether
+  // credentials are present and, on a change, flips the /health storage posture
+  // (degraded <-> healthy) with no restart. When credentials appear it also asks
+  // the active-project supervisor to reconcile (a no-op when unwired).
+  const credentialsWatch: CredentialsWatch | null =
+    options.credentialsWatch !== undefined
+      ? new CredentialsWatch({
+          probe: options.credentialsWatch.probe,
+          onChange: (present) => {
+            health.setStorageState(
+              present ? { reachable: true, reason: null } : { reachable: false, reason: "credentials-missing" },
+            );
+            log({
+              level: "info",
+              scope: "credentials",
+              msg: present ? "credentials resolved; storage reachable" : "credentials absent; storage unreachable",
+            });
+            if (present && activeProjectsController !== null) {
+              void activeProjectsController.reconcileNow().catch((err: unknown) => {
+                log({ level: "error", scope: "credentials", msg: "reconcile after credentials appeared failed", err: String(err) });
+              });
+            }
+          },
+          intervalMs: options.credentialsWatch.intervalMs ?? config.pollIntervalMs,
+          ...(options.credentialsWatch.timer !== undefined ? { timer: options.credentialsWatch.timer } : {}),
+          ...(options.credentialsWatch.onError !== undefined ? { onError: options.credentialsWatch.onError } : {}),
         })
       : null;
 
@@ -955,6 +1024,10 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
         activeProjectsController.start();
       }
 
+      // PRD-003a a-AC-2: arm the credentials watch so a login that lands after
+      // boot flips /health healthy without a restart.
+      credentialsWatch?.start();
+
       return boundPort;
     })();
 
@@ -1003,6 +1076,14 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
         await activeProjectsController.stop();
       } catch (err) {
         log({ level: "error", scope: "active-projects", msg: "stop failed", err: String(err) });
+      }
+    }
+    // PRD-003a a-AC-2: stop the credentials watch before the lock releases.
+    if (credentialsWatch !== null) {
+      try {
+        await credentialsWatch.stop();
+      } catch (err) {
+        log({ level: "error", scope: "credentials", msg: "watch stop failed", err: String(err) });
       }
     }
 

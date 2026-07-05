@@ -14,6 +14,21 @@ export type PipelineStatus = "ok" | "degraded";
 export interface HealthBody {
   status: PipelineStatus;
   uptimeMs: number;
+  /**
+   * PRD-003a (a-AC-1 / a-AC-2): the durable-store reachability posture, which is
+   * the sole determinant of the coarse `status` bit today. A daemon that booted
+   * without resolvable Deeplake credentials reports `reachable: false` with
+   * `reason: "credentials-missing"`, which flips `status` to `degraded` so
+   * `/health` answers 503 while the process stays up (the pre-login fleet
+   * posture). When credentials appear (`nectar login` or a hive-side login), the
+   * credentials watch flips this back to `reachable: true` / `status: ok` without
+   * a restart. `reachable: true` (the default) leaves the daemon `ok`.
+   */
+  storage: {
+    reachable: boolean;
+    /** Machine-readable reason storage is unreachable (`"credentials-missing"`), or null when reachable. */
+    reason: string | null;
+  };
   brooding: {
     active: boolean;
     /**
@@ -105,6 +120,10 @@ export class HealthState {
   private startedAtMs = Date.now();
   private status: PipelineStatus = "ok";
 
+  readonly storage: HealthBody["storage"] = {
+    reachable: true,
+    reason: null,
+  };
   readonly brooding: HealthBody["brooding"] = {
     active: false,
     reason: null,
@@ -144,6 +163,21 @@ export class HealthState {
 
   markStarted(atMs: number = Date.now()): void {
     this.startedAtMs = atMs;
+  }
+
+  /**
+   * Set the durable-store reachability posture (PRD-003a a-AC-1 / a-AC-2) and
+   * flip the coarse `status` bit accordingly: `reachable: false` degrades the
+   * daemon (`/health` -> 503) with the given machine-readable reason;
+   * `reachable: true` restores `ok` (200) and clears the reason. This is the
+   * only runtime path that toggles `status` today, so a credentials-missing boot
+   * serves 503 degraded while the process stays up, and the credentials watch
+   * restores 200 without a restart the moment credentials appear.
+   */
+  setStorageState(state: { reachable: boolean; reason: string | null }): void {
+    this.storage.reachable = state.reachable;
+    this.storage.reason = state.reachable ? null : state.reason;
+    this.status = state.reachable ? "ok" : "degraded";
   }
 
   /**
@@ -258,6 +292,7 @@ export class HealthState {
     return {
       status: this.status,
       uptimeMs: Math.max(0, nowMs - this.startedAtMs),
+      storage: { ...this.storage },
       brooding: { ...this.brooding },
       enricher: { ...this.enricher },
       projection: { ...this.projection },
