@@ -152,10 +152,13 @@ Straight talk: Nectar does not ship its own dashboard, and that is by design. Th
 The `nectar` binary ships with the package. What works today:
 
 ```bash
-nectar daemon                 # start the daemon (127.0.0.1:3854, /health)
+nectar daemon                 # run the daemon in the foreground (127.0.0.1:3854, /health)
+nectar start                  # start the daemon (OS service when registered, direct otherwise)
+nectar stop                   # stop the daemon
+nectar login                  # sign in via the Deeplake device flow, no other product required
 nectar install                # register the OS service unit + Doctor registry entry
-nectar uninstall              # deregister the OS service unit
-nectar service-status         # report the OS service unit's running state
+nectar uninstall              # remove the service unit, Doctor registry entry, and state dir
+nectar service-status         # report the OS service unit's running state (alias: status)
 nectar brood --dry-run        # preview a full-codebase brood's cost locally (no LLM call, no writes)
 nectar brood                  # run a full-codebase brood against Deeplake (needs the prerequisites below)
 nectar search <query>         # hybrid recall over described files. Flags: --limit N, --json
@@ -167,11 +170,19 @@ nectar --help
 
 `nectar search` reaches a running `nectar daemon` over loopback, so start the daemon first.
 
+### Signing in
+
+`nectar login` runs the Deeplake device flow in-process and writes the shared `~/.deeplake/credentials.json` (the same file Honeycomb and Hive use), so a Nectar-only install can self-serve. It prints the verification URL and code before opening a browser, which means headless machines just get the printout, and it never guesses your org: pick interactively or pass `--org` / `--workspace`.
+
+Sign-in also knows who owns it on a fleet machine. With [Hive](https://github.com/legioncodeinc/hive#readme) installed alongside, `nectar install` never opens a sign-in of its own; the daemon serves `503` on `/health` with a `credentials-missing` reason until Hive-side login writes the shared file, then flips healthy on its own, no restart needed. Solo, a fresh install with no credentials opens the device flow automatically.
+
+`nectar uninstall` removes only Nectar's things (service unit incl. legacy labels, its Doctor registry entry, `~/.apiary/nectar`) and never touches `~/.deeplake` or another product; when nothing is installed it exits 0 with nothing to remove. For a full-machine wipe, see `doctor purge` or the one-command uninstall at [get.theapiary.sh](https://get.theapiary.sh).
+
 ### Brood prerequisites
 
 A mutating `nectar brood` (and the boot auto-brood) describes files only when **both** prerequisites are in place:
 
-- `~/.deeplake/credentials.json`, the shared Deeplake credentials `hivemind login` writes.
+- `~/.deeplake/credentials.json`, the shared Deeplake credentials that `nectar login` (or Hive's onboarding, or `honeycomb login`) writes.
 - Portkey, enabled via `NECTAR_PORTKEY_ENABLED=1`, `NECTAR_PORTKEY_API_KEY`, and `NECTAR_PORTKEY_CONFIG`.
 
 Without them the daemon still boots and serves `/health`, but brooding stays dormant and says so: a startup log line names the missing pieces, `/health` reports `brooding.reason` (for example `credentials_missing` or `portkey_disabled`), and on an interactive terminal the daemon prints the exact configuration steps. `nectar brood --dry-run` and `nectar search` do not need Portkey.
