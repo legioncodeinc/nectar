@@ -5,6 +5,7 @@ import {
   renderSystemdUnit,
   renderScheduledTaskXml,
   renderUnit,
+  conhostPath,
   NECTAR_RUN_COMMAND,
   RESTART_SEC,
   WINDOWS_RESTART_INTERVAL,
@@ -94,8 +95,54 @@ test("Windows Scheduled Task XML encodes LogonTrigger + RestartOnFailure at the 
 
 test("c-AC-5 Windows task XML carries APIARY_HOME through cmd when the plan pins a root", () => {
   const xml = renderScheduledTaskXml(plan({ platform: "win32", home: "C:/Users/op", apiaryHome: "C:/Pinned/Home" }));
-  assert.match(xml, /<Command>cmd\.exe<\/Command>/);
+  // The real command is now wrapped behind conhost.exe --headless (no console window);
+  // cmd.exe moved from <Command> into the wrapped <Arguments>. Arguments are XML-escaped,
+  // so a literal quote is &quot;.
+  assert.match(xml, /<Command>[^<]*conhost\.exe<\/Command>/);
+  assert.match(xml, /<Arguments>--headless &quot;cmd\.exe&quot;/);
   assert.match(xml, /APIARY_HOME=C:\/Pinned\/Home/);
+});
+
+test("the Windows task Exec action wraps the real command behind conhost.exe --headless (no console window)", () => {
+  const xml = renderScheduledTaskXml(plan({ platform: "win32", home: "C:/Users/op" }));
+  assert.match(xml, new RegExp(`<Command>${conhostPath().replaceAll("\\", "\\\\")}</Command>`));
+  assert.match(xml, /<Arguments>--headless &quot;[^&]*&quot;[^<]*daemon<\/Arguments>/);
+});
+
+test("conhostPath resolves under SystemRoot, never a bare 'conhost'", () => {
+  assert.equal(conhostPath({ SystemRoot: "C:\\Windows" }), "C:\\Windows\\System32\\conhost.exe");
+  assert.equal(conhostPath({}), "C:\\Windows\\System32\\conhost.exe", "falls back to C:\\Windows when SystemRoot is unset");
+});
+
+test("renderScheduledTaskXml embeds a provided userId into both LogonTrigger and Principal, in schema order", () => {
+  const xml = renderScheduledTaskXml(
+    plan({ platform: "win32", home: "C:/Users/op" }),
+    "S-1-5-21-1111111111-2222222222-3333333333-1001",
+  );
+  assert.match(
+    xml,
+    /<LogonTrigger>\s*<Enabled>true<\/Enabled>\s*<UserId>S-1-5-21-1111111111-2222222222-3333333333-1001<\/UserId>\s*<\/LogonTrigger>/,
+    "LogonTrigger declares Enabled before UserId (schema sequence order)",
+  );
+  assert.match(
+    xml,
+    /<Principal id="Author">\s*<UserId>S-1-5-21-1111111111-2222222222-3333333333-1001<\/UserId>\s*<LogonType>InteractiveToken<\/LogonType>/,
+  );
+});
+
+test("renderScheduledTaskXml omits UserId entirely when none is provided (non-hardened machines keep working)", () => {
+  const xml = renderScheduledTaskXml(plan({ platform: "win32", home: "C:/Users/op" }));
+  assert.doesNotMatch(xml, /<UserId>/);
+});
+
+test("renderScheduledTaskXml XML-escapes a domain\\user fallback userId", () => {
+  const xml = renderScheduledTaskXml(plan({ platform: "win32", home: "C:/Users/op" }), `CONTOSO&Co\\o'brien`);
+  assert.match(xml, /<UserId>CONTOSO&amp;Co\\o&apos;brien<\/UserId>/);
+});
+
+test("renderScheduledTaskXml treats a blank userId the same as no userId", () => {
+  const xml = renderScheduledTaskXml(plan({ platform: "win32", home: "C:/Users/op" }), "   ");
+  assert.doesNotMatch(xml, /<UserId>/);
 });
 
 test("renderUnit dispatches per manager", () => {

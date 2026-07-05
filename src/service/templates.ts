@@ -18,6 +18,7 @@
  */
 
 import { SERVICE_LABEL, WINDOWS_TASK_NAME, type ServicePlan } from "./platform.js";
+import { windowsSystemPath } from "./windows-paths.js";
 
 /** The subcommand nectar's unit execs to start the process (no shell). */
 export const NECTAR_RUN_COMMAND = "daemon" as const;
@@ -166,6 +167,14 @@ WantedBy=default.target
 }
 
 /**
+ * The absolute path to `conhost.exe` under the live Windows system directory
+ * (never a bare `conhost` - see {@link windowsSystemPath}).
+ */
+export function conhostPath(env: NodeJS.ProcessEnv = process.env): string {
+  return windowsSystemPath("System32\\conhost.exe", env);
+}
+
+/**
  * Render a Windows Scheduled Task definition XML (per-user, the Windows DEFAULT).
  * The `LogonTrigger` starts it at user logon (start-on-boot equivalent without
  * admin); `RestartOnFailure` gives restart-on-crash; `MultipleInstancesPolicy=IgnoreNew`
@@ -175,11 +184,30 @@ WantedBy=default.target
  * Consumed via `schtasks /Create /XML <file>`, so the per-user task needs no admin/UAC.
  * Uses {@link WINDOWS_RESTART_INTERVAL} (`PT1M`), NOT {@link RESTART_SEC}: Task
  * Scheduler rejects sub-minute intervals.
+ *
+ * Two field-proven fixes (Windows 11 25H2, Administrator Protection enabled):
+ *
+ *   1. `userId`, when provided, is rendered into BOTH `<LogonTrigger><UserId>` and
+ *      `<Principal id="Author"><UserId>`. An UNSCOPED any-user `LogonTrigger`/
+ *      `Principal` (the pre-fix shape, no `UserId` at all) is refused by a hardened
+ *      machine at registration time ("Access is denied", no elevation offered).
+ *      Scoping both elements to the installing user's SID (the caller resolves it -
+ *      see `windows-user-id.ts`) fixes registration without ever requiring admin.
+ *      `userId` is XML-escaped like every other templated value; when `undefined`
+ *      (SID resolution found nothing at all, an edge case), the XML omits `UserId`
+ *      entirely, preserving the pre-fix (non-hardened-machine) shape.
+ *   2. The real command (`node.exe`, or `cmd.exe` when `apiaryHome` pins a fleet
+ *      root) is wrapped behind `conhost.exe --headless`. schtasks execs a task's
+ *      `Command` DIRECTLY under `InteractiveToken`, which pops a visible console
+ *      window for any console-subsystem process (node.exe included) run this way.
+ *      `conhost.exe --headless "<real command>" <real args>` runs the identical
+ *      command line through the console host without ever allocating a visible
+ *      window (probe-verified: exits 0, no window).
  */
-export function renderScheduledTaskXml(plan: ServicePlan): string {
+export function renderScheduledTaskXml(plan: ServicePlan, userId?: string): string {
   const node = process.execPath;
   const exec = plan.execPath;
-  const windowsCommand =
+  const innerCommand =
     plan.apiaryHome === undefined
       ? { command: node, args: `"${exec}" ${NECTAR_RUN_COMMAND}` }
       : {
@@ -187,8 +215,14 @@ export function renderScheduledTaskXml(plan: ServicePlan): string {
           args: `/d /s /c "set ""APIARY_HOME=${plan.apiaryHome.replaceAll('"', '""')}"" && ` +
             `""${node.replaceAll('"', '""')}"" ""${exec.replaceAll('"', '""')}"" ${NECTAR_RUN_COMMAND}"`,
         };
-  const command = escapeXml(windowsCommand.command);
-  const args = escapeXml(windowsCommand.args);
+  const command = escapeXml(conhostPath());
+  const args = escapeXml(`--headless "${innerCommand.command}" ${innerCommand.args}`);
+  const userIdXml = userId !== undefined && userId.trim() !== "" ? escapeXml(userId) : undefined;
+  // Schema order matters: logonTriggerType is Enabled THEN UserId; principalType
+  // is xs:all (any order), so UserId first (matching LogonTrigger's own order) reads
+  // naturally.
+  const logonUserId = userIdXml !== undefined ? `\n      <UserId>${userIdXml}</UserId>` : "";
+  const principalUserId = userIdXml !== undefined ? `\n      <UserId>${userIdXml}</UserId>` : "";
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -197,11 +231,11 @@ export function renderScheduledTaskXml(plan: ServicePlan): string {
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
-      <Enabled>true</Enabled>
+      <Enabled>true</Enabled>${logonUserId}
     </LogonTrigger>
   </Triggers>
   <Principals>
-    <Principal id="Author">
+    <Principal id="Author">${principalUserId}
       <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
@@ -231,8 +265,13 @@ export function renderScheduledTaskXml(plan: ServicePlan): string {
 `;
 }
 
-/** The single entry point: render whichever unit text the plan's manager needs. */
-export function renderUnit(plan: ServicePlan): string {
+/**
+ * The single entry point: render whichever unit text the plan's manager needs.
+ * `userId` is Windows-only (the resolved SID/domain-user fallback for the schtasks
+ * `LogonTrigger`/`Principal`, see {@link renderScheduledTaskXml}); other managers
+ * ignore it.
+ */
+export function renderUnit(plan: ServicePlan, userId?: string): string {
   switch (plan.manager) {
     case "launchd":
       return renderLaunchdPlist(plan);
@@ -243,7 +282,7 @@ export function renderUnit(plan: ServicePlan): string {
       // Both Windows backends consume the same Scheduled-Task XML when file-based; sc.exe
       // (system service) is created via argv (see argv.ts) and does not use this template,
       // but a single renderer keeps the XML available for the schtasks path.
-      return renderScheduledTaskXml(plan);
+      return renderScheduledTaskXml(plan, userId);
   }
 }
 

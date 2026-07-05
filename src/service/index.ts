@@ -40,6 +40,7 @@ import {
   type ServicePlan,
 } from "./platform.js";
 import { renderUnit, launchdLogDir } from "./templates.js";
+import { resolveWindowsUserId, type WindowsUserIdEnv } from "./windows-user-id.js";
 
 function serviceStateDir(plan: Pick<ServicePlan, "home" | "apiaryHome">): string {
   return plan.apiaryHome !== undefined ? `${plan.apiaryHome}/nectar` : `${plan.home}/.apiary/nectar`;
@@ -116,6 +117,12 @@ export interface ServiceModuleDeps {
   readonly uid?: number;
   /** Override the resolved environment (tests inject a fixed platform/home/privilege). */
   readonly environment?: ServiceEnvironment;
+  /**
+   * Override the environment consulted when resolving the schtasks `UserId`
+   * (`SystemRoot`/`USERDOMAIN`/`USERNAME`; see `windows-user-id.ts`). Tests inject a
+   * fixed value; production defaults to `process.env`. Ignored on non-Windows.
+   */
+  readonly windowsUserIdEnv?: WindowsUserIdEnv;
   /** Structured log sink; defaults to a no-op. */
   readonly log?: (line: Record<string, unknown>) => void;
 }
@@ -281,8 +288,17 @@ export function createServiceModule(deps: ServiceModuleDeps): ServiceModule {
           if (p.manager === "schtasks" && unitTarget === "") {
             unitTarget = `${serviceStateDir(p)}/nectar-task.xml`;
           }
+          // Field-proven fix (Windows 11 25H2, Administrator Protection): an unscoped
+          // any-user LogonTrigger/Principal is refused at registration without
+          // elevation. Resolve the installing user's identity through the SAME
+          // injected runner every other schtasks shell-out uses, so a fake runner in
+          // tests controls this too. Never blocks non-Windows managers.
+          const userId =
+            p.manager === "schtasks"
+              ? await resolveWindowsUserId(runner, deps.windowsUserIdEnv ?? process.env)
+              : undefined;
           fs.mkdirp(dirname(unitTarget));
-          fs.writeFile(unitTarget, renderUnit(p));
+          fs.writeFile(unitTarget, renderUnit(p, userId));
           // NEC-042 item 2 / AC-018l.9: launchd writes stdout/stderr into
           // `<home>/.apiary/nectar/logs`, but the plist lives under LaunchAgents,
           // so mkdirp(dirname(unitTarget)) above only created LaunchAgents. Create
@@ -488,8 +504,18 @@ export {
   LEGACY_WINDOWS_TASK_NAME,
   legacyUnitPath,
 } from "./platform.js";
-export { NECTAR_RUN_COMMAND, RESTART_SEC, WINDOWS_RESTART_INTERVAL, renderUnit } from "./templates.js";
+export { NECTAR_RUN_COMMAND, RESTART_SEC, WINDOWS_RESTART_INTERVAL, renderUnit, conhostPath } from "./templates.js";
 export { installCommands, uninstallCommands, legacyUninstallCommands, startCommands, stopCommands, statusCommand } from "./argv.js";
 export type { ServiceCommand } from "./argv.js";
 export { createExecFileRunner } from "./command-runner.js";
 export type { CommandRunner, CommandResult, CommandRunOptions } from "./command-runner.js";
+export {
+  resolveWindowsUserId,
+  resolveWhoamiPath,
+  parseWhoamiCsvSid,
+  fallbackWindowsUserId,
+  WHOAMI_ARGS,
+  WHOAMI_TIMEOUT_MS,
+} from "./windows-user-id.js";
+export type { WindowsUserIdEnv } from "./windows-user-id.js";
+export { windowsSystemPath } from "./windows-paths.js";
