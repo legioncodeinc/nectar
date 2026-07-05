@@ -1335,6 +1335,12 @@ async function runDaemon(): Promise<void> {
         log: (line) => process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), ...line })}\n`),
       }),
     controlOptions: liveControlOptions,
+    // PRD-018k / NEC-023: gate the WHOLE brood/watch activation on the brood prerequisites, not
+    // just the describe deps. Brooding is dormant out of the box: without Deep Lake creds AND
+    // Portkey enabled, resolve() reports zero active projects, so the supervisor auto-broods
+    // nothing (previously the structural brood — walk/mint/embed — still ran for any bound
+    // project even with no inference configured, pegging CPU to no purpose).
+    broodReady: () => broodPrereqs.ready,
     onError: (err) =>
       process.stderr.write(
         `nectar daemon: active-project resolve failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`,
