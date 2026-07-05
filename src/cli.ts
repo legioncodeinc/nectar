@@ -25,8 +25,9 @@
  * credentials the Deep Lake store already consumes and the project id + project
  * root from `NECTAR_PROJECT_ID` / `NECTAR_PROJECT_ROOT` (see USAGE).
  */
-import { realpathSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, realpathSync, rmSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { assembleDaemon, type AssembledDaemon, type AssembleOptions } from "./daemon.js";
@@ -42,8 +43,19 @@ import {
 } from "./api/loopback-client.js";
 import type { ProjectsView } from "./projects-control.js";
 import type { HiveGraphSearchResult, HiveGraphHit } from "./hive-graph/search-types.js";
-import { createServiceModule, serviceStatus } from "./service/index.js";
-import { registerWithDoctor } from "./doctor-registry.js";
+import { createServiceModule, serviceStatus, type ServiceModule } from "./service/index.js";
+import { registerWithDoctor, deregisterFromDoctor } from "./doctor-registry.js";
+import { isLockHeldByLiveDaemon, readPidFile } from "./lock.js";
+import { nectarStateDir } from "./apiary-root.js";
+import { classifyFleet, fleetSignalLine } from "./fleet-detection.js";
+import { runDeviceFlowLogin, type LoginFlags, type LoginResult, type LoginSeams } from "./auth/device-flow.js";
+import {
+  runStartLifecycle,
+  runStopLifecycle,
+  runUninstallLifecycle,
+  removeStateDir,
+  type StateDirRemovalResult,
+} from "./lifecycle.js";
 import { emitInstalled, emitUninstalled, recordDaemonStart } from "./telemetry-usage/emit.js";
 import type { Tenancy } from "./hive-graph/model.js";
 import type { HiveGraphStore, AsyncHiveGraphStore } from "./hive-graph/store.js";
@@ -100,10 +112,16 @@ import {
 const USAGE = `nectar - semantic memory layer over a source tree
 
 Usage:
-  nectar daemon                 Start the hiveantennae daemon (127.0.0.1:3854, /health)
-  nectar install                Register the OS service unit + the doctor registry entry (PRD-003)
-  nectar uninstall              Deregister the OS service unit (PRD-003b)
-  nectar service-status         Report the OS service unit's running state (PRD-003b)
+  nectar daemon                 Start the hiveantennae daemon in the foreground (127.0.0.1:3854, /health)
+  nectar login [--org=<id>] [--workspace=<id>]
+                                Sign in via the Deeplake device flow and write ~/.deeplake/credentials.json (PRD-003a)
+  nectar install                Register the OS service unit + the doctor registry entry, and (solo, no
+                                credentials) auto-open the sign-in popup (PRD-003)
+  nectar start                  Start the daemon (via the OS service when registered, direct spawn otherwise) (PRD-003b)
+  nectar stop                   Stop the daemon (OS service and/or a direct SIGTERM) (PRD-003b)
+  nectar uninstall              Remove the OS service unit + the doctor registry entry + nectar's state dir (PRD-003b)
+  nectar status                 Report the OS service unit's running state (alias: service-status) (PRD-003b)
+  nectar service-status         Alias of 'nectar status' (PRD-003b)
   nectar brood [flags]          Full-codebase brood (PRD-007). --dry-run previews cost locally;
                                 a mutating brood runs against the durable Deep Lake store (needs
                                 Portkey configured). Flags: --force, --limit N, --dry-run, --model <id>
@@ -140,6 +158,167 @@ function preferSystemScope(): boolean {
   return (process.env["NECTAR_SERVICE_SYSTEM"] ?? "") === "1";
 }
 
+/** Build the OS service module the lifecycle verbs front (PRD-003b). */
+function lifecycleServiceModule(): ServiceModule {
+  return createServiceModule({ execPath: resolveServiceExecPath(), preferSystemScope: preferSystemScope() });
+}
+
+/** True when a live nectar daemon currently holds the lock (PRD-003b). */
+function isDaemonRunning(): boolean {
+  return isLockHeldByLiveDaemon(resolveConfig().lockFilePath);
+}
+
+/** The pid recorded in the pid file, or null (PRD-003b). */
+function readDaemonPid(): number | null {
+  return readPidFile(resolveConfig().pidFilePath);
+}
+
+/** Send a signal to a pid without throwing; returns true when delivered (PRD-003b). */
+function sendSignal(pid: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Directly spawn `nectar daemon` detached (the fallback when no OS unit is registered, PRD-003b b-AC-1). */
+function spawnDaemonDetached(): number | null {
+  try {
+    const script = process.argv[1] ?? resolveServiceExecPath();
+    const child = spawn(process.execPath, ["--experimental-sqlite", script, "daemon"], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    return child.pid ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remove nectar's resolved state dir under the fleet root, guarded (b-AC-4 / AC-8). */
+function removeNectarStateDir(): StateDirRemovalResult {
+  return removeStateDir(nectarStateDir(), {
+    isAbsolute: (p) => isAbsolute(p),
+    exists: (p) => existsSync(p),
+    isSymlink: (p) => {
+      try {
+        return lstatSync(p).isSymbolicLink();
+      } catch {
+        return false;
+      }
+    },
+    rm: (p) => rmSync(p, { recursive: true, force: true }),
+  });
+}
+
+/** True when valid Deep Lake credentials currently resolve (a present-but-malformed file reads as absent). */
+function credentialsPresent(): boolean {
+  try {
+    loadDeepLakeCredentials();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Parse `--org`/`--workspace` (both `--flag value` and `--flag=value`) for `nectar login` (PRD-003a a-AC-5). */
+export function parseLoginFlags(args: readonly string[]): { flags: LoginFlags; errors: readonly string[] } {
+  const errors: string[] = [];
+  let org: string | undefined;
+  let workspace: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? "";
+    if (arg === "--org") {
+      const v = args[i + 1];
+      if (v === undefined || v.startsWith("--")) errors.push("--org requires a value");
+      else {
+        org = v;
+        i++;
+      }
+    } else if (arg.startsWith("--org=")) {
+      org = arg.slice("--org=".length);
+    } else if (arg === "--workspace") {
+      const v = args[i + 1];
+      if (v === undefined || v.startsWith("--")) errors.push("--workspace requires a value");
+      else {
+        workspace = v;
+        i++;
+      }
+    } else if (arg.startsWith("--workspace=")) {
+      workspace = arg.slice("--workspace=".length);
+    } else {
+      errors.push(`unknown flag '${arg}'`);
+    }
+  }
+  const flags: LoginFlags = {
+    ...(org !== undefined ? { org } : {}),
+    ...(workspace !== undefined ? { workspace } : {}),
+  };
+  return { flags, errors };
+}
+
+/**
+ * Run the device-flow login against the real seams (stdout output, a TTY-backed
+ * question when interactive). Shared by `nectar login` and the `nectar install`
+ * solo auto-popup. Closes the readline interface it opened. Never throws (the
+ * flow returns a `LoginResult`).
+ */
+async function performLogin(flags: LoginFlags): Promise<LoginResult> {
+  const isTTY = process.stdin.isTTY === true;
+  const rl = isTTY ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
+  const seams: LoginSeams = {
+    out: (line: string) => process.stdout.write(`${line}\n`),
+    isTTY,
+    ...(rl !== undefined ? { question: (prompt: string) => rl.question(prompt) } : {}),
+  };
+  try {
+    return await runDeviceFlowLogin(flags, seams);
+  } finally {
+    rl?.close();
+  }
+}
+
+/** `nectar login` (PRD-003a a-AC-5): the device-flow sign-in verb, in both solo and fleet mode. */
+async function runLogin(args: readonly string[]): Promise<number> {
+  const { flags, errors } = parseLoginFlags(args);
+  if (errors.length > 0) {
+    for (const err of errors) process.stderr.write(`nectar login: ${err}\n`);
+    return 2;
+  }
+  const result = await performLogin(flags);
+  if (result.ok) {
+    process.stdout.write(`${result.message}\n`);
+    return 0;
+  }
+  process.stderr.write(`${result.message}\n`);
+  return 1;
+}
+
+/** `nectar start` (PRD-003b b-AC-1): front the OS unit, direct-spawn otherwise. */
+async function runStart(): Promise<number> {
+  return runStartLifecycle({
+    service: lifecycleServiceModule(),
+    isDaemonRunning,
+    readPid: readDaemonPid,
+    spawnDaemon: spawnDaemonDetached,
+    io: { out: (l) => process.stdout.write(`${l}\n`), err: (l) => process.stderr.write(`${l}\n`) },
+  });
+}
+
+/** `nectar stop` (PRD-003b b-AC-1): stop the OS unit and/or SIGTERM the running pid. */
+async function runStop(): Promise<number> {
+  return runStopLifecycle({
+    service: lifecycleServiceModule(),
+    isDaemonRunning,
+    readPid: readDaemonPid,
+    sendSignal,
+    io: { out: (l) => process.stdout.write(`${l}\n`), err: (l) => process.stderr.write(`${l}\n`) },
+  });
+}
+
 /**
  * `nectar install` (PRD-003): lays down the OS service unit (003b) AND appends
  * nectar's entry to doctor's registry (003c) - the same installer performs
@@ -170,6 +349,14 @@ async function runInstall(): Promise<number> {
     return 1;
   }
 
+  // PRD-003a a-AC-3: the solo first-install auto-popup. Evaluate fleet detection
+  // + credentials LIVE from the install verb (never from daemon boot): with hive
+  // detected, defer to hive and open nothing; with credentials already present,
+  // open nothing; solo with no credentials, auto-open the device-flow sign-in.
+  // Best-effort - a sign-in that fails/times out never fails the install (the
+  // daemon sits degraded and `nectar login` can finish it later).
+  await maybeAutoLoginOnInstall();
+
   // Usage telemetry: fired only on full success, after the user-facing output.
   // emitInstalled never throws and is bounded, so it cannot alter the exit code.
   if (serviceResult.ok) {
@@ -179,20 +366,77 @@ async function runInstall(): Promise<number> {
   return serviceResult.ok ? 0 : 1;
 }
 
-/** `nectar uninstall` (PRD-003b): deregisters the OS service unit so it does not resurrect. */
+/**
+ * The `nectar install` auto-popup decision (PRD-003a a-AC-3), factored out as a
+ * pure function so the "open only when solo AND no credentials" rule is
+ * unit-testable without the install verb's side effects.
+ *   - fleet detected           -> `"defer-to-hive"` (never a popup).
+ *   - solo + credentials exist  -> `"already-signed-in"` (no popup).
+ *   - solo + no credentials     -> `"open-sign-in"` (auto-popup).
+ */
+export type InstallLoginAction = "defer-to-hive" | "already-signed-in" | "open-sign-in";
+export function decideInstallLoginAction(fleetMode: "solo" | "fleet", hasCredentials: boolean): InstallLoginAction {
+  if (fleetMode === "fleet") return "defer-to-hive";
+  if (hasCredentials) return "already-signed-in";
+  return "open-sign-in";
+}
+
+/**
+ * The `nectar install` solo auto-popup decision (PRD-003a a-AC-3). Classifies
+ * the machine solo-vs-fleet, logs which signals fired (a-AC-6), and only opens
+ * the device-flow sign-in when solo AND no credentials exist. Fully best-effort:
+ * any failure here is reported but never propagated so it cannot fail the install.
+ */
+async function maybeAutoLoginOnInstall(): Promise<void> {
+  try {
+    const classification = await classifyFleet();
+    process.stdout.write(`nectar install: ${fleetSignalLine(classification)}\n`);
+    const action = decideInstallLoginAction(classification.mode, credentialsPresent());
+    if (action === "defer-to-hive") {
+      process.stdout.write(
+        "nectar install: hive detected; deferring sign-in to hive (no browser popup). " +
+          "nectar reports degraded until hive-side login writes ~/.deeplake/credentials.json, then goes healthy without a restart.\n",
+      );
+      return;
+    }
+    if (action === "already-signed-in") {
+      process.stdout.write("nectar install: credentials already present; no sign-in needed.\n");
+      return;
+    }
+    process.stdout.write("nectar install: no hive detected and no credentials; starting sign-in...\n");
+    const result = await performLogin({});
+    process.stdout.write(`${result.message}\n`);
+    if (!result.ok) {
+      process.stdout.write("nectar install: sign-in did not complete; run 'nectar login' to finish it later.\n");
+    }
+  } catch (err) {
+    process.stdout.write(
+      `nectar install: could not evaluate sign-in (${err instanceof Error ? err.message : String(err)}); ` +
+        "run 'nectar login' to sign in.\n",
+    );
+  }
+}
+
+/**
+ * `nectar uninstall` (PRD-003b b-AC-2/3/4/6): the three-part contract - stop the
+ * daemon, remove the OS service unit (current + legacy), delete nectar's doctor
+ * registry entry, and remove nectar's state dir - each best-effort with a
+ * per-step report. A not-installed machine exits 0 "nothing to remove".
+ */
 async function runUninstall(): Promise<number> {
-  const serviceModule = createServiceModule({
-    execPath: resolveServiceExecPath(),
-    preferSystemScope: preferSystemScope(),
+  const code = await runUninstallLifecycle({
+    service: lifecycleServiceModule(),
+    isDaemonRunning,
+    readPid: readDaemonPid,
+    sendSignal,
+    deregisterFromDoctor: () => deregisterFromDoctor(),
+    removeStateDir: removeNectarStateDir,
+    io: { out: (l) => process.stdout.write(`${l}\n`), err: (l) => process.stderr.write(`${l}\n`) },
   });
-  const result = await serviceModule.uninstall();
-  process.stdout.write(`${result.message}\n`);
-  // Usage telemetry (NEC-042 item 4 / AC-018l.11): fire only AFTER the uninstall
-  // outcome is known, and only on success - a failed/aborted uninstall must not
-  // emit a `nectar_uninstalled` event. emitUninstalled never throws and is
-  // bounded, so it cannot alter the exit code.
-  if (result.ok) await emitUninstalled();
-  return result.ok ? 0 : 1;
+  // Usage telemetry (NEC-042 item 4 / AC-018l.11): fire only on a clean uninstall.
+  // emitUninstalled never throws and is bounded, so it cannot alter the exit code.
+  if (code === 0) await emitUninstalled();
+  return code;
 }
 
 /** `nectar service-status` (PRD-003b): reports the OS service manager's coarse state. */
@@ -1100,6 +1344,28 @@ async function runDaemon(): Promise<void> {
 
   const options: AssembleOptions = {
     broodPrereqs,
+    // PRD-003a a-AC-1: boot 503 degraded when no credentials resolved, so the
+    // pre-login fleet posture is honest; the watch below flips it healthy the
+    // moment credentials appear (a-AC-2), no restart needed.
+    //
+    // ACCEPTED DEVIATION (W1-N, ledger 2026-07-04): credentials appearing after
+    // boot flip /health healthy and reconcile active projects, but the
+    // creds-dependent subsystems assembled above from this boot-time snapshot
+    // (the durable store, brood wiring, enricher loop) are NOT hot-attached;
+    // they stay dormant until the next daemon restart. Same posture as
+    // honeycomb. If hot-attach ever lands, it belongs in the credentialsWatch
+    // onChange path in daemon.ts.
+    storageCredentialsPresent: creds !== undefined,
+    credentialsWatch: {
+      probe: () => {
+        try {
+          loadDeepLakeCredentials();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    },
     ...(activeProjects !== undefined ? { activeProjects } : {}),
     ...(live !== undefined && primaryTenancy !== undefined && primary !== undefined
       ? {
@@ -1228,15 +1494,28 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
+  if (command === "login") {
+    return runLogin(argv.slice(1));
+  }
+
   if (command === "install") {
     return runInstall();
+  }
+
+  if (command === "start") {
+    return runStart();
+  }
+
+  if (command === "stop") {
+    return runStop();
   }
 
   if (command === "uninstall") {
     return runUninstall();
   }
 
-  if (command === "service-status") {
+  // `status` is the bare verb; `service-status` is its alias (PRD-003b b-AC-5).
+  if (command === "status" || command === "service-status") {
     return runServiceStatus();
   }
 

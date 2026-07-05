@@ -273,3 +273,93 @@ export function registerWithDoctor(
 
   return { registryPath, entry, created: !fileExisted, replaced };
 }
+
+/**
+ * The candidate registry files nectar's entry may live in (PRD-003b b-AC-3): the
+ * fleet-root `registry.json` AND the legacy `~/.honeycomb/doctor.daemons.json`,
+ * so `uninstall` deletes the entry from whichever carries it. Deduped.
+ */
+export function doctorRegistryCandidatePaths(
+  home: string = homedir(),
+  env: NodeJS.ProcessEnv = process.env,
+): readonly string[] {
+  const fleetRoot = resolveApiaryRoot(env, { home });
+  const candidates = [join(fleetRoot, "registry.json"), join(legacyRuntimeDir(home), "doctor.daemons.json")];
+  return [...new Set(candidates)];
+}
+
+/** The outcome of deregistering nectar from one registry file. */
+export interface DeregisterFileResult {
+  /** The registry file path this result is for. */
+  readonly registryPath: string;
+  /** True when the file existed on disk. */
+  readonly fileExisted: boolean;
+  /** True when a nectar entry was present and removed. */
+  readonly removed: boolean;
+  /** A plain-language reason the file could not be processed (malformed / write failed), or null. */
+  readonly error: string | null;
+}
+
+/** The aggregate outcome of {@link deregisterFromDoctor} across every candidate file. */
+export interface DeregisterResult {
+  readonly files: readonly DeregisterFileResult[];
+  /** True when a nectar entry was removed from at least one file. */
+  readonly removedAny: boolean;
+}
+
+export interface DeregisterFromDoctorOptions {
+  /** Override the registry file paths (default: {@link doctorRegistryCandidatePaths}). */
+  readonly registryPaths?: readonly string[];
+}
+
+/**
+ * Delete nectar's entry (keyed by `name: "nectar"`) from doctor's registry
+ * (PRD-003b b-AC-3), checking BOTH the fleet-root `registry.json` and the legacy
+ * `~/.honeycomb/doctor.daemons.json`. Every OTHER daemon's entry AND every
+ * unknown top-level key is preserved byte-for-byte; the write is atomic (temp +
+ * same-directory rename). Unlike the install writer, this is best-effort per
+ * file: a present-but-malformed registry is reported as an `error` rather than
+ * throwing, so `uninstall` never crashes on one bad file. An absent file is a
+ * clean no-op (`fileExisted: false`).
+ */
+export function deregisterFromDoctor(options: DeregisterFromDoctorOptions = {}): DeregisterResult {
+  const paths = options.registryPaths ?? doctorRegistryCandidatePaths();
+  const files = paths.map(deregisterOne);
+  return { files, removedAny: files.some((f) => f.removed) };
+}
+
+/** Remove nectar's entry from a single registry file, best-effort (never throws). */
+function deregisterOne(registryPath: string): DeregisterFileResult {
+  let existing: ExistingRegistry;
+  try {
+    existing = readExistingRegistry(registryPath);
+  } catch (err) {
+    // A present-but-malformed file: report, do not clobber, do not throw.
+    return {
+      registryPath,
+      fileExisted: true,
+      removed: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (!existing.fileExisted) {
+    return { registryPath, fileExisted: false, removed: false, error: null };
+  }
+  const hadNectar = existing.daemons.some(isNectarEntry);
+  if (!hadNectar) {
+    return { registryPath, fileExisted: true, removed: false, error: null };
+  }
+  const kept = existing.daemons.filter((raw) => !isNectarEntry(raw));
+  try {
+    writeRegistryAtomic(registryPath, { ...existing.root, daemons: kept });
+  } catch (err) {
+    return {
+      registryPath,
+      fileExisted: true,
+      removed: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return { registryPath, fileExisted: true, removed: true, error: null };
+}

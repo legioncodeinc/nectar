@@ -135,6 +135,55 @@ export function legacyUninstallCommands(plan: ServicePlan, uid: number): readonl
   }
 }
 
+/**
+ * The argv to START an ALREADY-REGISTERED unit (PRD-003b b-AC-1), without
+ * creating it. Fronts the existing unit the installer laid down; when no unit is
+ * registered these commands fail and the CLI falls back to a direct spawn.
+ *   - launchd:  `kickstart -k <domain>/<label>` (start, restarting if running).
+ *   - systemd:  `systemctl [--user] start nectar.service`.
+ *   - schtasks: `/Run /TN nectar`.
+ *   - sc:       `sc start nectar`.
+ */
+export function startCommands(plan: ServicePlan, uid: number): readonly ServiceCommand[] {
+  switch (plan.manager) {
+    case "launchd":
+      return [{ command: "launchctl", args: ["kickstart", "-k", launchdServiceTarget(plan, uid)] }];
+    case "systemd": {
+      const scopeArgs = plan.scope === "user" ? ["--user"] : [];
+      return [{ command: "systemctl", args: [...scopeArgs, "start", SYSTEMD_UNIT_NAME] }];
+    }
+    case "schtasks":
+      return [{ command: "schtasks", args: ["/Run", "/TN", WINDOWS_TASK_NAME] }];
+    case "sc":
+      return [{ command: "sc", args: ["start", WINDOWS_TASK_NAME] }];
+  }
+}
+
+/**
+ * The argv to STOP a running unit (PRD-003b b-AC-1) WITHOUT removing it, so a
+ * later `start` can bring it back.
+ *   - launchd:  `bootout <domain>/<label>` (unload the running job; a KeepAlive
+ *               job cannot relaunch a booted-out target in this session).
+ *   - systemd:  `systemctl [--user] stop nectar.service` (a clean stop is not a
+ *               crash, so `Restart=` does not relaunch it).
+ *   - schtasks: `/End /TN nectar`.
+ *   - sc:       `sc stop nectar`.
+ */
+export function stopCommands(plan: ServicePlan, uid: number): readonly ServiceCommand[] {
+  switch (plan.manager) {
+    case "launchd":
+      return [{ command: "launchctl", args: ["bootout", launchdServiceTarget(plan, uid)] }];
+    case "systemd": {
+      const scopeArgs = plan.scope === "user" ? ["--user"] : [];
+      return [{ command: "systemctl", args: [...scopeArgs, "stop", SYSTEMD_UNIT_NAME] }];
+    }
+    case "schtasks":
+      return [{ command: "schtasks", args: ["/End", "/TN", WINDOWS_TASK_NAME] }];
+    case "sc":
+      return [{ command: "sc", args: ["stop", WINDOWS_TASK_NAME] }];
+  }
+}
+
 /** The single argv to QUERY status. The caller interprets the command's exit/stdout. */
 export function statusCommand(plan: ServicePlan, uid: number): ServiceCommand {
   switch (plan.manager) {

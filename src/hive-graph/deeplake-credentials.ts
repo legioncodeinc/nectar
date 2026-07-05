@@ -22,7 +22,7 @@
  * `redactToken` (`src/daemon/runtime/auth/credentials-store.ts:254-257`, its
  * `defaultCredentialProvider` variant).
  */
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -160,6 +160,93 @@ function warnIfWorldReadable(path: string, options: LoadCredentialsOptions): voi
     `nectar: ${path} is group/other-readable (mode ${octal}); this token file should be owner-only. ` +
       `Tighten it with: chmod 600 ${path}`,
   );
+}
+
+/**
+ * POSIX mode for the credentials file: owner read/write only (PRD-003a). On
+ * win32 these bits are a documented best-effort no-op (NTFS ACLs, not POSIX).
+ */
+export const CREDENTIALS_FILE_MODE = 0o600;
+/** POSIX mode for the credentials dir: owner read/write/execute only (PRD-003a). */
+export const CREDENTIALS_DIR_MODE = 0o700;
+
+/**
+ * The full ON-DISK credential shape `nectar login` writes (PRD-003a a-AC-5),
+ * BYTE-COMPATIBLE with honeycomb's `DiskCredentials`
+ * (`honeycomb/src/daemon/runtime/auth/credentials-store.ts`) so one login
+ * authenticates both tools against the SAME `~/.deeplake/credentials.json`.
+ * `token` + `orgId` are load-bearing; the rest are Hivemind-shape fields the
+ * reader tolerates as optional (`loadDeepLakeCredentials` requires only
+ * `token`/`orgId`/`workspaceId`). Written verbatim, never logged.
+ */
+export interface DiskCredentials {
+  /** The org-bound bearer token (SECRET; never logged in full). */
+  readonly token: string;
+  /** The org id the token is bound to. */
+  readonly orgId: string;
+  /** The human-readable org name (display only). */
+  readonly orgName?: string;
+  /** The authenticated user's display name (Hivemind field). */
+  readonly userName?: string;
+  /** The active workspace id (maps to honeycomb's in-memory `workspace`). */
+  readonly workspaceId?: string;
+  /** The Deep Lake API base URL the credential was minted against. */
+  readonly apiUrl?: string;
+  /** ISO 8601 timestamp stamped server-side on save. */
+  readonly savedAt: string;
+}
+
+/** Options for {@link saveDeepLakeCredentials}: the (test-overridable) dir + an injectable clock. */
+export interface SaveCredentialsOptions extends LoadCredentialsOptions {
+  /** Stamps `savedAt`. Default: the real wall clock. */
+  readonly clock?: { now(): string };
+}
+
+/**
+ * Persist a {@link DiskCredentials} record to the SHARED
+ * `~/.deeplake/credentials.json` (PRD-003a a-AC-5), byte-compatible with
+ * honeycomb's `saveDiskCredentials`: the dir is created at `0700` if absent, the
+ * file is written at `0600`, and `savedAt` is stamped server-side from the
+ * injected clock (IGNORING any value on the input - the timestamp is evidence,
+ * not caller input). The token is carried verbatim and NEVER logged here.
+ *
+ * The write is ATOMIC (security audit 2026-07-04): the payload lands in a
+ * same-directory temp file created at `0600`, then renames over the target. A
+ * crash mid-write can never leave a truncated shared credential file for a
+ * concurrent reader (honeycomb, or nectar's own credentials watch), and because
+ * the rename replaces the old inode, a pre-existing loose-mode (e.g. 0644)
+ * credentials file never receives the fresh token - the replacement is
+ * owner-only from birth, with no write-then-chmod window.
+ *
+ * Returns the persisted record (with the stamped `savedAt`) so a caller need not
+ * re-read. The written shape is exactly what {@link loadDeepLakeCredentials}
+ * reads back, so `nectar`'s next storage attempt succeeds.
+ */
+export function saveDeepLakeCredentials(
+  disk: DiskCredentials,
+  options: SaveCredentialsOptions = {},
+): DiskCredentials {
+  const dir = credentialsDir(options);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: CREDENTIALS_DIR_MODE });
+  }
+  const now = options.clock?.now ?? (() => new Date().toISOString());
+  const stamped: DiskCredentials = { ...disk, savedAt: now() };
+  const target = credentialsPath(options);
+  const tmpPath = join(dir, `.${CREDENTIALS_FILE_NAME}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    writeFileSync(tmpPath, `${JSON.stringify(stamped, null, 2)}\n`, { mode: CREDENTIALS_FILE_MODE });
+    renameSync(tmpPath, target);
+  } catch (err) {
+    // Never leave a token-bearing temp file behind on failure.
+    try {
+      rmSync(tmpPath, { force: true });
+    } catch {
+      /* best-effort cleanup */
+    }
+    throw err;
+  }
+  return stamped;
 }
 
 /**
