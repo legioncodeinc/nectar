@@ -86,6 +86,43 @@ test("W1-N: a projects.json binding written AFTER boot is picked up on the next 
   }
 });
 
+test("NEC-023: brood prerequisites unmet (no Portkey) => dormant even with credentials + a binding", () => {
+  const cacheDir = tempDir("nectar-live-cache-");
+  const stateDir = tempDir("nectar-live-state-");
+  let broodReady = false;
+  const live = new LiveActiveProjects({
+    loadCredentials: () => CREDS,
+    createStore: () => fakeStore,
+    buildContext: ({ project }): RunningContext => ({
+      projectId: project.projectId,
+      path: project.path,
+      watcherState: () => "running",
+      start: async () => {},
+      stop: async () => {},
+    }),
+    controlOptions: { cacheDir, broodingState: { dir: stateDir } },
+    // The Portkey/creds prereq gate. False => the daemon must NOT auto-brood.
+    broodReady: () => broodReady,
+  });
+
+  try {
+    // Credentials resolve AND a project is bound, but Portkey is not enabled
+    // (broodReady=false) => brooding is dormant out of the box: zero active projects,
+    // so the supervisor stands up no brood/watch context (the auto-brood-without-Portkey fix).
+    writeProjectsCache(cacheDir, CREDS.orgId, CREDS.workspaceId, [{ path: "/work/repo-a", projectId: "proj-a" }]);
+    assert.equal(live.resolve().active.length, 0, "no Portkey => dormant even with a binding present");
+
+    // Once the prereqs are satisfied (Portkey configured), the SAME binding activates.
+    broodReady = true;
+    const after = live.resolve();
+    assert.equal(after.active.length, 1, "prereqs satisfied => the binding activates");
+    assert.equal(after.active[0].projectId, "proj-a");
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("W1-N: with credentials absent the resolver is dormant and fail-soft (empty resolution, factory is a no-op)", async () => {
   const cacheDir = tempDir("nectar-live-cache-");
   const stateDir = tempDir("nectar-live-state-");
