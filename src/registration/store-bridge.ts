@@ -51,6 +51,16 @@ export interface StoreBridgeOptions {
    * `/health` and the log; a failed flush is never silently dropped.
    */
   onFlushError?(err: unknown, op: DurableWriteOp): void;
+  /**
+   * Fired after a durable write SUCCESSFULLY settles, signalling that Deep Lake
+   * now holds rows the enricher's separate mirror has not seen. Production wires
+   * this to the enricher refresh-signal's `markDirty`, so the enricher refreshes
+   * on its next tick ONLY after real registration activity - an idle repo never
+   * marks dirty and the enricher never reads Deep Lake (scale-to-zero). Fail-soft:
+   * a throwing callback is swallowed so it can never break the serialized write
+   * queue. Not fired for a parked/failed write (nothing durable landed).
+   */
+  onDurableWrite?(op: DurableWriteOp): void;
 }
 
 /**
@@ -64,6 +74,7 @@ export class StoreBridge implements HiveGraphStore {
   private readonly mirror = new InMemoryHiveGraphStore();
   private readonly durable: AsyncHiveGraphStore;
   private readonly onFlushError: (err: unknown, op: DurableWriteOp) => void;
+  private readonly onDurableWrite: (op: DurableWriteOp) => void;
 
   /** The serialized durable-write queue. Every enqueue chains onto this so writes flush in order. */
   private tail: Promise<void> = Promise.resolve();
@@ -87,6 +98,7 @@ export class StoreBridge implements HiveGraphStore {
   constructor(opts: StoreBridgeOptions) {
     this.durable = opts.durable;
     this.onFlushError = opts.onFlushError ?? (() => {});
+    this.onDurableWrite = opts.onDurableWrite ?? (() => {});
   }
 
   /**
@@ -163,6 +175,13 @@ export class StoreBridge implements HiveGraphStore {
         () => {
           this.pending -= 1;
           if (op === "deleteNectar") this.failedIdentityNectars.delete(nectar); // the nectar is gone; nothing left to orphan
+          // Deep Lake now holds a row the enricher's mirror has not seen: signal a
+          // refresh (scale-to-zero: fired only on real activity, never when idle).
+          try {
+            this.onDurableWrite(op);
+          } catch {
+            // fail-soft: a throwing signal must never poison the write queue.
+          }
         },
         (err: unknown) => {
           this.pending -= 1;

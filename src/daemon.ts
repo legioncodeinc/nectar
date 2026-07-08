@@ -655,7 +655,11 @@ export function assembleDaemon(options: AssembleOptions = {}): AssembledDaemon {
   // `enricherStore` (see enricher/store-adapter.ts); the default is an empty
   // in-memory working set.
   let enricherLoop: EnricherLoop | null = null;
-  if (options.enricherEnabled ?? true) {
+  // Gate on the RESOLVED config (resolveConfig(options) above), not the raw option:
+  // config.enricherEnabled honors an explicit `enricherEnabled` override AND the
+  // NECTAR_ENRICHER_ENABLED env, and keeps daemon.config in sync with runtime
+  // behavior for any caller that does not re-forward the resolved value.
+  if (config.enricherEnabled) {
     const enricherStore: EnricherStore = options.enricherStore ?? new EnricherInMemoryStore();
     const nowIso = options.enricherCycle?.nowIso ?? (() => new Date().toISOString());
     const enricherHealthSink: EnricherCycleLogSink = {

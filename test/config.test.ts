@@ -88,3 +88,34 @@ test("a-AC-2 resolveConfig default runtimeDir follows APIARY_HOME/nectar when AP
     });
   });
 });
+
+test("NECTAR_ENRICHER_ENABLED defaults to true (enricher on)", () => {
+  withEnv("NECTAR_ENRICHER_ENABLED", undefined, () => {
+    assert.equal(resolveConfig().enricherEnabled, true);
+  });
+});
+
+test("NECTAR_ENRICHER_ENABLED kill switch: false/0/off/no disable the enricher", () => {
+  for (const off of ["false", "0", "off", "no", "FALSE", "Off"]) {
+    withEnv("NECTAR_ENRICHER_ENABLED", off, () => {
+      assert.equal(resolveConfig().enricherEnabled, false, `"${off}" should disable the enricher`);
+    });
+  }
+});
+
+test("NECTAR_ENRICHER_ENABLED true/1/on/yes enable it; garbage falls back to the default", () => {
+  for (const on of ["true", "1", "on", "yes"]) {
+    withEnv("NECTAR_ENRICHER_ENABLED", on, () => {
+      assert.equal(resolveConfig().enricherEnabled, true);
+    });
+  }
+  withEnv("NECTAR_ENRICHER_ENABLED", "maybe", () => {
+    assert.equal(resolveConfig().enricherEnabled, true, "unrecognized value falls back to the default");
+  });
+});
+
+test("enricherEnabled override wins over the env (resolveConfig precedence)", () => {
+  withEnv("NECTAR_ENRICHER_ENABLED", "false", () => {
+    assert.equal(resolveConfig({ enricherEnabled: true }).enricherEnabled, true);
+  });
+});

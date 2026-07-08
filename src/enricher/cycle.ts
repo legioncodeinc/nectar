@@ -83,6 +83,14 @@ export interface EnricherCycleDeps {
    * NEC-016 AC-018g.6) so post-boot pending rows are picked up without a restart.
    */
   readonly refreshWorkingSet?: () => Promise<void>;
+  /**
+   * Gate for {@link refreshWorkingSet}: returns true when a durable refresh is
+   * worth a Deep Lake round trip. Production wires it to a dirty-signal the active
+   * project registration marks on each durable write, so an idle repo (no file
+   * changes) refreshes zero times and the Activeloop serverless pod idles to zero.
+   * Absent OR returning true => refresh every cycle (the pre-existing behavior).
+   */
+  readonly shouldRefresh?: () => boolean;
   /** Prior-content cache for the cosmetic-change gate (PRD-018g / NEC-026 AC-018g.9). */
   readonly priorContentCache?: PriorContentCache;
   /** Active embedding model id stamped on rows carrying an embedding (PRD-018i / NEC-018 AC-018i.1). */
@@ -337,8 +345,12 @@ export async function runEnricherCycle(
   const now = deps.nowIso?.() ?? new Date().toISOString();
   const logSink = deps.logSink ?? consoleCycleLogSink;
 
-  // Working-set freshness (AC-018g.6): re-seed from the durable store first.
-  if (deps.refreshWorkingSet !== undefined) {
+  // Working-set freshness (AC-018g.6): re-seed from the durable store first, but
+  // ONLY when a refresh could surface new rows. `shouldRefresh` (wired to the
+  // registration dirty-signal) is false on an idle repo, so an idle enricher
+  // issues NO Deep Lake read and the serverless pod can scale to zero. Absent
+  // `shouldRefresh` => refresh every cycle (the legacy behavior).
+  if (deps.refreshWorkingSet !== undefined && (deps.shouldRefresh?.() ?? true)) {
     try {
       await deps.refreshWorkingSet();
     } catch {

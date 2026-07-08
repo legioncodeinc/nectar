@@ -83,6 +83,14 @@ export interface ProjectContextDeps {
   readonly onWatcherStateChange?: (state: WatcherState) => void;
   /** Observe a durable-flush failure from the bridge. */
   readonly onFlushError?: (err: unknown, op: string) => void;
+  /**
+   * Observe a SUCCESSFUL durable write from this project's registration bridge.
+   * Production wires it to the enricher refresh-signal (`markDirty`) so the
+   * primary enricher re-reads Deep Lake only after real registration activity -
+   * an idle project never marks dirty, so an idle daemon issues zero Deep Lake
+   * refresh reads and the serverless pod scales to zero.
+   */
+  readonly onDurableWrite?: (op: string) => void;
   /** The brood runner (default: {@link runBroodAsync}); injectable for tests. */
   readonly broodRun?: (
     config: AsyncBroodConfig,
@@ -194,6 +202,7 @@ export function createProjectContext(deps: ProjectContextDeps): RunningContext {
           deps.onFlushError?.(err, op);
           log({ level: "error", scope: "project-context.bridge", projectId: project.projectId, op, err: String(err) });
         },
+        ...(deps.onDurableWrite !== undefined ? { onDurableWrite: deps.onDurableWrite } : {}),
       });
       service = new RegistrationService({
         store: bridge,

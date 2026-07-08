@@ -96,6 +96,7 @@ import { activeEmbedModelId, resolveEmbeddingsConfig, validateEmbedDimension } f
 import { resolveEmbedProvider, type EmbedProvider } from "./embeddings/provider.js";
 import { stderrDimRejectionSink } from "./embeddings/guard.js";
 import { DeepLakeEnricherStore } from "./enricher/store-adapter.js";
+import { createRefreshSignal } from "./enricher/refresh-signal.js";
 import { createPriorContentCache } from "./enricher/content-cache.js";
 import type { ContentReader } from "./enricher/index.js";
 import type { PipelineMetricsSink } from "./telemetry/index.js";
@@ -1269,6 +1270,13 @@ function buildLiveDurableWiring(
 }
 
 async function runDaemon(): Promise<void> {
+  const config = resolveConfig();
+  // Scale-to-zero: each active project's registration marks this dirty on a durable
+  // write, and the primary enricher consumes it to decide whether a cycle is worth
+  // a Deep Lake refresh. An idle fleet (no file changes in any active project) never
+  // marks dirty, so the enricher issues zero Deep Lake reads and the Activeloop pod
+  // scales to zero (parity with honeycomb PRD-062b).
+  const refreshSignal = createRefreshSignal();
   const portkey = resolvePortkeyConfig();
   const embeddingsConfig = resolveEmbeddingsConfig({});
   // AC-018i.7: catch a wrong NECTAR_EMBEDDINGS_OUTPUT_DIMENSION at config
@@ -1332,6 +1340,10 @@ async function runDaemon(): Promise<void> {
         ...(portkey.enabled
           ? { broodDeps: { portkey: portkey as PortkeyEnabled, embedProvider, embedModelId: embedModel } }
           : {}),
+        // Producer half of the scale-to-zero refresh gate: a durable registration
+        // write in any active project arms exactly one primary-enricher refresh on
+        // its next tick. An idle project writes nothing, so nothing is marked dirty.
+        onDurableWrite: () => refreshSignal.markDirty(),
         log: (line) => process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), ...line })}\n`),
       }),
     controlOptions: liveControlOptions,
@@ -1374,6 +1386,9 @@ async function runDaemon(): Promise<void> {
 
   const options: AssembleOptions = {
     broodPrereqs,
+    // Kill switch: NECTAR_ENRICHER_ENABLED=false runs registration + on-demand
+    // brood but no steady-state enricher describe poll (zero idle Deep Lake reads).
+    enricherEnabled: config.enricherEnabled,
     // PRD-003a a-AC-1: boot 503 degraded when no credentials resolved, so the
     // pre-login fleet posture is honest; the watch below flips it healthy the
     // moment credentials appear (a-AC-2), no restart needed.
@@ -1415,6 +1430,9 @@ async function runDaemon(): Promise<void> {
               : {}),
             embedModel,
             refreshWorkingSet: () => live.enricher.refresh(primaryTenancy),
+            // Consumer half of the scale-to-zero refresh gate: re-seed from Deep
+            // Lake only when the registration leg flagged new durable rows.
+            shouldRefresh: () => refreshSignal.consume(),
             priorContentCache: createPriorContentCache(),
             projectionWriter: new ProjectionWriter({ projectRoot: primary.path }),
             projectionDoc: () => live.enricher.buildProjectionDoc(primaryTenancy),

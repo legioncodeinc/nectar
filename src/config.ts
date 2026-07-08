@@ -35,6 +35,15 @@ export function isLoopbackHost(host: string): boolean {
 /** Worker poll floor: the enricher's 30s cadence (ai/enricher-and-llm-model.md). */
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
+/**
+ * Whether the steady-state enricher loop runs. `NECTAR_ENRICHER_ENABLED=false`
+ * keeps registration (fs-watch) and on-demand `brood` fully working but disables
+ * the background enricher describe poll, so an idle daemon issues ZERO Deep Lake
+ * reads. Operator kill switch for the idle-refresh cost, and the natural primitive
+ * for a "one describer device per project" fleet layout. Default: enabled.
+ */
+export const DEFAULT_ENRICHER_ENABLED = true;
+
 /** Distinct from honeycomb's `daemon.pid`/`daemon.lock` so both daemons can coexist during migration. */
 export const DEFAULT_PID_FILE_NAME = "nectar.pid";
 export const DEFAULT_LOCK_FILE_NAME = "nectar.lock";
@@ -58,6 +67,7 @@ export interface RuntimeConfig {
   readonly pidFilePath: string;
   readonly lockFilePath: string;
   readonly pollIntervalMs: number;
+  readonly enricherEnabled: boolean;
 }
 
 export interface RuntimeConfigOverrides {
@@ -67,6 +77,7 @@ export interface RuntimeConfigOverrides {
   readonly pidFileName?: string;
   readonly lockFileName?: string;
   readonly pollIntervalMs?: number;
+  readonly enricherEnabled?: boolean;
 }
 
 /**
@@ -104,6 +115,21 @@ function envStr(name: string): string | undefined {
 }
 
 /**
+ * Read a boolean env var. Accepts 1/true/yes/on and 0/false/no/off (case
+ * insensitive). Unset, blank, or unrecognized returns `undefined` so the caller
+ * falls back to a default (an unrecognized value is treated as absent rather than
+ * silently coerced, matching the strict posture of `envInt`).
+ */
+function envBool(name: string): boolean | undefined {
+  const raw = envStr(name);
+  if (raw === undefined) return undefined;
+  const v = raw.trim().toLowerCase();
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return undefined;
+}
+
+/**
  * Resolve the runtime config. Overrides win, then env, then defaults. The env
  * layer keeps the daemon operable without a config file; overrides exist so
  * tests can point the daemon at an ephemeral port and a temp runtime dir.
@@ -121,8 +147,13 @@ export function resolveConfig(overrides: RuntimeConfigOverrides = {}): RuntimeCo
     envInt("NECTAR_POLL_INTERVAL_MS", { min: MIN_POLL_INTERVAL_MS }) ??
     DEFAULT_POLL_INTERVAL_MS;
 
+  const enricherEnabled =
+    overrides.enricherEnabled ??
+    envBool("NECTAR_ENRICHER_ENABLED") ??
+    DEFAULT_ENRICHER_ENABLED;
+
   const pidFilePath = join(runtimeDir, overrides.pidFileName ?? DEFAULT_PID_FILE_NAME);
   const lockFilePath = join(runtimeDir, overrides.lockFileName ?? DEFAULT_LOCK_FILE_NAME);
 
-  return { host, port, runtimeDir, pidFilePath, lockFilePath, pollIntervalMs };
+  return { host, port, runtimeDir, pidFilePath, lockFilePath, pollIntervalMs, enricherEnabled };
 }
