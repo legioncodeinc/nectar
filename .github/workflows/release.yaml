@@ -307,10 +307,34 @@ jobs:
 
       # ── GitHub Release. Only on a real tag push AND only after a real
       # publish (or the idempotent rerun path). ────────────────────────────
+      # ── Release notes (Sonnet 5 on Bedrock) + Discord announcement. ──────────
+      # Fail-soft: the notes script falls back to the CHANGELOG entry and the
+      # Discord script exits 0 on any webhook error, so neither reds a shipped
+      # release. Real publishes only (mirrors the Create GitHub Release gate).
+      - name: Install Bedrock SDK (release notes)
+        if: ${{ github.ref_type == 'tag' && needs.gate.outputs.publish == 'true' }}
+        run: npm i --no-save --ignore-scripts @aws-sdk/client-bedrock-runtime
+
+      - name: Generate release notes (Sonnet 5 on Bedrock)
+        if: ${{ github.ref_type == 'tag' && needs.gate.outputs.publish == 'true' }}
+        env:
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEDROCK_API_KEY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: node scripts/release/ai-release-notes.mjs
+
       - name: Create GitHub Release
         if: ${{ github.ref_type == 'tag' && needs.gate.outputs.publish == 'true' }}
         uses: softprops/action-gh-release@v2.4.1
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+
+      - name: Announce on Discord
+        if: ${{ github.ref_type == 'tag' && needs.gate.outputs.publish == 'true' }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: node scripts/release/discord-notify.mjs
